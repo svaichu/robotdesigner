@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "serialrobot"
+version = "0.1.0"
+description = ""
+authors = ["Vaish <vaishnavahari.seenivasan@rwth-aachen.de>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+roboticstoolbox-python = "^1.1.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
