@@ -21,7 +21,37 @@ class URDF():
         <color rgba="0.51 0.01 0.39 1"/>
     </material>
 </robot>"""
-    def links(self):
-
+        self.template_link = """
+    <link name="{name}">
+        <visual>
+            <geometry>
+                <box size="{len} {breadth} {height}"/>
+            </geometry>
+            <origin rpy="{r} {p} {y}" xyz="{x} {y} {z}"/>
+            <material name="{color}"/>
+        </visual>
+    </link>
+"""
+        self.template_joint ="""
+    <joint name="{name}" type="{type}">
+        <parent link="{parent}"/>
+        <child link="{child}"/>
+        <origin rpy="{r} {p} {y}" xyz="{x} {y} {z}"/>
+        <axis xyz="{ax} {ay} {az}"/>
+        <limit effort="1000.0" lower="-3.14" upper="3.14" velocity="0.5"/>
+    </joint>
+""" 
+    def write(self, robot_order):
+        link_params = ["name", "len", "breadth", "height", ""]
+        for link in robot_order:
+            x = link.urdf_parameters
         with open(file, "w") as f:
             f.write()
+
+
+# 1 create ws and src
+# 2 create package
+# 3 generate URDF
+# 4 generate rviz
+# 5 generate launch.py
+# colcon build

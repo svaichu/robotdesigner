@@ -2,26 +2,31 @@ import roboticstoolbox as rtb
 
 robot  = rtb.models.Panda()
 
-from os import path
+from os import path, system, mkdir
 
 class App():
     def __init__(self):
         self.ws_path = "$HOME"
         self.createColconWS()
     def createColconWS(self):
-        mkdir -p new_ws/src
-        cd src
+        mkdir("my_ws")
+        system("cd src")
+
     def createRobot(self):
         self.robot = Robot()
 
 class Link():
     def __init__(self, *args, **kwargs):
-        self.id = arg[0]
-        self.a=
-
+        self.id = args[0]
+        self.parent_link = 0
+        self.name = name
+        self.lmbda = args[1]
+        self.l = l
+        self.d = d
+        self.delta = delta
 class Robot():
     def __init__(self):
-        self.a = []
+        self.lmbda = []
         self.l = []
         self.d = []
         self.delta = []
@@ -30,7 +35,11 @@ class Robot():
 
         pass
     def generateURDF(self):
+        self.robot_links = []
+    def generate;launchfile():
 
-    def initROSpackage(self)
+    def initROSpackage(self):
         #create colcon ws
+        mkdir("")
         #build
+        return(ws_path)
