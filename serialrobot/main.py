@@ -3,6 +3,7 @@ import roboticstoolbox as rtb
 robot  = rtb.models.Panda()
 
 from os import path, system, mkdir
+from pydantic import BaseModel
 
 class App():
     def __init__(self):
@@ -14,8 +15,26 @@ class App():
 
     def createRobot(self):
         self.robot = Robot()
-
-class Link():
+class Link(BaseModel):
+    id: int
+    name: str
+    lmbda: int
+    d: int
+    l: int
+    alpha: float
+    parent: int = 0
+    child: int = -1
+    isLast: bool = True
+    x: int = 0
+    y: int = 0
+    z: int = 0
+    roll: int = 0
+    pitch: int = 0
+    yaw: int = 0
+    
+    def linkParams(self):
+        self.z = self.d    
+class Linkkk():
     def __init__(self, *args, **kwargs):
         self.id = args[0]
         self.parent_link = 0
