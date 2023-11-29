@@ -45,8 +45,13 @@ class URDF():
         link_params = ["name", "len", "breadth", "height", ""]
         for link in robot_order:
             x = link.urdf_parameters
+        all_links = [self.template_link.format(**link) for link in robot_order]
+        all_joints = [self.template_joint.format(**link) if link.last is not True else None for link in robot_order]
         with open(file, "w") as f:
-            f.write()
+            f.write(self.header)
+            f.write(all_links)
+            f.write(all_joints)
+
 
 
 # 1 create ws and src
