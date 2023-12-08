@@ -6,60 +6,87 @@ from os import path, system, mkdir
 from pydantic import BaseModel
 from typing import List, Optional
 import numpy as np
-from numpy import sin, cos, pi
+from numpy import sin, cos, pi, concatenate
 from scipy.spatial.transform import Rotation as R
 import subprocess
 
-class App():
-    def __init__(self):
-        self.ws_path = "$HOME"
-        self.createColconWS()
-    def createColconWS(self):
-        mkdir("my_ws")
-        system("cd src")
-
-    def createRobot(self):
-        self.robot = Robot()
 def DH_trans(DH, joint_val):
 
-    d, theta, a, alpha = (i for i in DH)
+     d, theta, a, alpha = (0,0,0,0)
 
-    trans_mat = np.array([[cos(theta), -1*sin(theta)*cos(alpha), sin(theta)*sin(alpha),    a*cos(theta)],
-                        [sin(theta), cos(theta)*cos(alpha),    -1*cos(theta)*sin(alpha), a*sin(theta)],
-                        [0,          sin(alpha),               cos(alpha),               d           ],
-                        [0,          0,                        0,                        1           ]])
+     if (DH[0] == 'r'):
 
-    return trans_mat
+         d, theta, a, alpha = (DH[1], joint_val, DH[2], DH[3])
 
-def link_transforms(DH_Params):
+     elif (DH[0] == 'p'):
 
-    transforms = []
+         d, theta, a, alpha = (joint_val, DH[1], DH[2], DH[3])
 
-    current_DOF = 0
+     elif (DH[0] == 'f'):
 
-    transforms.append(np.eye(4))
+         d, theta, a, alpha = (DH[1], DH[2], DH[3], DH[4])
 
-    for DH in DH_Params:
-        
-        transforms.append(DH_trans(DH, 0.0))
-        current_DOF = current_DOF + 1
+     trans_mat = np.array([[cos(theta), -1*sin(theta)*cos(alpha), sin(theta)*sin(alpha),    a*cos(theta)],
+                           [sin(theta), cos(theta)*cos(alpha),    -1*cos(theta)*sin(alpha), a*sin(theta)],
+                           [0,          sin(alpha),               cos(alpha),               d           ],
+                           [0,          0,                        0,                        1           ]])
 
-    return transforms
+     return trans_mat
+
+# DH Parameter Layout:
+# ['r', d, a, alpha] for revolute joints
+# ['p', theta, a, alpha] for prismatic joints
+# ['f', d, theta, a, alpha] for fixed joints
+
+
+def joint_transforms(DH_Params):
+
+     transforms = []
+
+     current_DOF = 0
+
+     transforms.append(np.eye(4))
+
+     for DH in DH_Params:
+         
+         if (DH[0] == 'r' or DH[0] == 'p'):
+             transforms.append(DH_trans(DH, 0.0))
+             current_DOF = current_DOF + 1
+
+         else:
+             transforms.append(DH_trans(DH, 0.0))
+
+     return transforms
 
 def joint_frames(transforms):
          
-    joint_frames = [transforms[0]]
+         joint_frames = [transforms[0]]
+ 
+         for trans in transforms[1:]:
+ 
+             joint_frames.append(joint_frames[-1] @ trans)
+ 
+         return joint_frames
 
-    for trans in transforms[1:]:
-
-        joint_frames.append(joint_frames[-1] @ trans)
-
-    return joint_frames
+# DH Parameter Layout:
+# ['r', d, a, alpha] for revolute joints
+# ['p', theta, a, alpha] for prismatic joints
+# ['f', d, theta, a, alpha] for fixed joints
 
 def xml_string(DH_Params, scale=1):
-    transforms = link_transforms(DH_Params)
+
+    outstring = ""
+
+    transforms = joint_transforms(DH_Params)
+
     frames = joint_frames(transforms)
-    output = []
+
+    outstring = outstring + "<robot name='robot'>\n"
+
+    outstring = outstring + "\t<material name='blue'>\n\t\t<color rgba='0 0 0.8 1'/>\n\t</material>\n"
+    outstring = outstring + "\t<material name='red'>\n\t\t<color rgba='0.8 0 0 1'/>\n\t</material>\n"
+    output =[]
+
     for i in range(len(transforms) - 1):
 
         el = transforms[i]
@@ -74,6 +101,16 @@ def xml_string(DH_Params, scale=1):
         output.append([rpy[0], rpy[1], rpy[2], el[0,3], el[1,3], el[2,3]])
     return(output)
 
+class App():
+    def __init__(self):
+        self.ws_path = "$HOME"
+        self.createColconWS()
+    def createColconWS(self):
+        mkdir("my_ws")
+        system("cd src")
+
+    def createRobot(self):
+        self.robot = Robot()
 
 class Link(BaseModel):
     id: Optional[int]= None
@@ -116,6 +153,8 @@ class Link(BaseModel):
 class Robot(BaseModel):
     name: Optional[str] = None
     links: Optional[List[Link]] = None
+    joint_frames: Optional[dict] = None
+
     def checkLimits(self):
         # TODO add limits
 
@@ -134,49 +173,28 @@ class Robot(BaseModel):
 
     def calculate_joint_frames(self):
         self.joint_frames = np.eye(4)
-        self.joint_frames = {link.id: self.joint_frames[-1] @ link.trans_mat for link in self.links if link.id != 0}
-        return joint_frames
+        self.joint_frames = {link.id: self.joint_frames @ link.trans_mat for link in self.links}
+        return self.joint_frames
 
-    def urdf_params(self, scale=1):
-        frames = self.joint_frames()
+    def create_urdf(self, scale=1):
         output = {}
         # for i in range(len(transforms) - 1):
-        for link in self.links:
-            if link.isLast is not True:
-                el = link.trans_mat
-                fr = self.joint_frames[link.id]
+        # for link in self.links:
+        #     if link.isLast is not True:
+        #         el = link.trans_mat
+        #         fr = self.joint_frames[link.id]
 
-            # We need to create a cylinder to represent the joint
-            # If the index is not zero, connect it to the previous link
-            # And a joint to connect it to the link
-            # And a box to connect the joints
+        #     # We need to create a cylinder to represent the joint
+        #     # If the index is not zero, connect it to the previous link
+        #     # And a joint to connect it to the link
+        #     # And a box to connect the joints
 
-            rpy = R.from_matrix(fr[0:3,0:3]).as_euler('XYZ')
-            output = {link.id: [rpy[0], rpy[1], rpy[2], el[0,3], el[1,3], el[2,3]]}
+        #         rpy = R.from_matrix(fr[0:3,0:3]).as_euler('XYZ')
+        #         output = {link.id: [rpy[0], rpy[1], rpy[2], el[0,3], el[1,3], el[2,3]]}
             # output.append([rpy[0], rpy[1], rpy[2], el[0,3], el[1,3], el[2,3]])
+        # output = {link.id: concatenate((R.from_matrix(self.joint_frames[link.id][0:3,0:3]).as_euler('XYZ'), [link.trans_mat[0,3], link.trans_mat[1,3], link.trans_mat[2,3]])) for link in self.links if link.isLast is False}
+        output = {link.id: concatenate((R.from_matrix(self.joint_frames[link.id][0:3,0:3]).as_euler('XYZ'), [link.trans_mat[0,3], link.trans_mat[1,3], link.trans_mat[2,3]])) for link in self.links if link.isLast is False}        
         return(output)
 
-def link_transforms(DH_Params):
-
-    transforms = []
-
-    current_DOF = 0
-
-    transforms.append(np.eye(4))
-
-    for DH in DH_Params:
-        
-        transforms.append(DH_trans(DH, 0.0))
-        current_DOF = current_DOF + 1
-
-    return transforms
-
-def joint_frames(transforms):
-         
-    joint_frames = [transforms[0]]
-
-    for trans in transforms[1:]:
-
-        joint_frames.append(joint_frames[-1] @ trans)
-
-    return joint_frames
+    def urdf_params(self):
+        R.from_matrix(self.joint_frames[link.id][0:3,0:3]).as_euler('XYZ')
