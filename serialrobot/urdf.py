@@ -1,10 +1,9 @@
 
-class URDF():
-    def __init__(self, file):
-        self.header = """
+
+header = """
 <?xml version="1.0"?>
 <robot name="robot">"""
-        self.footer = """
+footer = """
     <material name="yellow">
         <color rgba="1 0.83 0 1"/>
     </material>
@@ -21,7 +20,7 @@ class URDF():
         <color rgba="0.51 0.01 0.39 1"/>
     </material>
 </robot>"""
-        self.template_link = """
+template_link = """
     <link name="{name}">
         <visual>
             <geometry>
@@ -32,7 +31,7 @@ class URDF():
         </visual>
     </link>
 """
-        self.template_joint ="""
+template_joint ="""
     <joint name="{name}" type="{type}">
         <parent link="{parent}"/>
         <child link="{child}"/>
@@ -41,16 +40,13 @@ class URDF():
         <limit effort="1000.0" lower="-3.14" upper="3.14" velocity="0.5"/>
     </joint>
 """ 
-    def write(self, robot_order):
-        link_params = ["name", "len", "breadth", "height", ""]
-        for link in robot_order:
-            x = link.urdf_parameters
-        all_links = [self.template_link.format(**link) for link in robot_order]
-        all_joints = [self.template_joint.format(**link) if link.last is not True else None for link in robot_order]
-        with open(file, "w") as f:
-            f.write(self.header)
-            f.write(all_links)
-            f.write(all_joints)
+def urdf_write(self, robot_order):
+    all_links = [template_link.format(**link) for link in robot_order]
+    all_joints = [template_joint.format(**link) if link.isLast is not True else None for link in robot_order]
+    with open(file, "w") as f:
+        f.write(self.header)
+        f.write(all_links)
+        f.write(all_joints)
 
 
 
