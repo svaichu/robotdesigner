@@ -2,7 +2,7 @@
 
 header = """
 <?xml version="1.0"?>
-<robot name="robot">"""
+<robot name="{name}">"""
 footer = """
     <material name="yellow">
         <color rgba="1 0.83 0 1"/>
@@ -40,19 +40,11 @@ template_joint ="""
         <limit effort="1000.0" lower="-3.14" upper="3.14" velocity="0.5"/>
     </joint>
 """ 
-def urdf_write(self, robot_order):
-    all_links = [template_link.format(**link) for link in robot_order]
-    all_joints = [template_joint.format(**link) if link.isLast is not True else None for link in robot_order]
-    with open(file, "w") as f:
-        f.write(self.header)
+def urdf_write(self, robot):
+    all_links = [template_link.format(**link) for link in robot.links]
+    all_joints = [template_joint.format(**link) if link.isLast is not True else None for link in robot.links]
+    header = header.format(**robot)
+    with open(robot.urdf_path, "w") as f:
+        f.write(header)
         f.write(all_links)
         f.write(all_joints)
-
-
-
-# 1 create ws and src
-# 2 create package
-# 3 generate URDF
-# 4 generate rviz
-# 5 generate launch.py
-# colcon build

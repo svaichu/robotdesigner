@@ -1,6 +1,4 @@
-# import roboticstoolbox as rtb
-
-# robot  = rtb.models.Panda()
+#!/usr/bin/env python3
 
 from os import path, system, mkdir
 from pydantic import BaseModel
@@ -9,18 +7,35 @@ import numpy as np
 from numpy import sin, cos, pi, concatenate
 from scipy.spatial.transform import Rotation as R
 import subprocess
-from urdf import URDF
+from subprocess import check_output, CalledProcessError
+from urdf import urdf_write
 
-class App():
+class Workspace():
     def __init__(self):
         self.ws_path = "$HOME"
         self.createColconWS()
     def createColconWS(self):
         mkdir("my_ws")
         system("cd src")
+    def createPackage(self):
+        try:
+            check_output(['bash', './createpackage.bash'])
+            print("Bash script executed successfully")
+        except CalledProcessError as e:
+            print("Error occurred while executing bash script: ", e)
 
     def createRobot(self):
         self.robot = Robot()
+    def createURDF(self):
+        self.urdf_path = self.ws_path + package_path + "urdf"
+    
+    def colconBuildWS(self):
+        try:
+            check_output(['bash', './createpackage.bash'])
+            print("Bash script executed successfully")
+        except CalledProcessError as e:
+            print("Error occurred while executing bash script: ", e)
+        
 
 class Link(BaseModel):
     id: Optional[int]= None
@@ -30,8 +45,9 @@ class Link(BaseModel):
     a: Optional[float] = 0
     alpha: Optional[float] = 0
     # parent: int = 0
-    # child: int = -1
+    child: Optional['Link'] = None
     isLast: bool = False 
+    isBase: bool = False 
     
     x: Optional[float] = 0
     y: Optional[float] = 0
@@ -39,9 +55,12 @@ class Link(BaseModel):
     roll: Optional[float] = 0
     pitch: Optional[float] = 0
     yaw: Optional[float] = 0
-    ax: Optional[int] = 0
-    ay: Optional[int] = 0
-    az: Optional[int] = 0
+    ax: Optional[float] = 0
+    ay: Optional[float] = 0
+    az: Optional[float] = 0
+    jx: Optional[float] = 0
+    jy: Optional[float] = 0
+    jz: Optional[float] = 0
 
     trans_mat: Optional[list] = 0
 
@@ -54,62 +73,44 @@ class Link(BaseModel):
                             [0,          sin(alpha),               cos(alpha),               d           ],
                             [0,          0,                        0,                        1           ]])
 
-        return self.trans_mat
-    
-    def linkParams(self):
-        self.z = self.l
-        self.y = self.d
-        self.r = 0
-
-       
+        return self.trans_mat   
 
 class Robot(BaseModel):
     name: Optional[str] = None
     links: Optional[List[Link]] = []
     joint_frames: Optional[dict] = None
+    dof: Optional[int] = 3
 
     def checkLimits(self):
         # TODO add limits
 
         pass
 
-# create function to run createpackage.bash fileimport subprocess
+    def cypher(self, links, seed):
+        for link in links:
+            if link.isBase is True:
+                seed[link.id] = link.trans_mat
+            else:
+                seed[link.id] = seed[link.id-1] @ link.trans_mat 
+            yield seed
 
-    def run_bash_script(self):
-        try:
-            subprocess.check_output(['bash', './createpackage.bash'])
-            print("Bash script executed successfully")
-        except subprocess.CalledProcessError as e:
-            print("Error occurred while executing bash script: ", e)
-
+    
     def calculate_joint_frames(self):
-        self.joint_frames = np.eye(4)
-        self.joint_frames = {link.id: self.joint_frames @ link.trans_mat for link in self.links}
-        return self.joint_frames
+        self.joint_frames = np.zeros((4, 4, 4))
+        # self.joint_frames = [self.links[0].trans_mat]
+        # self.joint_frames = [self.joint_frames[link.id-1] @ link.trans_mat if link.isBase is False else link.trans_mat for link in self.links]
+        # for link in self.links:
+        #     self.joint_frames.append(self.joint_frames[-1] @ link.trans_mat)
+        list(self.cypher(self.links, self.joint_frames))
+    
 
     def create_urdf(self, scale=1):
-        output = {}
-        # for i in range(len(transforms) - 1):
-        # for link in self.links:
-        #     if link.isLast is not True:
-        #         el = link.trans_mat
-        #         fr = self.joint_frames[link.id]
-
-        #     # We need to create a cylinder to represent the joint
-        #     # If the index is not zero, connect it to the previous link
-        #     # And a joint to connect it to the link
-        #     # And a box to connect the joints
-
-        #         rpy = R.from_matrix(fr[0:3,0:3]).as_euler('XYZ')
-        #         output = {link.id: [rpy[0], rpy[1], rpy[2], el[0,3], el[1,3], el[2,3]]}
-            # output.append([rpy[0], rpy[1], rpy[2], el[0,3], el[1,3], el[2,3]])
-        # output = {link.id: concatenate((R.from_matrix(self.joint_frames[link.id][0:3,0:3]).as_euler('XYZ'), [link.trans_mat[0,3], link.trans_mat[1,3], link.trans_mat[2,3]])) for link in self.links if link.isLast is False}
         self.links = [self.urdf_params(link) if link.isLast is False else link for link in self.links]
-        # return(output)
+        # return(links_cp)
 
     def urdf_params(self, link):
-        R.from_matrix(self.joint_frames[link.id][0:3,0:3]).as_euler('XYZ')
-        origins_vector = self.links[link.id + 1].trans_mat[0:3,3]
+        rpy =R.from_matrix(self.joint_frames[link.id][0:3,0:3]).as_euler('XYZ')
+        origins_vector = link.child.trans_mat[0:3,3]
 
         origins_vector_norm = np.linalg.norm(origins_vector)
 
@@ -129,17 +130,26 @@ class Robot(BaseModel):
 
             angle = np.arccos(origins_vector_unit @ np.array([0, 0, 1]))
 
-            print("axis is {}".format(axis))
-            print("angle is {}". format(angle))
+            # print("axis is {}".format(axis))
+            # print("angle is {}". format(angle))
 
             rpy = R.from_rotvec(angle * axis).as_euler('XYZ')
+
+            print(rpy)
+            print(cylinder_origin)
         
-            link.roll = rpy[0]
-            link.pitch = rpy[1]
-            link.yaw = rpy[2]
-            link.x = cylinder_origin[0]
-            link.y = cylinder_origin[1]
-            link.z = cylinder_origin[2]
-            link.length = origins_vector_norm
+        link.roll = rpy[0]
+        link.pitch = rpy[1]
+        link.yaw = rpy[2]
+        link.x = cylinder_origin[0]
+        link.y = cylinder_origin[1]
+        link.z = cylinder_origin[2]
+        link.ax = self.joint_frames[link.id][0,2]
+        link.ay = self.joint_frames[link.id][1,2]
+        link.az = self.joint_frames[link.id][2,2]
+        link.jx = link.trans_mat[0,3]
+        link.jy = link.trans_mat[1,3]
+        link.jz = link.trans_mat[2,3]
+            # link.length = origins_vector_norm
 
         return(link)

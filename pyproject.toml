@@ -11,6 +11,7 @@ roboticstoolbox-python = "^1.1.0"
 scipy = "^1.11.4"
 pydantic = "^2.5.2"
 ipykernel = "^6.27.1"
+pytest = "^7.4.3"
 
 
 [build-system]
