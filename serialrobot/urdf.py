@@ -32,10 +32,10 @@ template_link = """
     </link>
 """
 template_joint ="""
-    <joint name="{name}" type="{type}">
-        <parent link="{parent}"/>
-        <child link="{child}"/>
-        <origin rpy="{r} {p} {y}" xyz="{x} {y} {z}"/>
+    <joint name="{jname}" type="{jtype}">
+        <parent link="{parent.name}"/>
+        <child link="{name}"/>
+        <origin rpy="0 0 0" xyz="{jx} {jy} {jz}"/>
         <axis xyz="{ax} {ay} {az}"/>
         <limit effort="1000.0" lower="-3.14" upper="3.14" velocity="0.5"/>
     </joint>

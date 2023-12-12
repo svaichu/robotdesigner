@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-from os import path, system, mkdir
+from os import system, mkdir
+from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Optional
 import numpy as np
@@ -12,22 +13,25 @@ from urdf import urdf_write
 
 class Workspace():
     def __init__(self):
-        self.ws_path = "$HOME"
-        self.createColconWS()
-    def createColconWS(self):
-        mkdir("my_ws")
-        system("cd src")
+        home_path = Path.cwd().parents[0]
+        self.ws_name = "my_ws"
+        self.ws_path = Path.joinpath(home_path, self.ws_name)
+    def createWS(self):
+        try:
+            check_output(['bash', './createws.bash', self.ws_name])
+            print("Bash script executed successfully")
+        except CalledProcessError as e:
+            print("Error occurred while executing bash script: ", e)
     def createPackage(self):
         try:
-            check_output(['bash', './createpackage.bash'])
+            check_output(['bash', './createpackage.bash', self.ws_name])
             print("Bash script executed successfully")
         except CalledProcessError as e:
             print("Error occurred while executing bash script: ", e)
 
-    def createRobot(self):
-        self.robot = Robot()
     def createURDF(self):
         self.urdf_path = self.ws_path + package_path + "urdf"
+        self.urdf_path = Path.joinpath(self.package_path, "urdf")
     
     def colconBuildWS(self):
         try:
@@ -61,6 +65,10 @@ class Link(BaseModel):
     jx: Optional[float] = 0
     jy: Optional[float] = 0
     jz: Optional[float] = 0
+
+    length: Optional[float] = 0
+
+    jname: Optional[str] = None
 
     trans_mat: Optional[list] = 0
 
@@ -105,11 +113,26 @@ class Robot(BaseModel):
     
 
     def create_urdf(self, scale=1):
-        self.links = [self.urdf_params(link) if link.isLast is False else link for link in self.links]
+        outstring = ""
+        outstring = outstring + "<robot name='robot'>\n"
+        outstring = outstring + "\t<material name='blue'>\n\t\t<color rgba='0 0 0.8 1'/>\n\t</material>\n"
+        outstring = outstring + "\t<material name='red'>\n\t\t<color rgba='0.8 0 0 1'/>\n\t</material>\n"
+
+        # self.links = [self.urdf_params(link) for link in self.links]
         # return(links_cp)
+        for link in self.links:
+            if link.isLast is False:
+                link, link_output = self.urdf_params(link)
+                self.links[link.id] = link
+                outstring = outstring + link_output
+        outstring = outstring + "</robot>"
+        return outstring
 
     def urdf_params(self, link):
         rpy =R.from_matrix(self.joint_frames[link.id][0:3,0:3]).as_euler('XYZ')
+        i = link.id
+        outstring = ""
+        
         origins_vector = link.child.trans_mat[0:3,3]
 
         origins_vector_norm = np.linalg.norm(origins_vector)
@@ -130,21 +153,43 @@ class Robot(BaseModel):
 
             angle = np.arccos(origins_vector_unit @ np.array([0, 0, 1]))
 
-            # print("axis is {}".format(axis))
+            print("axis is {}".format(axis))
             # print("angle is {}". format(angle))
 
             rpy = R.from_rotvec(angle * axis).as_euler('XYZ')
 
-            print(rpy)
-            print(cylinder_origin)
+            # print(rpy)
+            # print(cylinder_origin)
+        outstring = outstring + "\t<link name='l{}'>\n".format(i)
+        outstring = outstring + "\t\t<visual>\n"
+        outstring = outstring + "\t\t\t<origin rpy='{} {} {}' xyz='{} {} {}'/>\n".format(rpy[0], rpy[1], rpy[2], cylinder_origin[0], cylinder_origin[1], cylinder_origin[2])
+        outstring = outstring + "\t\t\t<geometry>\n"
+        outstring = outstring + "\t\t\t\t<cylinder length='{}' radius='0.4'/>\n".format(origins_vector_norm) 
+        outstring = outstring + "\t\t\t</geometry>\n"
+        outstring = outstring + "\t\t\t<material name='red'/>\n"
+        outstring = outstring + "\t\t</visual>\n"
+        outstring = outstring + "\t</link>\n"
+
+        # Add the actual joint between the cylinder and link
+
+        jointType = "continuous"
+        el = link.trans_mat
+        fr = self.joint_frames[link.id]
+        if(i != 0):
+            outstring = outstring + "\t<joint name='move_l{}_from_a{}' type='{}'>\n".format(i, i, jointType)
+            outstring = outstring + "\t\t<parent link='l{}'/>\n".format(i-1)
+            outstring = outstring + "\t\t<child link='l{}'/>\n".format(i)
+            outstring = outstring + "\t\t<axis xyz='{} {} {}'/>\n".format(fr[0,2], fr[1,2], fr[2,2])
+            outstring = outstring + "\t\t<origin rpy='0 0 0' xyz='{} {} {}'/>\n".format(el[0,3], el[1,3], el[2,3])   
+            outstring = outstring + "\t</joint>\n"
         
-        link.roll = rpy[0]
+        link.roll = rpy[0] # trans_mat
         link.pitch = rpy[1]
         link.yaw = rpy[2]
         link.x = cylinder_origin[0]
         link.y = cylinder_origin[1]
         link.z = cylinder_origin[2]
-        link.ax = self.joint_frames[link.id][0,2]
+        link.ax = self.joint_frames[link.id][0,2] #joint_frame
         link.ay = self.joint_frames[link.id][1,2]
         link.az = self.joint_frames[link.id][2,2]
         link.jx = link.trans_mat[0,3]
@@ -152,4 +197,4 @@ class Robot(BaseModel):
         link.jz = link.trans_mat[2,3]
             # link.length = origins_vector_norm
 
-        return(link)
+        return(link, outstring)
