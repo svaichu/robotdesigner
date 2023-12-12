@@ -14,10 +14,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    - name: Set tag value
+      id: step_one
+      run: |
+        echo "TAG_NAME=$(date +%Y%m%d%H%M)" >> "$GITHUB_ENV"
     - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag ros2vnc
+      run: docker build . --file Dockerfile --tag ros2vnc:$TAG_NAME
     - name: Tag the image
-      run: docker tag ros2vnc svaichu/ros2vnc:${{ github.event.repository.updated_at }}
+      run: docker tag ros2vnc svaichu/ros2vnc:$TAG_NAME
     - name: login into docker
       env: # Or as an environment variable
         DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
