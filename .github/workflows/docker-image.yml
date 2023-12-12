@@ -15,7 +15,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag ros2vnc:$(date +%s)
+      run: docker build . --file Dockerfile --tag ros2vnc
     - name: Tag the image
       run: docker tag ros2vnc svaichu/ros2vnc:$(date +%s)
     - name: login into docker

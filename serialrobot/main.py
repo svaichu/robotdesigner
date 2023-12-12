@@ -9,7 +9,7 @@ from numpy import sin, cos, pi, concatenate
 from scipy.spatial.transform import Rotation as R
 import subprocess
 from subprocess import check_output, CalledProcessError
-from urdf import urdf_write
+from .urdf import urdf_write
 
 class Workspace():
     def __init__(self):
