@@ -17,10 +17,10 @@ jobs:
     - name: Build the Docker image
       run: docker build . --file Dockerfile --tag ros2vnc
     - name: Tag the image
-      run: docker tag ros2vnc svaichu/ros2vnc:$(date +%s)
+      run: docker tag ros2vnc svaichu/ros2vnc:${{ github.event.repository.updated_at }}
     - name: login into docker
       env: # Or as an environment variable
         DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
       run: docker login -u svaichu -p $DOCKER_TOKEN
     - name: Push the image
-      run: docker push svaichu/ros2vnc:$(date +%s)
+      run: docker push svaichu/ros2vnc:${{ github.event.repository.updated_at }}
