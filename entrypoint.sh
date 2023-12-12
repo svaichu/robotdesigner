@@ -59,6 +59,8 @@ user=root
 command=gosu '$USER' bash '$VNCRUN_PATH'
 [program:novnc]
 command=gosu '$USER' bash -c "websockify --web=/usr/lib/novnc 80 localhost:5901"
+[program:jupyter]
+command=jupyter-lab --ip=0.0.0.0 --allow-root --ServerApp.password="" --ServerApp.token=""
 EOF
 
 # colcon

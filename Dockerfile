@@ -114,8 +114,9 @@ RUN apt-get update -q && \
     rm -rf /var/lib/apt/lists/*;
 
 RUN apt-get update -q && \
-    apt-get install -y python3-pip joint-state-publisher ros-humble-urdf-tutorial nano && \
+    apt-get install -y python3-pip joint-state-publisher ros-humble-urdf-tutorial nano supervisor && \
     pip install jupyterlab jupyterlab-urdf
+
 
 EXPOSE 8888 80
 COPY ./entrypoint.sh /
