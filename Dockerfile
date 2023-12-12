@@ -117,7 +117,7 @@ RUN apt-get update -q && \
     apt-get install -y python3-pip joint-state-publisher ros-humble-urdf-tutorial nano && \
     pip install jupyterlab jupyterlab-urdf
 
-EXPOSE 8888
+EXPOSE 8888 80
 COPY ./entrypoint.sh /
 ENTRYPOINT [ "/bin/bash", "-c", "/entrypoint.sh" ]
 
