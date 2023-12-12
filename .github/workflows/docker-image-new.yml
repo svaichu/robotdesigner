@@ -1,0 +1,26 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build the Docker image
+      run: docker build . --file Dockerfile --tag ros2vnc:$(date +%s)
+    - name: Tag the image
+      run: docker tag ros2vnc:$(date +%s) svaichu/ros2vnc:$(date +%s)
+    - name: login into docker
+      env: # Or as an environment variable
+        DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+      run: docker login -u svaichu -p $DOCKER_TOKEN
+    - name: Push the image
+      run: docker push svaichu/ros2vnc:$(date +%s)
