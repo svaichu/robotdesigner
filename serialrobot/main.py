@@ -9,33 +9,46 @@ from numpy import sin, cos, pi, concatenate
 from scipy.spatial.transform import Rotation as R
 import subprocess
 from subprocess import check_output, CalledProcessError
-from .urdf import urdf_write
+from urdf import urdf_write
 
 class Workspace():
     def __init__(self):
-        home_path = Path.cwd().parents[0]
-        self.ws_name = "my_ws"
-        self.ws_path = Path.joinpath(home_path, self.ws_name)
+        self.ws_name = "my_ws" #TODO add name as argument
     def createWS(self):
         try:
             check_output(['bash', './createws.bash', self.ws_name])
             print("Bash script executed successfully")
+            self.ws_path = Path.joinpath(Path.home(), self.ws_name)
         except CalledProcessError as e:
             print("Error occurred while executing bash script: ", e)
-    def createPackage(self):
+    def createRobot(self, name="robot"):
+        l0 = Link()
+        l0.id = 0
+        l0.d = 0
+        l0.theta = 0
+        l0.a = 0
+        l0.alpha = 0
+        l0.isBase = True
+        l0.DH_trans()
+        self.robot = Robot(name=name) #TODO more robots per ws
+        self.robot.links.append(l0)
+        return self.robot
+    
+    def createPackage(self): #TODO createPackageForRobot, keep Robot() independent
         try:
-            check_output(['bash', './createpackage.bash', self.ws_name])
+            check_output(['bash', './createpackage.bash', self.robot.name])
             print("Bash script executed successfully")
         except CalledProcessError as e:
             print("Error occurred while executing bash script: ", e)
 
     def createURDF(self):
-        self.urdf_path = self.ws_path + package_path + "urdf"
-        self.urdf_path = Path.joinpath(self.package_path, "urdf")
+        self.urdf_path = Path.joinpath(self.ws_path, "src", self.robot.name, "urdf", "robot.urdf")
+        self.robot.create_urdf()
+        urdf_write(self.robot, self.urdf_path)
     
     def colconBuildWS(self):
         try:
-            check_output(['bash', './createpackage.bash'])
+            check_output(['bash', './colconbuildws.bash'])
             print("Bash script executed successfully")
         except CalledProcessError as e:
             print("Error occurred while executing bash script: ", e)
@@ -48,9 +61,9 @@ class Link(BaseModel):
     d: Optional[float] = 0
     a: Optional[float] = 0
     alpha: Optional[float] = 0
-    # parent: int = 0
+    parent: Optional['Link'] = None
     child: Optional['Link'] = None
-    isLast: bool = False 
+    isLast: bool = True 
     isBase: bool = False 
     
     x: Optional[float] = 0
@@ -69,12 +82,13 @@ class Link(BaseModel):
     length: Optional[float] = 0
 
     jname: Optional[str] = None
+    jtype: Optional[str] = None
 
     trans_mat: Optional[list] = 0
 
     def DH_trans(self):
 
-        d, theta, a, alpha = self.d, self.theta, self.a, self.alpha 
+        d, theta, a, alpha = self.d, self.theta, self.a, self.alpha #TODO fix naming
 
         self.trans_mat = np.array([[cos(theta), -1*sin(theta)*cos(alpha), sin(theta)*sin(alpha),    a*cos(theta)],
                             [sin(theta), cos(theta)*cos(alpha),    -1*cos(theta)*sin(alpha), a*sin(theta)],
@@ -94,7 +108,7 @@ class Robot(BaseModel):
 
         pass
 
-    def cypher(self, links, seed):
+    def calculate_one_joint_frame(self, links, seed):
         for link in links:
             if link.isBase is True:
                 seed[link.id] = link.trans_mat
@@ -109,7 +123,7 @@ class Robot(BaseModel):
         # self.joint_frames = [self.joint_frames[link.id-1] @ link.trans_mat if link.isBase is False else link.trans_mat for link in self.links]
         # for link in self.links:
         #     self.joint_frames.append(self.joint_frames[-1] @ link.trans_mat)
-        list(self.cypher(self.links, self.joint_frames))
+        list(self.calculate_one_joint_frame(self.links, self.joint_frames))
     
 
     def create_urdf(self, scale=1):
@@ -126,7 +140,7 @@ class Robot(BaseModel):
                 self.links[link.id] = link
                 outstring = outstring + link_output
         outstring = outstring + "</robot>"
-        return outstring
+        # return outstring
 
     def urdf_params(self, link):
         rpy =R.from_matrix(self.joint_frames[link.id][0:3,0:3]).as_euler('XYZ')
@@ -195,6 +209,17 @@ class Robot(BaseModel):
         link.jx = link.trans_mat[0,3]
         link.jy = link.trans_mat[1,3]
         link.jz = link.trans_mat[2,3]
-            # link.length = origins_vector_norm
+        link.length = origins_vector_norm
+
+        link.jname = "move_l{}_from_a{}".format(i, i)
+        link.jtype = jointType
 
         return(link, outstring)
+    def addLink(self, name="l", d=0, theta=0, a=0, alpha=0):
+        self.links[-1].isLast = False
+        link = Link(id=len(self.links), d=d, theta=theta, a=a, alpha=alpha, name=name)
+        link.DH_trans()
+        self.links[-1].child = link
+        link.parent = self.links[-1]
+        self.links.append(link) #FEAT: add link as atrribute to Robot
+        return link
