@@ -115,7 +115,8 @@ RUN apt-get update -q && \
 
 RUN apt-get update -q && \
     apt-get install -y python3-pip joint-state-publisher ros-humble-urdf-tutorial nano supervisor && \
-    pip install jupyterlab jupyterlab-urdf
+    pip install jupyterlab jupyterlab-urdf && \
+    pip install pip install git+https://github.com/svaichu/serialrobot.git@devel
 
 
 EXPOSE 8888 80

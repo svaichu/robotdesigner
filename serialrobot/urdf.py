@@ -24,10 +24,10 @@ template_link = """
     <link name="{name}">
         <visual>
             <geometry>
-                <box size="{len} {breadth} {height}"/>
+                <box size="0.4 0.4 {length}"/>
             </geometry>
-            <origin rpy="{r} {p} {y}" xyz="{x} {y} {z}"/>
-            <material name="{color}"/>
+            <origin rpy="{roll} {pitch} {yaw}" xyz="{x} {y} {z}"/>
+            <material name="blue"/>
         </visual>
     </link>
 """
@@ -40,11 +40,15 @@ template_joint ="""
         <limit effort="1000.0" lower="-3.14" upper="3.14" velocity="0.5"/>
     </joint>
 """ 
-def urdf_write(self, robot):
-    all_links = [template_link.format(**link) for link in robot.links]
-    all_joints = [template_joint.format(**link) if link.isLast is not True else None for link in robot.links]
-    header = header.format(**robot)
-    with open(robot.urdf_path, "w") as f:
-        f.write(header)
+
+def urdf_write(robot, urdf_path):
+    a = "<!-- The to-be-commented XML block goes here. -->"
+    b = "<!-- The to-be-commented XML block goes here. -->"
+    all_links = a.join([template_link.format(**vars(link)) for link in robot.links])
+    all_joints = b.join([template_joint.format(**vars(link)) for link in robot.links if link.isBase is not True])
+    print(urdf_path)
+    with open(urdf_path, "w+") as f:
+        f.write(header.format(**vars(robot)))
         f.write(all_links)
         f.write(all_joints)
+        f.write(footer)
