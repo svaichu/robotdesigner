@@ -18,4 +18,5 @@ cd $ws_name/src
 cd $package_name
 mkdir -p urdf
 mkdir -p rviz
+mkdir -p launch
 cd ~/$ws_name
