@@ -22,10 +22,11 @@ jobs:
       uses: docker/setup-qemu-action@v3
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag ros2vnc
-    - name: Tag the image
-      run: docker tag ros2vnc svaichu/ros2vnc:$TAG_NAME
+
+    # - name: Build the Docker image
+    #   run: docker build . --file Dockerfile --tag ros2vnc
+    # - name: Tag the image
+    #   run: docker tag ros2vnc svaichu/ros2vnc:$TAG_NAME
 
     # - name: login into docker
     #   env: # Or as an environment variable
@@ -45,4 +46,4 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         push: true
-        tags: user/app:latest
+        tags: svaichu/ros2vnc:$TAG_NAME
