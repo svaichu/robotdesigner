@@ -46,4 +46,4 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         push: true
-        tags: $TAG_NAME
+        tags: svaichu/ros2vnc:latest
