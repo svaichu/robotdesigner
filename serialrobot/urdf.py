@@ -46,7 +46,6 @@ def urdf_write(robot, urdf_path):
     b = "<!-- The to-be-commented XML block goes here. -->"
     all_links = a.join([template_link.format(**vars(link)) for link in robot.links])
     all_joints = b.join([template_joint.format(**vars(link)) for link in robot.links if link.isBase is not True])
-    print(urdf_path)
     with open(urdf_path, "w+") as f:
         f.write(header.format(**vars(robot)))
         f.write(all_links)
