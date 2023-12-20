@@ -10,6 +10,7 @@ from scipy.spatial.transform import Rotation as R
 import subprocess
 from subprocess import check_output, CalledProcessError
 from urdf import urdf_write
+from write_launch import writeLaunch
 
 class Workspace():
     def __init__(self):
@@ -45,6 +46,10 @@ class Workspace():
         self.urdf_path = Path.joinpath(self.ws_path, "src", self.robot.name, "urdf", "robot.urdf")
         self.robot.create_urdf()
         urdf_write(self.robot, self.urdf_path)
+    
+    def createLaunch(self):
+        self.launch_path = Path.joinpath(self.ws_path, "src", self.robot.name, "launch", "view_launch.py")
+        writeLaunch(self.robot, self.launch_path)
     
     def colconBuildWS(self):
         try:

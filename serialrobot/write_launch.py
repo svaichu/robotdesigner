@@ -85,10 +85,8 @@ function_footer = """
     return LaunchDescription(declared_arguments + nodes_to_start)
     """
 
-def writeLaunch(robot):
-    path = Path("launch")
-    path.mkdir(parents=True, exist_ok=True)
-    with open(path / "view.launch.py", "w+") as f:
+def writeLaunch(robot, launch_path):
+    with open(launch_path, "w+") as f:
         f.write(header_import)
         f.write(start_func.format(**vars(robot)))
         f.write(add_description_package_argument.format(**vars(robot)))
@@ -97,4 +95,3 @@ def writeLaunch(robot):
         f.write(add_robot_state_publisher_node)
         f.write(add_rviz_node)
         f.write(function_footer)
-    return path / "view.launch.py"
