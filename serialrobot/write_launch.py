@@ -9,6 +9,8 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+import os
+from ament_index_python.packages import get_package_share_directory
 """
 
 start_func = """
@@ -37,7 +39,7 @@ add_description_package_argument = """
     declared_arguments.append(
         DeclareLaunchArgument(
             "description_file",
-            default_value="view.urdf",
+            default_value="robot.urdf",
             description="URDF/XACRO description file with the robot.",
         )
     )
