@@ -23,16 +23,16 @@ class Workspace():
         except CalledProcessError as e:
             print("Error occurred while executing bash script: ", e)
     def createRobot(self, name="robot"):
-        l0 = Link()
-        l0.id = 0
-        l0.d = 0
-        l0.theta = 0
-        l0.a = 0
-        l0.alpha = 0
-        l0.isBase = True
-        l0.DH_trans()
+        # l0 = Link()
+        # l0.id = 0
+        # l0.d = 0
+        # l0.theta = 0
+        # l0.a = 0
+        # l0.alpha = 0
+        # l0.isBase = True
+        # l0.DH_trans()
         self.robot = Robot(name=name) #TODO more robots per ws
-        self.robot.links.append(l0)
+        # self.robot.links.append(l0)
         return self.robot
     
     def createPackage(self): #TODO createPackageForRobot, keep Robot() independent
@@ -67,8 +67,8 @@ class Link(BaseModel):
     a: Optional[float] = 0
     alpha: Optional[float] = 0
     parent: Optional['Link'] = None
-    child: Optional['Link'] = None
-    isLast: bool = True 
+    # child: Optional['Link'] = None
+    isLast: bool = False 
     isBase: bool = False 
     
     x: Optional[float] = 0
@@ -91,7 +91,7 @@ class Link(BaseModel):
 
     trans_mat: Optional[list] = 0
 
-    def DH_trans(self):
+    def calcDHtrans(self):
 
         d, theta, a, alpha = self.d, self.theta, self.a, self.alpha #TODO fix naming
 
@@ -100,7 +100,7 @@ class Link(BaseModel):
                             [0,          sin(alpha),               cos(alpha),               d           ],
                             [0,          0,                        0,                        1           ]])
 
-        return self.trans_mat   
+        return self.trans_mat
 
 class Robot(BaseModel):
     name: Optional[str] = None
@@ -123,7 +123,7 @@ class Robot(BaseModel):
 
     
     def calculate_joint_frames(self):
-        self.joint_frames = np.zeros((4, 4, 4))
+        self.joint_frames = np.zeros((self.dof, 4, 4))
         # self.joint_frames = [self.links[0].trans_mat]
         # self.joint_frames = [self.joint_frames[link.id-1] @ link.trans_mat if link.isBase is False else link.trans_mat for link in self.links]
         # for link in self.links:
@@ -152,7 +152,7 @@ class Robot(BaseModel):
         i = link.id
         outstring = ""
         
-        origins_vector = link.child.trans_mat[0:3,3]
+        origins_vector = self.links[link.id+1].trans_mat[0:3,3]
 
         origins_vector_norm = np.linalg.norm(origins_vector)
 
@@ -220,11 +220,32 @@ class Robot(BaseModel):
         link.jtype = jointType
 
         return(link, outstring)
+
     def addLink(self, name="l", d=0, theta=0, a=0, alpha=0):
-        self.links[-1].isLast = False
-        link = Link(id=len(self.links), d=d, theta=theta, a=a, alpha=alpha, name=name)
-        link.DH_trans()
-        self.links[-1].child = link
-        link.parent = self.links[-1]
+        # self.links[-1].isLast = False
+        link = Link(d=d, theta=theta, a=a, alpha=alpha, name=name)
+        # link.DH_trans()
+        # self.links[-1].child = link
+        # link.parent = self.links[-1]
         self.links.append(link) #FEAT: add link as atrribute to Robot
         return link
+    
+    def resolveLink(self, index, link):
+        link.calcDHtrans()
+        if index == 0:
+            link.isBase = True
+            link.id = 0
+        else:
+            # self.links[index-1].child = link
+            link.parent = self.links[index-1]
+            link.id = index
+        # self.links[index] = link
+
+    def resolveLinks(self):
+        # [ self.resolveLink(index, link) for index, link in enumerate(self.links) ]
+        for index in range(len(self.links)):
+            self.resolveLink(index, self.links[index])
+        self.links[-1].isLast = True
+        self.dof = len(self.links)
+
+
