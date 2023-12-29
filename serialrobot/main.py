@@ -11,6 +11,7 @@ import subprocess
 from subprocess import check_output, CalledProcessError
 from urdf import urdf_write
 from write_launch import writeLaunch
+from write_setup import writeSetup
 
 class Workspace():
     def __init__(self):
@@ -41,6 +42,13 @@ class Workspace():
             print("Bash script executed successfully")
         except CalledProcessError as e:
             print("Error occurred while executing bash script: ", e)
+    
+    def createRViz(self): 
+        try:
+            check_output(['bash', './addrviz.bash', self.robot.name])
+            print("Bash script executed successfully")
+        except CalledProcessError as e:
+            print("Error occurred while executing bash script: ", e)
 
     def createURDF(self):
         self.urdf_path = Path.joinpath(self.ws_path, "src", self.robot.name, "urdf", "robot.urdf")
@@ -50,6 +58,10 @@ class Workspace():
     def createLaunch(self):
         self.launch_path = Path.joinpath(self.ws_path, "src", self.robot.name, "launch", "view_launch.py")
         writeLaunch(self.robot, self.launch_path)
+    
+    def createSetup(self):
+        self.setup_path = Path.joinpath(self.ws_path, "src", self.robot.name, "setup.py")
+        writeSetup(self.robot, self.setup_path)
     
     def colconBuildWS(self):
         try:
@@ -218,6 +230,10 @@ class Robot(BaseModel):
 
         link.jname = "move_l{}_from_a{}".format(i, i)
         link.jtype = jointType
+        if link.isBase is True:
+            link.jname = "base_joint"
+            link.jtype = "fixed"
+            link.parent = Link(name="map")
 
         return(link, outstring)
 
