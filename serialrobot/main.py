@@ -136,27 +136,15 @@ class Robot(BaseModel):
     
     def calculate_joint_frames(self):
         self.joint_frames = np.zeros((self.dof, 4, 4))
-        # self.joint_frames = [self.links[0].trans_mat]
-        # self.joint_frames = [self.joint_frames[link.id-1] @ link.trans_mat if link.isBase is False else link.trans_mat for link in self.links]
-        # for link in self.links:
-        #     self.joint_frames.append(self.joint_frames[-1] @ link.trans_mat)
         list(self.calculate_one_joint_frame(self.links, self.joint_frames))
-    
 
     def create_urdf(self, scale=1):
-        outstring = ""
-        outstring = outstring + "<robot name='robot'>\n"
-        outstring = outstring + "\t<material name='blue'>\n\t\t<color rgba='0 0 0.8 1'/>\n\t</material>\n"
-        outstring = outstring + "\t<material name='red'>\n\t\t<color rgba='0.8 0 0 1'/>\n\t</material>\n"
 
-        # self.links = [self.urdf_params(link) for link in self.links]
-        # return(links_cp)
         for link in self.links:
             if link.isLast is False:
                 link, link_output = self.urdf_params(link)
                 self.links[link.id] = link
                 outstring = outstring + link_output
-        outstring = outstring + "</robot>"
         # return outstring
 
     def urdf_params(self, link):
@@ -191,28 +179,12 @@ class Robot(BaseModel):
 
             # print(rpy)
             # print(cylinder_origin)
-        outstring = outstring + "\t<link name='l{}'>\n".format(i)
-        outstring = outstring + "\t\t<visual>\n"
-        outstring = outstring + "\t\t\t<origin rpy='{} {} {}' xyz='{} {} {}'/>\n".format(rpy[0], rpy[1], rpy[2], cylinder_origin[0], cylinder_origin[1], cylinder_origin[2])
-        outstring = outstring + "\t\t\t<geometry>\n"
-        outstring = outstring + "\t\t\t\t<cylinder length='{}' radius='0.4'/>\n".format(origins_vector_norm) 
-        outstring = outstring + "\t\t\t</geometry>\n"
-        outstring = outstring + "\t\t\t<material name='red'/>\n"
-        outstring = outstring + "\t\t</visual>\n"
-        outstring = outstring + "\t</link>\n"
 
         # Add the actual joint between the cylinder and link
 
         jointType = "continuous"
         el = link.trans_mat
         fr = self.joint_frames[link.id]
-        if(i != 0):
-            outstring = outstring + "\t<joint name='move_l{}_from_a{}' type='{}'>\n".format(i, i, jointType)
-            outstring = outstring + "\t\t<parent link='l{}'/>\n".format(i-1)
-            outstring = outstring + "\t\t<child link='l{}'/>\n".format(i)
-            outstring = outstring + "\t\t<axis xyz='{} {} {}'/>\n".format(fr[0,2], fr[1,2], fr[2,2])
-            outstring = outstring + "\t\t<origin rpy='0 0 0' xyz='{} {} {}'/>\n".format(el[0,3], el[1,3], el[2,3])   
-            outstring = outstring + "\t</joint>\n"
         
         link.roll = rpy[0] # trans_mat
         link.pitch = rpy[1]
