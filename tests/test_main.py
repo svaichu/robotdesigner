@@ -1,5 +1,5 @@
 import unittest
-from serialrobot.main import Link, Robot
+from robotdesigner.main import Link, Robot
 from pydantic import BaseModel
 from numpy import sin, cos, pi, concatenate
 

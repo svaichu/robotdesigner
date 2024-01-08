@@ -7,7 +7,7 @@ if [[ -n "$1" ]]; then
     package_name=$1
 else
     package_name="robot"
-    echo "no input, using default ws $ws_name"
+    echo "no input, using default package name $package_name"
 fi
 
 source /opt/ros/humble/setup.bash
@@ -18,4 +18,5 @@ cd $ws_name/src
 cd $package_name
 mkdir -p urdf
 mkdir -p rviz
+mkdir -p launch
 cd ~/$ws_name

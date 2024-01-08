@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "serialrobot"
+name = "robotdesigner"
 version = "0.1.0"
 description = ""
 authors = ["Vaish <vaishnavahari.seenivasan@rwth-aachen.de>"]
