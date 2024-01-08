@@ -144,7 +144,7 @@ class Robot(BaseModel):
             if link.isLast is False:
                 link, link_output = self.urdf_params(link)
                 self.links[link.id] = link
-                outstring = outstring + link_output
+                # outstring = outstring + link_output
         # return outstring
 
     def urdf_params(self, link):
@@ -182,7 +182,7 @@ class Robot(BaseModel):
 
         # Add the actual joint between the cylinder and link
 
-        jointType = "continuous"
+        jointType = "revolute"
         el = link.trans_mat
         fr = self.joint_frames[link.id]
         
