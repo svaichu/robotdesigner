@@ -57,6 +57,7 @@ add_jont_state_publisher_gui_node = """
     joint_state_publisher_node = Node(
         package="joint_state_publisher_gui",
         executable="joint_state_publisher_gui",
+        arguments=[urdf],
     )
     nodes_to_start.append(joint_state_publisher_node)
     """
