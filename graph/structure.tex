@@ -1,0 +1,101 @@
+% \documentclass{proposal}
+\documentclass[11pt,a4paper]{article}
+
+% \usepackage{cite}
+% \usepackage{amsmath,amssymb,amsfonts}
+% \usepackage{algorithmic}
+% \usepackage{graphicx}
+% \usepackage{textcomp}
+% \usepackage{xcolor}
+% \usepackage{hyperref}
+
+\usepackage[margin=2cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amsfonts,amsthm,amssymb}	 % Math packages
+\usepackage[T1]{fontenc}
+\usepackage{times}
+\usepackage[english]{babel}
+\usepackage{epsf}
+\usepackage{graphics,graphicx,epsfig}
+\usepackage{float}
+\usepackage{url}
+\usepackage{pdfpages}
+\usepackage{subfigure}
+\usepackage{enumitem}
+\usepackage[pdfa,breaklinks,colorlinks,urlcolor=blue,citecolor=blue,linkcolor=blue]{hyperref}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%% Page dimensions
+%%%%% DO NOT CHANGE 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\setlength{\textwidth}{7in} 
+\setlength{\textheight}{9.5in}
+\setlength{\topmargin}{-0.2in} 
+\setlength{\oddsidemargin}{-0.2in}
+\setlength{\evensidemargin}{-0.2in} 
+\setlength{\headheight}{0in}
+\setlength{\headsep}{0in} 
+\setlength{\hoffset}{0in}
+\setlength{\voffset}{0in}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%% Section heading format %%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\makeatletter
+\renewcommand{\section}{\@startsection%
+{section}{1}{0mm}{-\baselineskip}%
+{0.5\baselineskip}{\normalfont\Large\bfseries}}%
+\makeatother
+
+
+%%%%%%%%%%%%%%%
+% \pagecolor[rgb]{0,0,0} %black
+% \color[rgb]{0.5,0.5,0.5} %grey 
+%%%%%%%%%%%%%%%
+
+\begin{document}
+
+\pagestyle{plain}
+\pagenumbering{arabic}
+
+\begin{center} 
+\bfseries\uppercase{Graph of Robots}
+\end{center}
+\vspace{-0.3cm}
+\centerline{{Vaishnava Hari}}
+\centerline{\today, \textit{v0}}
+
+% \begin{abstract}
+%     NUll
+% \end{abstract}
+
+\section{Objective}
+    \input{objective.tex}
+
+% problem section
+\section{Problem}
+    \input{problem.tex}
+
+\section{Previous Works}
+    \input{invariant_policy.tex}
+
+\section{Method}
+    \input{method.tex}
+
+% supplementary section in new page
+\newpage
+\section{Engineering Challenge}
+    \input{engineering.tex}
+
+% \section{Using Graph}
+%     \input{supplimentary.tex}
+
+% import bibtex
+\bibliographystyle{IEEEtran}
+% \bibliography{bib/vl*-rl, bib/hierarchical}
+
+\end{document}
