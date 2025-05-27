@@ -1,0 +1,14 @@
+{
+    "name": "itex",
+    "image": "texlive/texlive:latest",
+    "runArgs": ["--network=host", "--rm", "--name", "itex"],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "james-yu.latex-workshop",
+                "GitHub.copilot",
+                "lfs.vscode-emacs-friendly",
+                ]
+        }
+    }
+}
