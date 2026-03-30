@@ -5,25 +5,25 @@ Builds N-DOF robot arm models by chaining base + link fragments
 using MjSpec attachment (MuJoCo 3.x).
 
 Usage:
-    from composer import build_arm
-    xml = build_arm(ndof=3, control="pos")
-    xml = build_arm(ndof=3, control="pos", joint_axes=[[0,0,1],[0,1,0],[1,0,0]])
+    from robotdesigner.mujoco.composer import build_arm, save_arm
+    spec = build_arm(ndof=3, control="pos")
+    spec = build_arm(ndof=3, control="pos", joint_orientation=["z", "y", "z"])
+    save_arm(spec, ndof=3, control="pos", joint_orientation=["z", "y", "z"])
 
     # Or from CLI:
     python composer.py --ndof 3 --control pos
-    python composer.py --ndof 3 --control pos --joint-axes "0 0 1" "0 1 0" "1 0 0"
+    python composer.py --ndof 3 --control pos --joint-orientation z y z
 """
 
 import mujoco
 import numpy as np
 from pathlib import Path
-from typing import Sequence
 
 FRAGMENTS_DIR = Path(__file__).parent / "assets" / "fragments"
 ASSETS_DIR = Path(__file__).parent / "assets"
 
-# Default joint axes: alternate z (yaw) and y (pitch)
-DEFAULT_JOINT_AXES = ["z", "y"]
+# Default joint orientations: alternate z (yaw) and y (pitch)
+DEFAULT_JOINT_ORIENTATIONS = ["z", "y"]
 
 # PD gains computed for critically-damped response
 POS_KP = 403.74
@@ -31,7 +31,6 @@ POS_KV = 37.37
 
 # Torque motor gear and control range
 TORQUE_GEAR = 200.0
-TORQUE_CTRLRANGE = "-1.0 1.0"
 
 SCENE_XML = """
 <mujoco model="scene">
@@ -61,24 +60,14 @@ SCENE_XML = """
 </mujoco>
 """
 
-
-_AXIS_SHORTCUTS = {"x": [1, 0, 0], "y": [0, 1, 0], "z": [0, 0, 1]}
-
-def _parse_axis(axis) -> list:
-    """Accept axis as 'x'/'y'/'z', [x,y,z] list/tuple, or 'x y z' string."""
-    if isinstance(axis, str):
-        key = axis.strip().lower()
-        if key in _AXIS_SHORTCUTS:
-            return _AXIS_SHORTCUTS[key]
-        return [float(x) for x in axis.split()]
-    return [float(x) for x in axis]
+_AXIS_MAP = {"x": [1, 0, 0], "y": [0, 1, 0], "z": [0, 0, 1]}
 
 
-def _make_link_spec(axis) -> mujoco.MjSpec:
-    """Load link fragment and set joint axis."""
+def _make_link_spec(orientation: str) -> mujoco.MjSpec:
+    """Load link fragment and set joint axis from 'z' or 'y' orientation."""
     spec = mujoco.MjSpec.from_file(str(FRAGMENTS_DIR / "link.xml"))
     joint = spec.worldbody.first_body().first_joint()
-    joint.axis = _parse_axis(axis)
+    joint.axis = _AXIS_MAP[orientation.strip().lower()]
     return spec
 
 
@@ -87,7 +76,11 @@ def _add_pos_actuator(spec: mujoco.MjSpec, joint_name: str, act_name: str):
     act.name = act_name
     act.trntype = mujoco.mjtTrn.mjTRN_JOINT
     act.target = joint_name
-    act.set_to_position(kp=POS_KP, kv=POS_KV)
+    act.gaintype = mujoco.mjtGain.mjGAIN_FIXED
+    act.gainprm[0] = POS_KP
+    act.biastype = mujoco.mjtBias.mjBIAS_AFFINE
+    act.biasprm[1] = -POS_KP
+    act.biasprm[2] = -POS_KV
     act.ctrllimited = True
     act.ctrlrange = [-np.pi, np.pi]
 
@@ -97,8 +90,9 @@ def _add_torque_actuator(spec: mujoco.MjSpec, joint_name: str, act_name: str):
     act.name = act_name
     act.trntype = mujoco.mjtTrn.mjTRN_JOINT
     act.target = joint_name
-    act.set_to_motor()
+    act.gaintype = mujoco.mjtGain.mjGAIN_FIXED
     act.gainprm[0] = TORQUE_GEAR
+    act.biastype = mujoco.mjtBias.mjBIAS_NONE
     act.ctrllimited = True
     act.ctrlrange = [-1.0, 1.0]
 
@@ -106,25 +100,25 @@ def _add_torque_actuator(spec: mujoco.MjSpec, joint_name: str, act_name: str):
 def build_arm(
     ndof: int,
     control: str = "pos",
-    joint_axes: Sequence | None = None,
-) -> str:
+    joint_orientation: list[str] | None = None,
+) -> mujoco.MjSpec:
     """
     Build an N-DOF robot arm model.
 
     Args:
-        ndof:        Number of joints / degrees of freedom.
-        control:     "pos" for position control, "torque" for torque control.
-        joint_axes:  List of N axes, each as [x,y,z] or "x y z" string.
-                     If shorter than ndof, cycles through the list.
-                     Defaults to alternating z/y axes.
+        ndof:              Number of joints / degrees of freedom.
+        control:           "pos" for position control, "torque" for torque control.
+        joint_orientation: List of N orientations, each "z" or "y".
+                           If shorter than ndof, cycles through the list.
+                           Defaults to alternating z/y.
 
     Returns:
-        MuJoCo XML string of the complete model.
+        mujoco.MjSpec of the complete model.
     """
     assert ndof >= 1, "ndof must be >= 1"
     assert control in ("pos", "torque"), "control must be 'pos' or 'torque'"
 
-    axes = joint_axes if joint_axes is not None else DEFAULT_JOINT_AXES
+    orientations = joint_orientation if joint_orientation is not None else DEFAULT_JOINT_ORIENTATIONS
 
     # Start with scene (floor, lights, assets, options)
     spec = mujoco.MjSpec.from_string(SCENE_XML)
@@ -134,15 +128,14 @@ def build_arm(
     frame = spec.worldbody.add_frame()
     spec.attach(base_spec, frame=frame, prefix="")
 
-    # Walk the chain: each iteration finds the current tip and attaches next link
-    # After attaching base, navigate to base body's tip site
+    # Navigate to base body's tip site
     current_body = spec.worldbody.first_body()  # 'base'
     current_tip = current_body.first_site()     # 'tip'
 
     for i in range(ndof):
         prefix = f"link{i + 1}_"
-        axis = axes[i % len(axes)]
-        link_spec = _make_link_spec(axis)
+        orientation = orientations[i % len(orientations)]
+        link_spec = _make_link_spec(orientation)
         spec.attach(link_spec, site=current_tip, prefix=prefix)
 
         # Add actuator for this joint
@@ -157,34 +150,36 @@ def build_arm(
         current_body = current_body.first_body()
         current_tip = current_body.first_site()
 
-    # Add end-effector site label at final tip
+    # Mark final tip as end-effector frame
     current_tip.name = current_tip.name.replace("tip", "ee_frame")
     current_tip.rgba = [0, 1, 0, 1]
 
-    # Set model name
     spec.modelname = f"{ndof}_arm_{control}"
 
-    xml = spec.to_xml()
-    # MjSpec emits a spurious empty <default/> child inside <default> — remove it
-    xml = xml.replace("<default/>\n", "")
-    return xml
+    return spec
 
 
 def save_arm(
+    spec: mujoco.MjSpec,
     ndof: int,
     control: str = "pos",
-    joint_axes: Sequence | None = None,
+    joint_orientation: list[str] | None = None,
     output_dir: Path = ASSETS_DIR,
-):
-    """Build arm and save to XML file."""
-    xml = build_arm(ndof, control, joint_axes)
+) -> Path:
+    """Save MjSpec arm to XML file in assets directory."""
     name_map = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
-    prefix = name_map.get(ndof, f"{ndof}")
-    if joint_axes is not None:
-        axes_str = "_".join(str(a).strip().lower() for a in joint_axes)
-        filename = output_dir / f"{prefix}_arm_{control}_{axes_str}.xml"
+    prefix = name_map.get(ndof, str(ndof))
+
+    if joint_orientation is not None:
+        axes_str = "".join(o.strip().lower() for o in joint_orientation)
     else:
-        filename = output_dir / f"{prefix}_arm_{control}.xml"
+        default = DEFAULT_JOINT_ORIENTATIONS
+        axes_str = "".join(default[i % len(default)] for i in range(ndof))
+
+    filename = output_dir / f"{prefix}_arm_{control}_{axes_str}.xml"
+
+    xml = spec.to_xml()
+    xml = xml.replace("<default/>\n", "")
     filename.write_text(xml)
     print(f"Saved: {filename}")
     return filename
@@ -197,17 +192,18 @@ if __name__ == "__main__":
     parser.add_argument("--ndof", type=int, required=True, help="Number of DOF")
     parser.add_argument("--control", choices=["pos", "torque"], default="pos")
     parser.add_argument(
-        "--joint-axes", nargs="+", metavar="AXIS",
-        help='Joint axes per joint: use x/y/z shorthand or "x y z" vector. '
-             'Cycles if fewer than ndof. Example: --joint-axes z y z',
+        "--joint-orientation", nargs="+", metavar="AXIS",
+        help="Joint orientations: z or y per joint. Cycles if fewer than ndof. "
+             "Example: --joint-orientation z y z",
     )
     parser.add_argument("--output", type=str, default=None,
-                        help="Output file path (default: assets/<name>_arm_<control>.xml)")
+                        help="Output file path (overrides default naming)")
     args = parser.parse_args()
 
-    xml = build_arm(args.ndof, args.control, args.joint_axes)
+    spec = build_arm(args.ndof, args.control, args.joint_orientation)
     if args.output:
+        xml = spec.to_xml().replace("<default/>\n", "")
         Path(args.output).write_text(xml)
         print(f"Saved: {args.output}")
     else:
-        save_arm(args.ndof, args.control, args.joint_axes)
+        save_arm(spec, args.ndof, args.control, args.joint_orientation)

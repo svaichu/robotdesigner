@@ -1,19 +1,13 @@
-[tool.poetry]
+[project]
 name = "robotdesigner"
-version = "0.1.0"
-description = ""
-authors = ["Vaish <vaishnavahari.seenivasan@rwth-aachen.de>"]
+version = "0.2.0"
+description = "Generate robot arm mujoco env"
 readme = "README.md"
-
-[tool.poetry.dependencies]
-python = "^3.9"
-roboticstoolbox-python = "^1.1.0"
-scipy = "^1.11.4"
-pydantic = "^2.5.2"
-ipykernel = "^6.27.1"
-pytest = "^7.4.3"
-
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires-python = ">=3.13"
+dependencies = [
+    "gymnasium>=1.2.3",
+    "imageio>=2.37.3",
+    "ipykernel>=7.2.0",
+    "marimo>=0.21.1",
+    "mujoco>=3.6.0",
+]
