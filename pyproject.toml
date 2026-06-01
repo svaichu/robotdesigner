@@ -5,9 +5,16 @@ description = "Generate robot arm mujoco env"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "chex>=0.1.91",
     "gymnasium>=1.2.3",
     "imageio>=2.37.3",
     "ipykernel>=7.2.0",
-    "marimo>=0.21.1",
+    "marimo>=0.22.0",
+    "mjinx>=0.1.1",
     "mujoco>=3.6.0",
+    "mujoco-mjx>=3.6.0",
+    "mujoco-warp>=3.6.0",
+    "pandas>=3.0.2",
+    "playground>=0.2.0",
+    "pytorch-kinematics>=0.9.1",
 ]

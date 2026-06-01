@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.20.4"
+__generated_with = "0.22.0"
 app = marimo.App(width="medium")
 
 
@@ -71,6 +71,7 @@ def _(gym, spec):
         "AbstractArm-v0",
         spec=spec,
         render_mode="rgb_array",
+        max_episode_steps=50,
     )
     print(f"Action space     : {env.action_space}")
     print(f"Observation space: {env.observation_space}")
@@ -91,11 +92,12 @@ def _(env):
 
     rows = []
     _obs, _ = env.reset()
-    for _step in range(50):
+    for _step in range(100):
         _action = env.action_space.sample()
         _obs, _reward, _terminated, _truncated, _ = env.step(_action)
         rows.append({
             "step": _step,
+            "done": _terminated or _truncated,
             "reward": round(float(_reward), 4),
             "ee_x": round(float(_obs[0]), 3),
             "ee_y": round(float(_obs[1]), 3),
