@@ -19,6 +19,9 @@ dependencies = [
     "pytorch-kinematics>=0.9.1",
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
