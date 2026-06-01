@@ -7,3 +7,4 @@ This package provides two functionalities:
 @docs/register_env
 
 
+@archive directory contains old code for depreciated feature. Do NOT look into it. You can ignore the code in that directory.
