@@ -1,0 +1,39 @@
+<mujoco model="1_arm_pos">
+  <compiler angle="radian"/>
+
+  <option integrator="RK4"/>
+
+  <visual>
+    <map znear="0.02"/>
+  </visual>
+
+  <default>
+        <default class="link1_main"/>
+  </default>
+
+  <asset>
+    <texture type="skybox" colorspace="auto" builtin="gradient" rgb1="0.4 0.5 0.6" rgb2="0 0 0" width="100" height="600"/>
+    <texture type="cube" colorspace="auto" name="texgeom" builtin="flat" mark="cross" rgb1="0.8 0.6 0.4" rgb2="0.8 0.6 0.4" markrgb="1 1 1" width="127" height="762"/>
+    <texture type="2d" colorspace="auto" name="texplane" builtin="checker" rgb1="0 0 0" rgb2="0.8 0.8 0.8" width="100" height="100"/>
+    <material name="MatPlane" texture="texplane" texrepeat="60 60" specular="1" shininess="1" reflectance="0.5"/>
+    <material name="geom" texture="texgeom" texuniform="true"/>
+  </asset>
+
+  <worldbody>
+    <geom name="floor" size="20 20 0.125" type="plane" material="MatPlane" rgba="0.8 0.9 0.8 1"/>
+    <light pos="0 0 1.3" dir="0 0 -1" type="directional" cutoff="100" exponent="1" diffuse="1 1 1" specular="0.1 0.1 0.1"/>
+    <body name="base" pos="0 0 0.05">
+      <geom name="base_geom" size="0.05 0.05" type="cylinder"/>
+      <site name="tip" pos="0 0 0.1" size="0.01"/>
+      <body name="link1_link" pos="0 0 0.1">
+        <joint name="link1_joint" pos="0 0 0" axis="0 0 1" limited="false" armature="1" damping="3"/>
+        <geom name="link1_geom" size="0.03 0.15" pos="0.15 0 0" quat="0.707107 0 -0.707107 0" type="capsule" condim="1" friction="0.9" solimp="0.8 0.8 0.01" margin="0.001" density="300" rgba="0.8 0.6 0.4 1"/>
+        <site name="link1_ee_frame" pos="0.3 0 0" size="0.01" rgba="0 1 0 1"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <general name="link1_act" joint="link1_joint" ctrllimited="true" ctrlrange="-3.14159 3.14159" biastype="affine" gainprm="403.74" biasprm="0 -403.74 -37.37"/>
+  </actuator>
+</mujoco>

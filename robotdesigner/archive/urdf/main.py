@@ -9,9 +9,9 @@ from numpy import sin, cos, pi, concatenate
 from scipy.spatial.transform import Rotation as R
 import subprocess
 from subprocess import check_output, CalledProcessError
-from urdf import urdf_write
-from write_launch import writeLaunch
-from write_setup import writeSetup
+from robotdesigner.archive.urdf.urdf import urdf_write
+from robotdesigner.archive.urdf.write_launch import writeLaunch
+from robotdesigner.archive.urdf.write_setup import writeSetup
 
 class Workspace():
     def __init__(self):

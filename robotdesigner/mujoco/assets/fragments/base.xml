@@ -1,0 +1,11 @@
+<mujoco model="base">
+  <compiler angle="radian" inertiafromgeom="true"/>
+  <worldbody>
+    <!-- Fixed base: no joints, welded to world -->
+    <body name="base" pos="0 0 0.05">
+      <geom name="base_geom" type="cylinder" size="0.05 0.05" rgba="0.5 0.5 0.5 1" density="1000"/>
+      <!-- Attachment site for first link -->
+      <site name="tip" pos="0 0 0.1" size="0.01"/>
+    </body>
+  </worldbody>
+</mujoco>
