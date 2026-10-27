@@ -2,24 +2,24 @@ name: CI
 
 on:
   push:
-    branches: [main, devel]
+    branches: [main, devel, feat/quotient]
   pull_request:
-    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
-        with:
-          python-version: "3.13"
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --python ${{ matrix.python-version }} --extra env --extra dev
 
       - name: Run tests
-        run: uv run pytest tests/ -v
+        run: uv run pytest -v -m "not gpu and not robosuite and not render"
