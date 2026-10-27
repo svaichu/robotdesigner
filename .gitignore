@@ -160,3 +160,4 @@ cython_debug/
 #.idea/
 .vscode/settings.json
 .claude/skills/mujoco_xml_skill/SKILL.md
+MUJOCO_LOG.TXT
