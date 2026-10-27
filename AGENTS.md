@@ -1,10 +1,6 @@
+This package provides robot embodiments as validated, hashable data and batched TorchRL environments:
 
-This package provides two functionalities:
-1. Generate a robot arm mujoco.MjSpec based on the specified parameters. Optionally save the generated xml file to the assets directory. 
-@docs/Generate_MjSpec
+1. `robotdesigner.config`: numpy-only configs (`ParametricArm`, `EnvConfig`, ...), the `chain()` generator and a kinematics oracle.
+2. `robotdesigner.backends` / `robotdesigner.envs`: backend registry and `make_env(cfg)`; the CPU MuJoCo backend lives in `backends/mujoco`.
 
-2. Register gymnaisum env after loading that mujoco.MjSpec. 
-@docs/register_env
-
-
-@archive directory contains old code for depreciated feature. Do NOT look into it. You can ignore the code in that directory.
+See README.md and docs/spec_robotconfig_env.md.

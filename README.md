@@ -1,152 +1,119 @@
 # robotdesigner
 
-Programmatically generate N-DOF robot arm models and register them as simulation environments.
+Describe robot arms as validated, hashable data and run them in batched [TorchRL](https://github.com/pytorch/rl)
+environments, so the same control task can be compared across embodiments.
 
-- **Composer** — build a `mujoco.MjSpec` for any N-DOF arm with position or torque control
-- **Gymnasium env** — wrap the spec as a standard `gym.Env` for CPU-based RL
-- **MJX env** — wrap the spec as a JAX-native env for GPU/TPU-accelerated simulation (jit, vmap)
-
-## Requirements
-
-- Python ≥ 3.13
-- MuJoCo ≥ 3.6
-
-## Installation
+## Install
 
 ```bash
-pip install robotdesigner
+pip install -e .              # config layer only (numpy)
+pip install -e ".[env]"       # + torch, torchrl, tensordict, mujoco: the CPU MuJoCo backend
+pip install -e ".[env,dev]"   # + pytest, ruff
 ```
 
-Or with [uv](https://github.com/astral-sh/uv):
+Python >= 3.10. Other extras: `viz` (imageio), `warp` and `robosuite` (later milestones; declared only).
+`import robotdesigner.config` works with numpy alone and never imports an engine.
 
-```bash
-uv add robotdesigner
-```
+## The idea
 
-## Build a robot arm spec
+- **The robot is data.** A `ParametricArm` is frozen, validated and serializable. It has a stable
+  `config_hash` (12 characters, SHA-256 prefix) that ignores labels and float noise.
+- **Everything that changes behaviour is in `EnvConfig`**: robot, control, task, sim and backend options. There
+  are no hidden defaults. `env_hash` identifies a run.
+- **Backends realize configs.** `sim.backend = "mujoco"` is the CPU reference backend. An unsupported combination
+  (control mode, device, task, ...) is rejected up front with every problem listed, never approximated.
+- **One env contract.** Every backend returns a TorchRL `EnvBase` with `batch_size = [num_envs]`. The env never
+  autoresets; reset rows with the `_reset` mask.
+
+## Quick start
 
 ```python
-from robotdesigner.mujoco.composer import build_arm, save_arm
+from robotdesigner.config import (
+    ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, ReachParams,
+    SimConfig, TaskConfig, chain,
+)
+from robotdesigner.envs import make_env
 
-# 3-DOF arm, position control, default z/y alternating joint orientations
-spec = build_arm(ndof=3, control="pos")
+arm = chain(n=3, axes="zyz", total_length=0.9, total_mass=3.0, radius=0.03,
+            damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5),
+            base_pose=Pose((0.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0)))
 
-# Custom joint orientations (cycles if shorter than ndof)
-spec = build_arm(ndof=3, control="torque", joint_orientation=["z", "y", "z"])
-
-# Save to assets/ as XML
-save_arm(spec, ndof=3, control="pos", joint_orientation=["z", "y", "z"])
-# -> assets/three_arm_pos_zyz.xml
-```
-
-### `build_arm` parameters
-
-| Parameter | Type | Description |
-|---|---|---|
-| `ndof` | `int` | Number of joints (≥ 1) |
-| `control` | `str` | `"pos"` (PD position) or `"torque"` |
-| `joint_orientation` | `list[str]` | Per-joint axis: `"z"` (yaw) or `"y"` (pitch). Cycles if shorter than `ndof`. Defaults to alternating `z/y`. |
-
-**Assumptions:** fixed base, each link has length = 1 m and mass = 1 kg.
-
-### CLI
-
-```bash
-python -m robotdesigner.mujoco.composer --ndof 3 --control pos --joint-orientation z y z
-python -m robotdesigner.mujoco.composer --ndof 5 --control torque --output my_arm.xml
-```
-
-## Gymnasium environment
-
-```python
-import gymnasium as gym
-from robotdesigner.mujoco.composer import build_arm
-
-spec = build_arm(ndof=3, control="pos")
-
-gym.register(
-    id="AbstractArm-v0",
-    entry_point="robotdesigner.envs.abstract_mujoco_env:make_env",
+cfg = EnvConfig(
+    robot=arm,
+    control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
+    task=TaskConfig("native/reach", horizon=200, success_tolerance=0.02,
+                    target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),
+                    params=ReachParams(reset_noise=0.0, terminate_on_success=False)),
+    sim=SimConfig(backend="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
+                  control_freq=50, seed=0, scene="plain_floor"),
+    backend_options=MujocoOptions(self_collision=False),
 )
 
-env = gym.make("AbstractArm-v0", spec=spec, render_mode="rgb_array", max_episode_steps=200)
-obs, _ = env.reset()
-
-for _ in range(100):
-    action = env.action_space.sample()
-    obs, reward, terminated, truncated, info = env.step(action)
-    if terminated or truncated:
-        break
+env = make_env(cfg)
+print(env.robot_hash, env.env_hash)
+traj = env.rollout(50)          # random policy, TorchRL's own rollout
+print(traj.shape)               # torch.Size([8, 50])
 ```
 
-### RLlib training
+The full script is `examples/reach_cpu.py` (headless; `python examples/reach_cpu.py`).
+
+Step by hand:
 
 ```python
-import ray
-from ray.rllib.algorithms.ppo import PPOConfig
+td = env.reset()
+td["action"] = env.action_spec.rand()          # [8, n] in [-1, 1]
+td = env.step(td)                              # outputs under ("next", ...)
 
-ray.init()
-
-algo = (
-    PPOConfig()
-    .environment(
-        env="AbstractArm-v0",
-        env_config={"xml": spec.to_xml(), "render_mode": "rgb_array"},
-    )
-    .env_runners(num_env_runners=2)
-    .build()
-)
-
-result = algo.train()
-print(result["env_runners"]["episode_reward_mean"])
+# or, with driver-side autoreset (the env itself never resets):
+data, td = env.step_and_maybe_reset(td)
 ```
 
-## MJX environment (JAX)
+## Control modes (CPU backend)
 
-```python
-import jax
-from robotdesigner.mujoco.composer import build_arm
-from robotdesigner.envs import load_mjx_environment, list_mjx_environments
-
-spec = build_arm(ndof=3, control="pos")
-env = load_mjx_environment("AbstractArmMjx", spec=spec)
-
-print(list_mjx_environments())   # ('AbstractArmMjx',)
-print(env.action_size)
-print(env.observation_size)
-
-rng = jax.random.PRNGKey(0)
-state = env.reset(rng)
-
-# Single step
-state = env.step(state, jax.random.uniform(rng, (env.action_size,), minval=-1, maxval=1))
-
-# JIT-compiled rollout
-jit_step = jax.jit(env.step)
-
-# Batched rollout with vmap
-batch_size = 8
-rngs = jax.random.split(rng, batch_size)
-states = jax.vmap(env.reset)(rngs)
-states = jax.vmap(env.step)(states, jax.random.uniform(rng, (batch_size, env.action_size)))
-```
-
-## Interactive notebooks (marimo)
-
-The `example/` directory contains [marimo](https://marimo.io) notebooks:
-
-| File | Description |
+| mode | action `a in [-1, 1]` |
 |---|---|
-| `example_GenMjSpec_mo.py` | Build and view a spec in the MuJoCo viewer |
-| `example_env_mujoco_mo.py` | Gymnasium rollout + RLlib training |
-| `example_env_mjx_mo.py` | MJX rollout, JIT, vmap, render |
+| `joint_pos_abs` | finite range mapped affinely onto `[lo, hi]`; unlimited joints map to `a * pi` |
+| `joint_pos_delta` | `q_target += a * action_scale`, clipped to the joint range |
+| `joint_vel` | velocity target `a * action_scale` (rad/s) |
+| `joint_torque` | `a * effort_limit` |
 
-Run with:
+Gains are `FixedGains(kp, kd)` or `InertiaScaledGains(bandwidth, damping_ratio)`: `kp_i = bandwidth^2 * M_ii`,
+`kd_i = max(2 * damping_ratio * sqrt(kp_i * M_ii) - damping_i, 0)`, with `M` the joint-space mass matrix at
+`home_qpos` (an approximation, since `M` changes with configuration). The effective gains are stored on the
+compiled model's `RobotInterface` (`kp`, `kd`).
 
-```bash
-marimo run example/example_env_mujoco_mo.py
+## Targets
+
+`FixedBox(low, high)` samples targets uniformly in the base frame. `OwnReachable()` uses end-effector positions of
+uniformly sampled joint configurations, so targets are always reachable. Reset can inject `target`, `qpos` and
+`qvel` through the reset TensorDict.
+
+## Rendering (optional)
+
+```python
+from robotdesigner.backends.mujoco.render import render_rgb, launch_viewer
+
+frame = render_rgb(env, env_index=0, size=(240, 320))   # uint8 (H, W, 3); needs an OpenGL context
+launch_viewer(env, env_index=0)                          # passive viewer; needs a display
 ```
 
-## License
+On headless machines set `MUJOCO_GL=egl` before importing mujoco. No other code path needs rendering.
 
-See [LICENSE](LICENSE).
+## Layout
+
+```
+src/robotdesigner/
+    config/      numpy only: configs, chain() generator, validation, hashing, kinematics oracle
+    backends/    protocol, capabilities and lazy registry; mujoco/ is the CPU backend
+    envs/        make_env(cfg)
+```
+
+The design spec is in `docs/spec_robotconfig_env.md`.
+
+## Tests
+
+```bash
+pytest -m "not gpu and not robosuite and not render"
+```
+
+Markers: `gpu`, `robosuite`, `render` (skipped when no OpenGL context is available).

@@ -76,7 +76,6 @@ def inertia_scaled_gains(model: mujoco.MjModel, iface_home: np.ndarray, qpos_adr
 
 def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float]) -> mujoco.MjSpec:
     arm = cfg.robot
-    n = arm.n
     control = cfg.control
 
     spec = mujoco.MjSpec()
