@@ -135,7 +135,7 @@ def test_action_mapping_modes():
 
 def test_make_env_rejects_unsupported():
     cfg = make_cfg()
-    bad = replace(cfg, control=ControlConfig("joint_vel", FixedGains(1.0, 1.0), 1.0),
+    bad = replace(cfg, control=ControlConfig("ee_pos_delta", FixedGains(1.0, 1.0), None),
                   sim=replace(cfg.sim, device="cuda:0"))
     from robotdesigner.config import ConfigError
 

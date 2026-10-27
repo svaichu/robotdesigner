@@ -95,3 +95,16 @@ def test_cross_field_checks():
     d["sim"]["backend"] = "nope"
     with pytest.raises(ConfigError, match="sim.backend"):
         EnvConfig.from_dict(d)
+
+
+def test_inertia_scaled_gains_round_trip_and_validation():
+    from dataclasses import replace
+
+    from robotdesigner.config import InertiaScaledGains
+
+    cfg = make_cfg()
+    cfg2 = replace(cfg, control=ControlConfig("joint_pos_delta", InertiaScaledGains(20.0, 1.0), 0.05))
+    back = EnvConfig.from_dict(cfg2.to_dict())
+    assert back == cfg2 and back.env_hash == cfg2.env_hash != cfg.env_hash
+    with pytest.raises(ConfigError, match="^bandwidth"):
+        InertiaScaledGains(0.0, 1.0)

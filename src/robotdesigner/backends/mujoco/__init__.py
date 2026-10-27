@@ -12,7 +12,7 @@ class MujocoBackend:
 
     def capabilities(self) -> Capabilities:
         return Capabilities(
-            control_modes=frozenset({"joint_pos_abs", "joint_torque"}),
+            control_modes=frozenset({"joint_pos_abs", "joint_pos_delta", "joint_torque", "joint_vel"}),
             task_ids=frozenset({"native/reach"}),
             devices=frozenset({"cpu"}),
             robot_kinds=frozenset({"parametric"}),

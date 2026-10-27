@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from ...config import EnvConfig, Pose
+from ...config import EnvConfig, FixedGains, InertiaScaledGains, Pose
 from .scenes import apply_scene
 
 _INTEGRATORS = {
@@ -38,6 +38,8 @@ class RobotInterface:
     effort_limit: np.ndarray  # (n,)
     home_qpos: np.ndarray  # (n,)
     base_pose: Pose
+    kp: np.ndarray | None  # (n,) effective position gains; None for torque control
+    kd: np.ndarray | None  # (n,) effective damping / velocity gains; None for torque control
 
 
 @dataclass(frozen=True)
@@ -53,12 +55,29 @@ def _per_joint(value, n: int) -> list[float]:
     return [float(value)] * n
 
 
-def compile_robot(cfg: EnvConfig) -> CompiledRobot:
+SUPPORTED_MODES = ("joint_pos_abs", "joint_pos_delta", "joint_torque", "joint_vel")
+
+
+def inertia_scaled_gains(model: mujoco.MjModel, iface_home: np.ndarray, qpos_adr, qvel_adr, joint_damping, gains):
+    """``kp_i = w^2 M_ii``, ``kd_i = max(2 zeta sqrt(kp_i M_ii) - damping_i, 0)`` with ``M`` at home."""
+    data = mujoco.MjData(model)
+    data.qpos[qpos_adr] = iface_home
+    mujoco.mj_forward(model, data)
+    M = np.zeros((model.nv, model.nv))
+    try:  # newer MuJoCo: mj_fullM(model, data, dst)
+        mujoco.mj_fullM(model, data, M)
+    except TypeError:  # older MuJoCo: mj_fullM(model, dst, qM)
+        mujoco.mj_fullM(model, M, data.qM)
+    m_diag = M[qvel_adr, qvel_adr]
+    kp = gains.bandwidth**2 * m_diag
+    kd = np.maximum(2.0 * gains.damping_ratio * np.sqrt(kp * m_diag) - joint_damping, 0.0)
+    return kp, kd
+
+
+def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float]) -> mujoco.MjSpec:
     arm = cfg.robot
     n = arm.n
     control = cfg.control
-    if control.mode not in ("joint_pos_abs", "joint_torque"):
-        raise NotImplementedError(f"control mode {control.mode!r} is not compiled yet")
 
     spec = mujoco.MjSpec()
     spec.option.timestep = cfg.sim.dt
@@ -122,8 +141,6 @@ def compile_robot(cfg: EnvConfig) -> CompiledRobot:
         quat=list(arm.end_effector.quat),
     )
 
-    kp = _per_joint(control.gains.kp, n)
-    kd = _per_joint(control.gains.kd, n)
     for i, seg in enumerate(arm.segments):
         effort = seg.joint.effort_limit
         act = spec.add_actuator(
@@ -132,15 +149,54 @@ def compile_robot(cfg: EnvConfig) -> CompiledRobot:
         act.forcelimited = _LIMITED
         act.forcerange = [-effort, effort]
         act.ctrllimited = _LIMITED
-        if control.mode == "joint_pos_abs":
+        rng = seg.joint.range
+        if control.mode in ("joint_pos_abs", "joint_pos_delta"):
             act.gainprm[0] = kp[i]
             act.biasprm[:3] = [0.0, -kp[i], -kd[i]]
             act.biastype = mujoco.mjtBias.mjBIAS_AFFINE
-            rng = seg.joint.range
-            act.ctrlrange = [-np.pi, np.pi] if rng is None else list(rng)
+            if rng is not None:
+                act.ctrlrange = list(rng)
+            elif control.mode == "joint_pos_abs":
+                act.ctrlrange = [-np.pi, np.pi]
+            else:  # a delta target on an unlimited joint is not bounded
+                act.ctrllimited = _UNLIMITED
+        elif control.mode == "joint_vel":
+            # Velocity servo: force = kd * (ctrl - qvel).
+            act.gainprm[0] = kd[i]
+            act.biasprm[:3] = [0.0, 0.0, -kd[i]]
+            act.biastype = mujoco.mjtBias.mjBIAS_AFFINE
+            act.ctrllimited = _UNLIMITED
         else:  # joint_torque
             act.ctrlrange = [-effort, effort]
+    return spec
 
+
+def compile_robot(cfg: EnvConfig) -> CompiledRobot:
+    arm = cfg.robot
+    n = arm.n
+    control = cfg.control
+    if control.mode not in SUPPORTED_MODES:
+        raise NotImplementedError(f"control mode {control.mode!r} is not compiled")
+
+    gains = control.gains
+    if isinstance(gains, FixedGains):
+        kp, kd = _per_joint(gains.kp, n), _per_joint(gains.kd, n)
+    else:
+        # Two passes: compile with placeholder gains, read M at home, then build with the final gains.
+        assert isinstance(gains, InertiaScaledGains)
+        first = _build_spec(cfg, [0.0] * n, [0.0] * n).compile()
+        ids = [mujoco.mj_name2id(first, mujoco.mjtObj.mjOBJ_JOINT, f"joint_{i}") for i in range(n)]
+        kp_arr, kd_arr = inertia_scaled_gains(
+            first,
+            np.array(arm.home_qpos),
+            first.jnt_qposadr[ids],
+            first.jnt_dofadr[ids],
+            np.array([s.joint.damping for s in arm.segments]),
+            gains,
+        )
+        kp, kd = list(kp_arr), list(kd_arr)
+
+    spec = _build_spec(cfg, kp, kd)
     model = spec.compile()
 
     def jid(i):
@@ -163,5 +219,7 @@ def compile_robot(cfg: EnvConfig) -> CompiledRobot:
         effort_limit=np.array([s.joint.effort_limit for s in arm.segments]),
         home_qpos=np.array(arm.home_qpos),
         base_pose=arm.base_pose,
+        kp=None if control.mode == "joint_torque" else np.array(kp),
+        kd=None if control.mode == "joint_torque" else np.array(kd),
     )
     return CompiledRobot(model=model, spec=spec, interface=interface)

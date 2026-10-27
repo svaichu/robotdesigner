@@ -1,7 +1,7 @@
 """Configuration layer: numpy only. Imports no simulation engine and no torch."""
 
 from . import kinematics
-from .control import CONTROL_MODES, ControlConfig, FixedGains
+from .control import CONTROL_MODES, ControlConfig, FixedGains, InertiaScaledGains
 from .env import EnvConfig
 from .errors import ConfigError
 from .generators import chain
@@ -24,6 +24,7 @@ __all__ = [
     "FixedBox",
     "FixedGains",
     "INTEGRATORS",
+    "InertiaScaledGains",
     "MujocoOptions",
     "OwnReachable",
     "ReachParams",

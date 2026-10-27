@@ -34,7 +34,14 @@ class MujocoReachEnv(EnvBase):
         self._n = n
 
         # Action [-1, 1] -> actuator control: ctrl = action * scale + offset.
-        if cfg.control.mode == "joint_pos_abs":
+        # Delta mode integrates the action into a target first (see _step); velocity mode scales it.
+        self._mode = cfg.control.mode
+        self._range = self._iface.joint_range
+        self._q_target = np.zeros((N, n))
+        if self._mode in ("joint_pos_delta", "joint_vel"):
+            self._scale = np.full(n, cfg.control.action_scale)
+            self._offset = np.zeros(n)
+        elif self._mode == "joint_pos_abs":
             lo, hi = self._iface.joint_range[:, 0], self._iface.joint_range[:, 1]
             finite = np.isfinite(lo) & np.isfinite(hi)
             self._scale = np.where(finite, (hi - lo) / 2.0, np.pi)
@@ -80,6 +87,15 @@ class MujocoReachEnv(EnvBase):
             truncated=Binary(shape=(N, 1), dtype=torch.bool),
             shape=(N,),
         )
+
+    @property
+    def q_target(self) -> np.ndarray:
+        """Position targets, ``(N, n)``; meaningful in ``joint_pos_delta`` mode."""
+        return self._q_target.copy()
+
+    @property
+    def interface(self):
+        return self._iface
 
     # --- sampling -------------------------------------------------------------------
 
@@ -152,6 +168,8 @@ class MujocoReachEnv(EnvBase):
             target = target_in.to(torch.float32)
 
         self._sim.reset(mask=mask.numpy(), qpos=qpos, qvel=qvel)
+        if self._mode == "joint_pos_delta":
+            self._q_target[mask.numpy()] = self._sim.qpos[mask.numpy()]
         self._target[mask] = target[mask]
         self._episode_step[mask] = 0
 
@@ -167,7 +185,13 @@ class MujocoReachEnv(EnvBase):
 
     def _step(self, tensordict: TensorDictBase) -> TensorDictBase:
         action = tensordict.get("action").to(torch.float64).clamp(-1.0, 1.0).numpy()
-        self._sim.set_ctrl(action * self._scale + self._offset)
+        if self._mode == "joint_pos_delta":
+            self._q_target = np.clip(
+                self._q_target + action * self._scale, self._range[:, 0], self._range[:, 1]
+            )
+            self._sim.set_ctrl(self._q_target)
+        else:
+            self._sim.set_ctrl(action * self._scale + self._offset)
         self._sim.step()
         self._episode_step += 1
 

@@ -43,7 +43,7 @@ class EnvConfig:
 
         n = self.robot.n
         for name in ("kp", "kd"):
-            v = getattr(self.control.gains, name)
+            v = getattr(self.control.gains, name, None)
             if isinstance(v, tuple) and len(v) != n:
                 raise ConfigError(f"control.gains.{name}", f"expected {n} per-joint values, got {len(v)}")
 
