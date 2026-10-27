@@ -20,7 +20,14 @@ class MujocoBackend:
         )
 
     def validate(self, cfg: Any) -> list[Problem]:
-        return []
+        from .scenes import SCENES
+
+        problems = []
+        if cfg.sim.scene not in SCENES:
+            problems.append(Problem("sim.scene", f"unknown scene {cfg.sim.scene!r}; available: {sorted(SCENES)}"))
+        return problems
 
     def make_env(self, cfg: Any):
-        raise NotImplementedError("the MuJoCo reach environment arrives with the envs milestone")
+        from .reach import MujocoReachEnv
+
+        return MujocoReachEnv(cfg)
