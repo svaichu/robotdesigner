@@ -1,6 +1,8 @@
 """Configuration layer: numpy only. Imports no simulation engine and no torch."""
 
+from . import kinematics
 from .errors import ConfigError
+from .generators import chain
 from .robot import (
     Capsule,
     JointSpec,
@@ -20,4 +22,6 @@ __all__ = [
     "Pose",
     "Segment",
     "ToolSpec",
+    "chain",
+    "kinematics",
 ]
