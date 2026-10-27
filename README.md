@@ -55,7 +55,7 @@ traj = env.rollout(50)          # random policy, TorchRL's own rollout
 print(traj.shape)               # torch.Size([8, 50])
 ```
 
-The full script is `examples/reach_cpu.py` (headless; `python examples/reach_cpu.py`).
+The full script is `examples/reach_cpu.py` (headless; `python examples/reach_cpu.py`). A walkthrough notebook is `examples/reach_cpu.ipynb` (embodiment comparison, control modes, rendering).
 
 Step by hand:
 
