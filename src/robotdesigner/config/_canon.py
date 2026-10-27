@@ -86,3 +86,21 @@ def within(prefix: str, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         return fn(*args, **kwargs)
     except ConfigError as e:
         raise e.prefixed(prefix) from None
+
+
+def as_int(x: Any, path: str) -> int:
+    if isinstance(x, bool) or not hasattr(x, "__index__"):
+        raise ConfigError(path, f"expected an integer, got {type(x).__name__}")
+    return int(x)
+
+
+def as_bool(x: Any, path: str) -> bool:
+    if not isinstance(x, bool):
+        raise ConfigError(path, f"expected a bool, got {type(x).__name__}")
+    return x
+
+
+def as_str(x: Any, path: str) -> str:
+    if not isinstance(x, str) or not x:
+        raise ConfigError(path, "must be a non-empty string")
+    return x
