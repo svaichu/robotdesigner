@@ -26,6 +26,13 @@ backend, below) and `warp` (a later milestone; declared only).
 - **One env contract.** Every backend returns a TorchRL `EnvBase` with `batch_size = [num_envs]`. The env never
   autoresets; reset rows with the `_reset` mask.
 
+## Documentation
+
+Reference pages in [`docs/`](docs/README.md): [RobotConfig](docs/configs/robot.md), [ControlConfig](docs/configs/control.md),
+[TaskConfig](docs/configs/task.md), [SimConfig and backend options](docs/configs/sim.md), [EnvConfig](docs/configs/env.md),
+[backends and the environment contract](docs/backends.md), and the [design spec](docs/spec_robotconfig_env.md).
+The Python examples in them are executed by the tests.
+
 ## Quick start
 
 ```python
@@ -72,7 +79,7 @@ data, td = env.step_and_maybe_reset(td)
 ## robosuite backend
 
 Any single-arm robosuite environment, with the robot built from our `ParametricArm`. robosuite keeps the task, scene,
-gripper and reward; robotdesigner supplies the arm.
+gripper and reward; robotdesigner supplies the arm. Full details: [backends](docs/backends.md#robosuiteenvname-on-robosuite).
 
 ```python
 from robotdesigner.config import (ControlConfig, EnvConfig, InertiaScaledGains, Pose, RobosuiteOptions,
@@ -114,25 +121,12 @@ env = make_env(cfg)   # a TorchRL env with the same contract as native/reach
   process (it applies only what the installed MuJoCo needs) and is called automatically.
 - **Cost:** one robosuite environment per batch element, stepped in turn on one CPU core.
 
-## Control modes (CPU backend)
+## Control modes and targets
 
-| mode | action `a in [-1, 1]` |
-|---|---|
-| `joint_pos_abs` | finite range mapped affinely onto `[lo, hi]`; unlimited joints map to `a * pi` |
-| `joint_pos_delta` | `q_target += a * action_scale`, clipped to the joint range |
-| `joint_vel` | velocity target `a * action_scale` (rad/s) |
-| `joint_torque` | `a * effort_limit` |
-
-Gains are `FixedGains(kp, kd)` or `InertiaScaledGains(bandwidth, damping_ratio)`: `kp_i = bandwidth^2 * M_ii`,
-`kd_i = max(2 * damping_ratio * sqrt(kp_i * M_ii) - damping_i, 0)`, with `M` the joint-space mass matrix at
-`home_qpos` (an approximation, since `M` changes with configuration). The effective gains are stored on the
-compiled model's `RobotInterface` (`kp`, `kd`).
-
-## Targets
-
-`FixedBox(low, high)` samples targets uniformly in the base frame. `OwnReachable()` uses end-effector positions of
-uniformly sampled joint configurations, so targets are always reachable. Reset can inject `target`, `qpos` and
-`qvel` through the reset TensorDict.
+Four joint-space modes (`joint_pos_abs`, `joint_pos_delta`, `joint_vel`, `joint_torque`) with `FixedGains` or
+`InertiaScaledGains`, and targets drawn from `FixedBox` or `OwnReachable`. What each mode and target means, and which
+backend supports what, is in [ControlConfig](docs/configs/control.md), [TaskConfig](docs/configs/task.md) and
+[backends](docs/backends.md). Reset can inject `target`, `qpos` and `qvel` through the reset TensorDict.
 
 ## Rendering and video (optional)
 
@@ -180,7 +174,7 @@ src/robotdesigner/
     viz/         Clip (save GIF / MP4, show inline), frame recorder, camera framing; numpy only
 ```
 
-The design spec is in `docs/spec_robotconfig_env.md`.
+Documentation is in `docs/` (start at `docs/README.md`); the design record is `docs/spec_robotconfig_env.md`.
 
 ## Tests
 
@@ -188,4 +182,5 @@ The design spec is in `docs/spec_robotconfig_env.md`.
 pytest -m "not gpu and not robosuite and not render"
 ```
 
-Markers: `gpu`, `robosuite`, `render` (skipped when no OpenGL context is available).
+Markers: `gpu`, `robosuite`, `render` (skipped when no OpenGL context is available). `tests/test_docs.py` runs the Python
+examples in `docs/` and checks that every link and anchor resolves; it needs no simulator.

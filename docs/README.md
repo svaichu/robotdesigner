@@ -1,0 +1,80 @@
+# robotdesigner documentation
+
+`robotdesigner` describes robot embodiments as validated, hashable data and runs them in batched TorchRL environments on
+several simulation backends, so the same task can be given to many embodiments and every run traces back to one hash.
+
+Start with the [README](../README.md) for installation and a first environment.
+
+## Reference
+
+| page | covers |
+|---|---|
+| [RobotConfig](configs/robot.md) | `ParametricArm` and its parts, the `chain()` generator, the kinematics oracle, the robot hash |
+| [ControlConfig](configs/control.md) | control modes, `FixedGains`, `InertiaScaledGains`, the action scale |
+| [TaskConfig](configs/task.md) | `native/reach`, `robosuite/<EnvName>`, target regions, task parameters |
+| [SimConfig and backend options](configs/sim.md) | backend, batch size, time step, seed, scene, `MujocoOptions`, `RobosuiteOptions` |
+| [EnvConfig](configs/env.md) | how the sections combine, serialization, hashing, errors |
+| [Backends](backends.md) | capabilities, what each backend supports, the environment contract, adding a backend |
+| [Design spec](spec_robotconfig_env.md) | why it is built this way, status and decisions |
+
+Every Python example in the configuration pages is executed by the test suite (`tests/test_docs.py`), so they match the code.
+
+## How the pieces fit
+
+```
+EnvConfig
+├── robot            RobotConfig (ParametricArm)   what the body is
+├── control          ControlConfig                 how an action drives the joints
+├── task             TaskConfig                    what to do; never mentions the number of joints
+├── sim              SimConfig                     backend, batch size, time step, seed, scene
+└── backend_options  one options class per backend
+
+make_env(cfg)  ->  backend.capabilities + validate (all problems at once)  ->  backend.make_env  ->  TorchRL EnvBase
+```
+
+- **The robot is data.** It is frozen, validated and serializable, and its hash ignores labels and float noise.
+- **Nothing has a hidden default.** Everything that changes behaviour is a field, and `env_hash` covers all of it.
+- **The task is independent of the embodiment**, so one task config can be paired with arms of any size.
+- **Backends refuse instead of approximating.** An unsupported combination is rejected before anything is built.
+- **One environment contract** for every backend: batched, no autoreset, masked reset, injected state, nested
+  observations.
+
+Conventions: SI units, angles in radians, quaternions `(w, x, y, z)`, targets and end-effector observations of
+`native/reach` in the robot's base frame.
+
+## Recipe: one task, a family of arms
+
+Hold the task, the control and the sim fixed and vary the embodiment. Each configuration gets its own hash, and the
+robot hash tells the arms apart.
+
+```python
+from dataclasses import replace
+
+from robotdesigner.config import (
+    ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, ReachParams, SimConfig, TaskConfig, chain,
+)
+
+def arm_with(n):
+    # the same total length and mass, spread over n joints: a yaw joint followed by n - 1 pitch joints
+    return chain(n, "z" + "y" * (n - 1), total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5,
+                 armature=0.01, frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5), label=f"{n}-joint")
+
+base = EnvConfig(
+    robot=arm_with(3),
+    control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
+    task=TaskConfig("native/reach", horizon=200, success_tolerance=0.02,
+                    target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),   # the same targets for every arm
+                    params=ReachParams(reset_noise=0.0, terminate_on_success=False)),
+    sim=SimConfig("mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
+                  scene="plain_floor"),
+    backend_options=MujocoOptions(self_collision=False),
+)
+family = {n: replace(base, robot=arm_with(n)) for n in (2, 3, 4, 5, 6)}
+
+assert len({cfg.env_hash for cfg in family.values()}) == 5               # five different environments
+assert len({cfg.robot.config_hash for cfg in family.values()}) == 5      # five different robots
+assert all(cfg.task == base.task and cfg.sim == base.sim for cfg in family.values())   # one task, one sim
+```
+
+Then build each with `make_env(cfg)`. Use `OwnReachable()` instead of `FixedBox` to give every arm targets it can
+reach. The hashes in `cfg.env_hash` and `env.env_hash` identify each run.
