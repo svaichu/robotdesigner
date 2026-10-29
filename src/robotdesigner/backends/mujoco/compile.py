@@ -71,7 +71,7 @@ def inertia_scaled_gains(model: mujoco.MjModel, iface_home: np.ndarray, qpos_adr
     return kp, kd
 
 
-def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float]) -> mujoco.MjSpec:
+def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float], scene_hook=None) -> mujoco.MjSpec:
     arm = cfg.robot
     control = cfg.control
 
@@ -80,6 +80,8 @@ def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float]) -> mujoco.MjSp
     spec.option.timestep = cfg.sim.dt
     spec.option.integrator = _INTEGRATORS[cfg.sim.integrator]
     apply_scene(spec, cfg.sim.scene)
+    if scene_hook is not None:  # scene elements the task adds (arena, objects), before the robot
+        scene_hook(spec)
 
     self_collision = bool(getattr(cfg.backend_options, "self_collision", False))
     conaffinity = 1 if self_collision else 0
@@ -127,7 +129,8 @@ def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float]) -> mujoco.MjSp
     return spec
 
 
-def compile_robot(cfg: EnvConfig) -> CompiledRobot:
+def compile_robot(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
+    """Compile ``cfg.robot`` into a model. ``scene_hook(spec)``, if given, adds the task's scene elements to the spec."""
     arm = cfg.robot
     n = arm.n
     control = cfg.control
@@ -140,7 +143,7 @@ def compile_robot(cfg: EnvConfig) -> CompiledRobot:
     else:
         # Two passes: compile with placeholder gains, read M at home, then build with the final gains.
         assert isinstance(gains, InertiaScaledGains)
-        first = _build_spec(cfg, [0.0] * n, [0.0] * n).compile()
+        first = _build_spec(cfg, [0.0] * n, [0.0] * n, scene_hook).compile()
         ids = [mujoco.mj_name2id(first, mujoco.mjtObj.mjOBJ_JOINT, f"joint_{i}") for i in range(n)]
         kp_arr, kd_arr = inertia_scaled_gains(
             first,
@@ -152,7 +155,7 @@ def compile_robot(cfg: EnvConfig) -> CompiledRobot:
         )
         kp, kd = list(kp_arr), list(kd_arr)
 
-    spec = _build_spec(cfg, kp, kd)
+    spec = _build_spec(cfg, kp, kd, scene_hook)
     model = spec.compile()
 
     def jid(i):

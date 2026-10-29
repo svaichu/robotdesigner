@@ -1,27 +1,23 @@
-"""Backend protocol and capability checks. No heavy imports."""
+"""Backend protocol and capability checks. No heavy imports.
+
+A backend is a simulator. Which tasks exist is the business of task providers (``config.providers``); a provider
+checks its own tasks against the backend (``TaskProvider.validate``), so a backend never lists task ids.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
+from ..config.errors import Problem
+
 
 @dataclass(frozen=True)
 class Capabilities:
     control_modes: frozenset[str]
-    task_ids: frozenset[str]  # exact ids, for example {"native/reach"}; "robosuite/*" matches any id with that prefix
     devices: frozenset[str]  # {"cpu"}; "cuda" matches any "cuda:N"
     robot_kinds: frozenset[str]  # {"parametric"}
     integrators: frozenset[str]
-
-
-@dataclass(frozen=True)
-class Problem:
-    path: str  # e.g. "control.mode"
-    message: str
-
-    def __str__(self) -> str:
-        return f"{self.path}: {self.message}"
 
 
 @runtime_checkable
@@ -50,12 +46,10 @@ def check_capabilities(cfg: Any, caps: Capabilities, backend: str = "") -> list[
     problems: list[Problem] = []
 
     def check(path: str, value: str, allowed: frozenset[str], what: str) -> None:
-        wildcard = any(a.endswith("*") and value.startswith(a[:-1]) for a in allowed)
-        if value not in allowed and not wildcard:
+        if value not in allowed:
             problems.append(Problem(path, f"{who} does not support {what} {value!r}; supported: {sorted(allowed)}"))
 
     check("control.mode", cfg.control.mode, caps.control_modes, "control mode")
-    check("task.id", cfg.task.id, caps.task_ids, "task")
     check("sim.integrator", cfg.sim.integrator, caps.integrators, "integrator")
     check("robot", _robot_kind(cfg.robot), caps.robot_kinds, "robot kind")
 

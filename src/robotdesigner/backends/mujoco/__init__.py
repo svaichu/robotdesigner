@@ -1,4 +1,4 @@
-"""CPU MuJoCo backend: the reference and debugging backend."""
+"""CPU MuJoCo backend: the reference and debugging simulator."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ class MujocoBackend:
     def capabilities(self) -> Capabilities:
         return Capabilities(
             control_modes=frozenset({"joint_pos_abs", "joint_pos_delta", "joint_torque", "joint_vel"}),
-            task_ids=frozenset({"native/reach"}),
             devices=frozenset({"cpu"}),
             robot_kinds=frozenset({"parametric"}),
             integrators=frozenset({"euler", "implicit", "implicitfast", "rk4"}),
@@ -28,6 +27,8 @@ class MujocoBackend:
         return problems
 
     def make_env(self, cfg: Any):
-        from .reach import MujocoReachEnv
+        from ...config.providers import provider_for
+        from .env import MujocoEnv
 
-        return MujocoReachEnv(cfg)
+        provider, _ = provider_for(cfg.task.id)
+        return MujocoEnv(cfg, provider.build(cfg, self.name))

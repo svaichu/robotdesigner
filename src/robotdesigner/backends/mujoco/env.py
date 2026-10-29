@@ -1,4 +1,10 @@
-"""``native/reach`` as a TorchRL environment on the CPU MuJoCo backend."""
+"""The CPU MuJoCo backend's environment: any task of any provider, on any robot of the config.
+
+Owns what is the same for every task: the compiled robot, the batched simulation, the control law, resets with
+a mask, episode bookkeeping and rendering. The task (``tasks.base.TaskImpl``) adds its scene assets before the model
+is compiled and supplies the ``task`` observation group, success and reward. Never autoresets; honours
+``td["_reset"]``.
+"""
 
 from __future__ import annotations
 
@@ -8,18 +14,17 @@ from tensordict import TensorDict, TensorDictBase
 from torchrl.data import Binary, Bounded, Composite, Unbounded
 from torchrl.envs import EnvBase
 
-from ...config import EnvConfig, FixedBox, OwnReachable
-from ...config import kinematics as kin
+from ...config import EnvConfig
 from .compile import compile_robot
 from .sim import BatchedSim
 
 
-class MujocoReachEnv(EnvBase):
-    """Move the end effector to a target. Never autoresets; honours ``td["_reset"]``."""
+class MujocoEnv(EnvBase):
+    """Batched TorchRL environment: ``cfg.robot`` under ``cfg.control`` doing ``task`` in MuJoCo."""
 
     batch_locked = True
 
-    def __init__(self, cfg: EnvConfig):
+    def __init__(self, cfg: EnvConfig, task):
         cfg = cfg.resolve()
         self.cfg = cfg
         self.robot_hash = cfg.robot.config_hash
@@ -27,12 +32,14 @@ class MujocoReachEnv(EnvBase):
         N = cfg.sim.num_envs
         super().__init__(device=torch.device("cpu"), batch_size=torch.Size([N]))
 
-        self._compiled = compile_robot(cfg)
+        self._task = task
+        self._compiled = compile_robot(cfg, scene_hook=task.attach)
         self._iface = self._compiled.interface
         self._sim = BatchedSim(self._compiled, N, cfg.sim.n_substeps)
         self._renderer = None  # created by the first render()
         n = self._iface.n
         self._n = n
+        task.bind(self._sim)
 
         # Action [-1, 1] -> actuator control: ctrl = action * scale + offset.
         # Delta mode integrates the action into a target first (see _step); velocity mode scales it.
@@ -51,25 +58,18 @@ class MujocoReachEnv(EnvBase):
             self._scale = self._iface.effort_limit.copy()
             self._offset = np.zeros(n)
 
-        task = cfg.task
-        self._horizon = task.horizon
-        self._tol = task.success_tolerance
-        self._reset_noise = task.params.reset_noise
-        self._terminate_on_success = task.params.terminate_on_success
-        self._region = task.target_region
+        params = cfg.task.params
+        self._horizon = cfg.task.horizon
+        self._reset_noise = float(getattr(params, "reset_noise", 0.0))
+        self._terminate_on_success = bool(getattr(params, "terminate_on_success", False))
 
         self._gen = torch.Generator(device="cpu")
         self._gen.manual_seed(cfg.sim.seed)
-        self._target = torch.zeros(N, 3)
         self._episode_step = torch.zeros(N, 1, dtype=torch.int64)
 
         f32 = torch.float32
         self.observation_spec = Composite(
-            task=Composite(
-                ee_pos=Unbounded(shape=(N, 3), dtype=f32),
-                target_pos=Unbounded(shape=(N, 3), dtype=f32),
-                shape=(N,),
-            ),
+            task=task.observation_spec(N),
             proprio=Composite(
                 qpos=Unbounded(shape=(N, n), dtype=f32),
                 qvel=Unbounded(shape=(N, n), dtype=f32),
@@ -98,37 +98,24 @@ class MujocoReachEnv(EnvBase):
     def interface(self):
         return self._iface
 
+    @property
+    def task(self):
+        """The engine side of the task (``tasks.base.TaskImpl``)."""
+        return self._task
+
     # --- sampling -------------------------------------------------------------------
 
     def _rand(self, *shape, dtype=torch.float64) -> torch.Tensor:
         return torch.rand(*shape, generator=self._gen, dtype=dtype)
 
-    def _sample_targets(self) -> torch.Tensor:
-        N = self.batch_size[0]
-        if isinstance(self._region, FixedBox):
-            low = torch.tensor(self._region.low, dtype=torch.float64)
-            high = torch.tensor(self._region.high, dtype=torch.float64)
-            return (low + self._rand(N, 3) * (high - low)).to(torch.float32)
-        assert isinstance(self._region, OwnReachable)
-        rng = self._iface.joint_range
-        lo = np.where(np.isfinite(rng[:, 0]), rng[:, 0], -np.pi)
-        hi = np.where(np.isfinite(rng[:, 1]), rng[:, 1], np.pi)
-        q = lo + self._rand(N, self._n).numpy() * (hi - lo)
-        world = kin.forward_ee_batch(self.cfg.robot, q)
-        T = kin.pose_to_matrix(self.cfg.robot.base_pose)
-        return torch.from_numpy((world - T[:3, 3]) @ T[:3, :3]).to(torch.float32)
-
     # --- observations ---------------------------------------------------------------
 
-    def _observe(self) -> TensorDict:
+    def _observe(self) -> tuple[TensorDict, dict]:
         s = self._sim
-        ee = torch.from_numpy(s.ee_pos_base()).to(torch.float32)
-        dist = torch.linalg.norm(ee - self._target, dim=-1, keepdim=True)
-        return TensorDict(
+        task_obs = self._task.observe(s)
+        out = TensorDict(
             {
-                "task": TensorDict(
-                    {"ee_pos": ee, "target_pos": self._target.clone()}, batch_size=self.batch_size
-                ),
+                "task": TensorDict(dict(task_obs), batch_size=self.batch_size),
                 "proprio": TensorDict(
                     {
                         "qpos": torch.from_numpy(s.qpos).to(torch.float32),
@@ -137,11 +124,12 @@ class MujocoReachEnv(EnvBase):
                     },
                     batch_size=self.batch_size,
                 ),
-                "success": dist < self._tol,
+                "success": self._task.success(s, task_obs),
                 "episode_step": self._episode_step.clone(),
             },
             batch_size=self.batch_size,
         )
+        return out, task_obs
 
     # --- EnvBase interface ----------------------------------------------------------
 
@@ -160,21 +148,18 @@ class MujocoReachEnv(EnvBase):
         noise = (self._rand(N, n) * 2.0 - 1.0) * self._reset_noise
         qpos = torch.from_numpy(self._iface.home_qpos).expand(N, n) + noise
         qpos = np.clip(qpos.numpy(), self._iface.joint_range[:, 0], self._iface.joint_range[:, 1])
-        target = self._sample_targets()
-        qpos_in, qvel_in, target_in = injected("qpos"), injected("qvel"), injected("target")
+        qpos_in, qvel_in = injected("qpos"), injected("qvel")
         if qpos_in is not None:
             qpos = qpos_in.to(torch.float64).numpy()
         qvel = None if qvel_in is None else qvel_in.to(torch.float64).numpy()
-        if target_in is not None:
-            target = target_in.to(torch.float32)
 
         self._sim.reset(mask=mask.numpy(), qpos=qpos, qvel=qvel)
         if self._mode == "joint_pos_delta":
             self._q_target[mask.numpy()] = self._sim.qpos[mask.numpy()]
-        self._target[mask] = target[mask]
+        self._task.reset(self._sim, mask.numpy(), self._rand, injected)
         self._episode_step[mask] = 0
 
-        out = self._observe()
+        out, _ = self._observe()
         for key in ("done", "terminated", "truncated"):
             prev = injected(key)
             flags = torch.zeros(N, 1, dtype=torch.bool)
@@ -196,13 +181,11 @@ class MujocoReachEnv(EnvBase):
         self._sim.step()
         self._episode_step += 1
 
-        out = self._observe()
-        ee, target = out["task", "ee_pos"], out["task", "target_pos"]
-        dist = torch.linalg.norm(ee - target, dim=-1, keepdim=True)
+        out, task_obs = self._observe()
         success = out["success"]
         truncated = self._episode_step >= self._horizon
         terminated = success.clone() if self._terminate_on_success else torch.zeros_like(success)
-        out.set("reward", -dist)
+        out.set("reward", self._task.reward(self._sim, task_obs))
         out.set("terminated", terminated)
         out.set("truncated", truncated)
         out.set("done", terminated | truncated)
@@ -225,7 +208,7 @@ class MujocoReachEnv(EnvBase):
     ) -> np.ndarray:
         """Render the live state of one env to ``uint8 (H, W, 3)`` (Gymnasium's ``rgb_array``).
 
-        Shows the whole scene plus the target and the target region as overlays. ``camera`` is ``None`` (the
+        Shows the whole scene plus the overlays the task draws (``TaskImpl.overlays``). ``camera`` is ``None`` (the
         ``"iso"`` view framed on the workspace), a view name (``iso``, ``front``, ``side``, ``top``), a
         ``robotdesigner.viz.CameraSpec``, a ``mujoco.MjvCamera``, or the name / id of a camera in the model.
         Rendering never changes the simulation.

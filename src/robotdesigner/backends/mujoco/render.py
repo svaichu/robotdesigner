@@ -1,10 +1,9 @@
-"""Rendering for the CPU MuJoCo backend. Nothing but ``MujocoReachEnv.render`` imports this module.
+"""Rendering for the CPU MuJoCo backend. Nothing but ``MujocoEnv.render`` imports this module.
 
 Needs an OpenGL context. On headless machines set ``MUJOCO_GL=egl`` before the first import of mujoco.
 
-A frame shows everything in the MuJoCo model (floor, robot, any scene or object geometry) plus overlays drawn
-from task state that is not part of the model: the target (sphere + cross-hair) and, for a ``FixedBox``
-    region, its edges as a wireframe box.
+A frame shows everything in the MuJoCo model (floor, robot, any scene or object geometry) plus the overlays the task
+draws for state that is not part of the model (``TaskImpl.overlays``, using ``add_geom`` and ``add_line`` below).
 Rendering works on a scratch ``MjData`` that is synchronised from the live one, so it never changes the
 simulation (no ``mj_forward`` on live data, no shared warm start).
 """
@@ -14,19 +13,15 @@ from __future__ import annotations
 import mujoco
 import numpy as np
 
-from ...config import FixedBox
 from ...viz.camera import VIEWS, CameraSpec, auto_camera
 
 _GL_HINT = (
     "could not create an offscreen OpenGL context ({err}). On headless machines set MUJOCO_GL=egl "
     "before the first import of mujoco."
 )
-_TARGET = (0.95, 0.20, 0.20, 0.95)
-_TARGET_HIT = (0.20, 0.80, 0.30, 0.95)
-_EDGE = (0.25, 0.55, 1.00, 0.90)
 
 
-def _add_geom(scene: mujoco.MjvScene, gtype, size, pos, mat, rgba) -> None:
+def add_geom(scene: mujoco.MjvScene, gtype, size, pos, mat, rgba) -> None:
     if scene.ngeom >= scene.maxgeom:
         return
     mujoco.mjv_initGeom(
@@ -40,7 +35,7 @@ def _add_geom(scene: mujoco.MjvScene, gtype, size, pos, mat, rgba) -> None:
     scene.ngeom += 1
 
 
-def _add_line(scene: mujoco.MjvScene, a, b, rgba, width_px: float = 2.0) -> None:
+def add_line(scene: mujoco.MjvScene, a, b, rgba, width_px: float = 2.0) -> None:
     """A GL line from ``a`` to ``b``, ``width_px`` wide whatever the zoom. Lines cast no shadow, unlike solid geoms."""
     if scene.ngeom >= scene.maxgeom:
         return
@@ -54,7 +49,7 @@ def _add_line(scene: mujoco.MjvScene, a, b, rgba, width_px: float = 2.0) -> None
 
 
 class EnvRenderer:
-    """One persistent offscreen renderer for a ``MujocoReachEnv``, recreated only when the frame size changes."""
+    """One persistent offscreen renderer for a ``MujocoEnv``, recreated only when the frame size changes."""
 
     def __init__(self, env):
         self._env = env
@@ -108,32 +103,8 @@ class EnvRenderer:
         mujoco.mj_forward(self._model, d)
 
     def _overlays(self, scene: mujoco.MjvScene, env_index: int) -> None:
-        env, sim = self._env, self._env._sim
-        R, p = sim._base_R, sim._base_pos
-        tol = float(env.cfg.task.success_tolerance)
-        target = env._target[env_index].numpy().astype(float)  # base frame
-        ee_base = (self._data.site_xpos[sim.iface.ee_site_id] - p) @ R
-        hit = float(np.linalg.norm(ee_base - target)) < tol
-        color = _TARGET_HIT if hit else _TARGET
-        center = p + R @ target
-        _add_geom(scene, mujoco.mjtGeom.mjGEOM_SPHERE, [max(tol, 0.01), 0.0, 0.0], center, np.eye(3), color)
-        # The sphere (radius = tolerance) sits inside the arm tip once the target is reached, so add a cross-hair
-        # that sticks out past the arm: the red -> green change stays visible.
-        arm_radius = max(seg.link.geometry.radius for seg in env.cfg.robot.segments)
-        reach = 2.5 * max(tol, arm_radius)
-        for axis in np.eye(3):
-            _add_line(scene, center - reach * axis, center + reach * axis, color)
-        region = env.cfg.task.target_region
-        if isinstance(region, FixedBox):  # a wireframe: a filled box casts a solid shadow on the floor
-            lo, hi = np.asarray(region.low, dtype=float), np.asarray(region.high, dtype=float)
-            corners = np.array(
-                [[(hi if k & 1 else lo)[0], (hi if k & 2 else lo)[1], (hi if k & 4 else lo)[2]] for k in range(8)]
-            )
-            world = p + corners @ R.T
-            for k in range(8):
-                for bit in (1, 2, 4):
-                    if not k & bit:
-                        _add_line(scene, world[k], world[k | bit], _EDGE)
+        env = self._env
+        env._task.overlays(scene, env._sim, self._data, env_index)
 
     # --- public -------------------------------------------------------------------------------------
 
