@@ -210,7 +210,11 @@ class Segment:
 
 @dataclass(frozen=True, slots=True)
 class ToolSpec:
-    """Stored and hashed, but not interpreted by the CPU backend."""
+    """A gripper mounted on the end effector.
+
+    Stored and hashed by every backend. Only the robosuite backend uses it (the gripper and its mount offsets); the
+    native MuJoCo backend ignores it.
+    """
 
     gripper: str
     mount_pos: tuple[float, float, float]
@@ -240,7 +244,8 @@ class ToolSpec:
 class ParametricArm:
     """A serial chain of hinge joints and capsule links on a fixed base.
 
-    Canonical names used by every backend: ``base``, ``link_{i}``, ``joint_{i}``, ``ee``.
+    Every MuJoCo-based backend names the elements ``base``, ``link_{i}`` and ``joint_{i}`` (robosuite adds its
+    ``robot0_`` prefix); the end effector is the ``ee`` site natively and the ``right_hand`` body in robosuite.
     ``label`` is metadata and does not enter the hash.
     """
 
