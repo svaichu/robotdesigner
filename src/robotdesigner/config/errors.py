@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 
 class ConfigError(ValueError):
     """Invalid configuration. The message starts with the path of the offending field."""
@@ -20,3 +22,14 @@ class ConfigError(ValueError):
         else:
             path = f"{prefix}.{self.path}"
         return ConfigError(path, self.reason)
+
+
+@dataclass(frozen=True)
+class Problem:
+    """One reason a config cannot be run, with the path of the field to change (for example ``control.mode``)."""
+
+    path: str
+    message: str
+
+    def __str__(self) -> str:
+        return f"{self.path}: {self.message}"

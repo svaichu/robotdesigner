@@ -104,3 +104,33 @@ def as_str(x: Any, path: str) -> str:
     if not isinstance(x, str) or not x:
         raise ConfigError(path, "must be a non-empty string")
     return x
+
+
+# --- JSON-like values as immutable structures ------------------------------------------
+
+
+def freeze(value: Any, path: str) -> Any:
+    """JSON-like value as an immutable, hashable structure: lists become tuples, mappings become sorted item tuples
+    led by the marker ``"__map__"``. Used by providers whose parameters hold free-form mappings."""
+    if value is None or isinstance(value, (bool, str, int)):
+        return value
+    if isinstance(value, float):
+        return as_float(value, path)
+    if isinstance(value, Mapping):
+        items = sorted(value.items(), key=lambda kv: str(kv[0]))
+        return ("__map__",) + tuple((str(k), freeze(v, f"{path}.{k}")) for k, v in items)
+    if isinstance(value, (list, tuple)):
+        return tuple(freeze(v, f"{path}[{i}]") for i, v in enumerate(value))
+    raise ConfigError(
+        path,
+        f"unsupported value of type {type(value).__name__}; use bool, int, float, str, None, lists or mappings",
+    )
+
+
+def thaw(value: Any) -> Any:
+    """Inverse of :func:`freeze`: mappings come back as dicts, sequences as tuples."""
+    if isinstance(value, tuple) and value and value[0] == "__map__":
+        return {k: thaw(v) for k, v in value[1:]}
+    if isinstance(value, tuple):
+        return tuple(thaw(v) for v in value)
+    return value

@@ -3,10 +3,17 @@
 from . import kinematics
 from .control import CONTROL_MODES, ControlConfig, FixedGains, InertiaScaledGains
 from .env import EnvConfig
-from .errors import ConfigError
+from .errors import ConfigError, Problem
 from .generators import chain
-from .sim import INTEGRATORS, MujocoOptions, RobosuiteOptions, SimConfig, register_backend_options
-from .task import FixedBox, OwnReachable, ReachParams, RobosuiteParams, TaskConfig
+from .providers import (
+    TaskProvider,
+    get_task_provider,
+    list_task_providers,
+    register_task_provider,
+    unregister_task_provider,
+)
+from .sim import INTEGRATORS, MujocoOptions, SimConfig, register_backend_options
+from .task import FixedBox, OwnReachable, TaskConfig
 from .robot import (
     Capsule,
     JointSpec,
@@ -27,12 +34,15 @@ __all__ = [
     "InertiaScaledGains",
     "MujocoOptions",
     "OwnReachable",
-    "ReachParams",
-    "RobosuiteOptions",
-    "RobosuiteParams",
+    "Problem",
     "SimConfig",
     "TaskConfig",
+    "TaskProvider",
+    "get_task_provider",
+    "list_task_providers",
     "register_backend_options",
+    "register_task_provider",
+    "unregister_task_provider",
     "Capsule",
     "ConfigError",
     "JointSpec",
