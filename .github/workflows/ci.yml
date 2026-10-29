@@ -20,7 +20,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Run tests
-        run: uv run --python ${{ matrix.python-version }} --extra env --extra dev pytest -v -m "not gpu and not robosuite and not render"
+        run: uv run --python ${{ matrix.python-version }} --extra env --extra viz --extra dev pytest -v -m "not gpu and not robosuite and not render"
 
   robosuite:
     # robosuite 1.5.x needs the compat layer on current MuJoCo; these tests notice when either side changes.

@@ -30,6 +30,7 @@ class MujocoReachEnv(EnvBase):
         self._compiled = compile_robot(cfg)
         self._iface = self._compiled.interface
         self._sim = BatchedSim(self._compiled, N, cfg.sim.n_substeps)
+        self._renderer = None  # created by the first render()
         n = self._iface.n
         self._n = n
 
@@ -211,3 +212,30 @@ class MujocoReachEnv(EnvBase):
         if seed is not None:
             self._gen.manual_seed(int(seed))
         return seed
+
+    # --- rendering (needs an OpenGL context: MUJOCO_GL=egl on headless machines) ----------------------------
+
+    def render(
+        self,
+        env_index: int = 0,
+        *,
+        camera=None,
+        size: tuple[int, int] = (240, 320),
+        overlays: bool = True,
+    ) -> np.ndarray:
+        """Render the live state of one env to ``uint8 (H, W, 3)`` (Gymnasium's ``rgb_array``).
+
+        Shows the whole scene plus the target and the target region as overlays. ``camera`` is ``None`` (the
+        ``"iso"`` view framed on the workspace), a view name (``iso``, ``front``, ``side``, ``top``), a
+        ``robotdesigner.viz.CameraSpec``, a ``mujoco.MjvCamera``, or the name / id of a camera in the model.
+        Rendering never changes the simulation.
+        """
+        from .render import get_renderer
+
+        return get_renderer(self).render(env_index, camera=camera, size=size, overlays=overlays)
+
+    def close(self, *, raise_if_closed: bool = True):
+        renderer, self._renderer = getattr(self, "_renderer", None), None
+        if renderer is not None:
+            renderer.close()
+        super().close(raise_if_closed=raise_if_closed)

@@ -45,7 +45,7 @@ base        numpy>=1.26                                     # robotdesigner.conf
 [env]       torch>=2.7, tensordict>=0.14.3,<0.15, torchrl>=0.14.1,<0.15, mujoco>=3.13
 [warp]      [env] + mujoco-warp, warp-lang>=1.15            # NVIDIA GPU; lock mujoco and mujoco-warp to the same release
 [robosuite] [env] + robosuite>=1.5,<1.6
-[viz]       imageio
+[viz]       pillow, imageio, imageio-ffmpeg
 [dev]       pytest, ruff
 ```
 

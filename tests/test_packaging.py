@@ -11,3 +11,12 @@ def test_config_import_has_no_engine():
         "import robotdesigner.config\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_viz_import_has_no_engine():
+    code = (
+        "import sys\n"
+        f"for m in {BLOCKED!r}: sys.modules[m] = None\n"
+        "import robotdesigner.viz\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)

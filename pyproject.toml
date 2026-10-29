@@ -19,7 +19,7 @@ env = [
 ]
 warp = ["robotdesigner[env]", "mujoco-warp", "warp-lang>=1.15"]
 robosuite = ["robotdesigner[env]", "robosuite>=1.5,<1.6"]
-viz = ["imageio"]
+viz = ["imageio", "imageio-ffmpeg", "pillow"]
 dev = ["pytest", "ruff"]
 
 [tool.hatch.build.targets.wheel]
