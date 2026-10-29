@@ -12,6 +12,8 @@ pip install -e ".[env,dev]"   # + pytest, ruff
 ```
 
 Python >= 3.10. Other extras: `viz` (imageio), `warp` and `robosuite` (later milestones; declared only).
+robosuite 1.5.x breaks on MuJoCo >= 3.10; `robotdesigner.backends.robosuite.apply_compat()` patches the two affected
+code paths in the running process (it applies only what the installed MuJoCo needs). The robosuite backend itself is not implemented yet.
 `import robotdesigner.config` works with numpy alone and never imports an engine.
 
 ## The idea
