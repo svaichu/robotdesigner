@@ -93,11 +93,11 @@ A gripper mounted on the end effector.
 
 | field | type | rule |
 |---|---|---|
-| `gripper` | str | non-empty; a robosuite gripper name such as `"PandaGripper"` |
+| `gripper` | str | non-empty; a gripper name such as `"PandaGripper"` |
 | `mount_pos` | 3 floats | offset of the gripper's first body, metres |
 | `mount_quat` | 4 floats | orientation of the gripper's first body, normalized like any quaternion |
 
-It is stored and hashed by every backend. Only the robosuite backend uses it; the native MuJoCo backend ignores it.
+It is stored and hashed. The MuJoCo backend does not build grippers yet and ignores it, so it changes `env_hash` but not the physics.
 
 ### `ParametricArm(schema_version, segments, base_pose, home_qpos, end_effector, tool, label="")`
 
@@ -279,14 +279,14 @@ q = kinematics.sample_joint_positions(arm, 10, np.random.default_rng(0))
 assert q.shape == (10, 3) and np.all(np.abs(q) <= 2.5)
 ```
 
-## How backends use the robot
+## How the MuJoCo backend uses the robot
 
-| aspect | native MuJoCo backend | robosuite backend |
-|---|---|---|
-| names | `base`, `link_{i}`, `joint_{i}`, `geom_{i}`, `ee` (site), `act_{i}` | the same chain under robosuite's naming: `robot0_` prefix, `link0` (mount, carries `base_pose`), `right_hand` (end effector), `torq_j{i}` |
-| actuators | position servo, velocity servo or torque, by control mode; force limited to `±effort_limit` | torque motors limited to `±effort_limit`; robosuite's controller commands them |
-| `ToolSpec` | ignored | gripper and mount offsets |
-| `base_pose` | world pose of the base | relative to the stock mount, or the world pose (`RobosuiteOptions.base_placement`) |
-| collisions | robot geoms collide with the scene; with each other only if `MujocoOptions.self_collision` | robot geoms collide with the scene, not with each other |
+| aspect | MuJoCo backend |
+|---|---|
+| names | `base`, `link_{i}`, `joint_{i}`, `geom_{i}`, `ee` (site), `act_{i}` |
+| actuators | position servo, velocity servo or torque, by control mode; force limited to `±effort_limit` |
+| `ToolSpec` | ignored |
+| `base_pose` | world pose of the base, for every task |
+| collisions | robot geoms collide with the scene; with each other only if `MujocoOptions.self_collision` |
 
-Both backends build the chain with the same function (`backends/mujoco/arm_spec.py`), so the physical robot is the same.
+The chain is built by one function (`backends/mujoco/arm_spec.py`), so the physical robot is the same in every scene.

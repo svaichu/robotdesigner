@@ -1,18 +1,21 @@
 # Backends and the environment contract
 
-A **backend** turns an [`EnvConfig`](configs/env.md) into a batched TorchRL environment. The config says what to run;
-the backend decides whether it can, and builds it.
+A **backend** is a simulator. It turns an [`EnvConfig`](configs/env.md) into a batched TorchRL environment. The config says
+what to run; the backend and the task's provider decide whether they can, and build it. Tasks are not part of a backend:
+they come from [task providers](configs/task.md#where-task-ids-come-from) and run on any backend their provider accepts.
 
 ```python no-run
-from robotdesigner.envs import make_env
-env = make_env(cfg)        # cfg.sim.backend picks the backend
+from robotdesigner import make_env
+env = make_env(cfg)        # cfg.sim.backend picks the simulator, cfg.task.id the provider that supplies the task
 ```
 
-| backend | what it runs | needs |
+| backend | what it is | needs |
 |---|---|---|
-| `mujoco` | `native/reach` on a robot-only MuJoCo model compiled from the config. The reference and debugging backend | `[env]` extra |
-| `robosuite` | any single-arm robosuite environment with the robot built from the config | `[robosuite]` extra |
+| `mujoco` | CPU MuJoCo: a model compiled from the config (robot, a scene preset, the task's assets). The reference and debugging backend | `[env]` extra |
 | `warp` | planned: the same models on the GPU. Declared as an extra only, not implemented | |
+
+Where a task's scene comes from is a provider matter: [native tasks](tasks/native.md) need none,
+[robosuite scenes](tasks/robosuite.md) load a robosuite arena and its objects into the MuJoCo model.
 
 ## Protocol and registry
 
@@ -32,103 +35,65 @@ class Backend(Protocol):
 
 ## Capabilities
 
-`Capabilities` lists what a backend supports: `control_modes`, `task_ids`, `devices`, `robot_kinds`, `integrators`. A task
-id entry ending in `*` matches by prefix (`"robosuite/*"`); a device entry `"cuda"` matches any `cuda:N`.
+`Capabilities` lists what a backend supports: `control_modes`, `devices`, `robot_kinds`, `integrators`. A device entry
+`"cuda"` matches any `cuda:N`. A backend never lists tasks.
 
-`make_env(cfg)` first compares the config with the capabilities (control mode, task, integrator, robot kind, device), then
-calls `backend.validate(cfg)`, and raises one `ConfigError` that lists **every** problem. Nothing is built, approximated
-or silently changed.
+`make_env(cfg)` collects problems from three places and raises one `ConfigError` that lists **every** one:
+
+1. the config against the backend's capabilities (control mode, integrator, robot kind, device);
+2. `backend.validate(cfg)` (engine-specific checks, for example the scene preset);
+3. `provider.validate(cfg, backend.name)`: the task's own checks against this backend.
+
+Nothing is built, approximated or silently changed.
 
 ```text
-backend 'robosuite' cannot run this config (5 problems):
-  - sim.dt: robosuite fixes the physics timestep at 0.002, got 0.001
-  - sim.scene: must be 'env': the robosuite environment builds its own scene
-  - control.gains: robosuite's joint controller scales its gains by the joint inertia; use InertiaScaledGains (bandwidth = sqrt(kp), damping_ratio)
-  - robot.tool: robosuite environments need a gripper; give the arm a ToolSpec
-  - task.id: 'TwoArmLift' needs more than one arm; single-arm environments: ['Door', 'Lift', ...]
+backend 'mujoco' cannot run this config (3 problems):
+  - control.mode: backend 'mujoco' does not support control mode 'ee_pos_delta'; supported: ['joint_pos_abs', ...]
+  - sim.device: backend 'mujoco' does not support device 'cuda:0'; supported: ['cpu']
+  - sim.scene: must be 'empty' for robosuite tasks: the arena brings its own floor
 ```
 
-| | `mujoco` | `robosuite` |
-|---|---|---|
-| control modes | `joint_pos_abs`, `joint_pos_delta`, `joint_torque`, `joint_vel` | `joint_pos_delta` |
-| gains | `FixedGains`, `InertiaScaledGains` | `InertiaScaledGains` |
-| tasks | `native/reach` | `robosuite/<EnvName>`, single-arm manipulation environments |
-| device | `cpu` | `cpu` |
-| integrators | `euler`, `implicit`, `implicitfast`, `rk4` | `euler` |
-| time step `dt` | any | `0.002` |
-| scenes | `empty`, `plain_floor` | `env` |
-| robot kinds | `parametric` | `parametric` |
-| `robot.tool` | ignored | required: the gripper |
-| backend options | `MujocoOptions` | `RobosuiteOptions` |
+| | `mujoco` |
+|---|---|
+| control modes | `joint_pos_abs`, `joint_pos_delta`, `joint_torque`, `joint_vel` |
+| gains | `FixedGains`, `InertiaScaledGains` |
+| device | `cpu` |
+| integrators | `euler`, `implicit`, `implicitfast`, `rk4` |
+| time step `dt` | any (`1 / (control_freq · dt)` must be an integer) |
+| scenes | `empty`, `plain_floor` (a task's own scene is added on top) |
+| robot kinds | `parametric` |
+| `robot.tool` | ignored |
+| backend options | `MujocoOptions` |
 
 ## The environment contract
 
-Every backend returns a TorchRL `EnvBase` with these properties.
+Every backend returns a TorchRL `EnvBase` with these properties, whatever the task.
 
 - `batch_size = [num_envs]`, batch-locked, on the CPU for the current backends.
 - **No autoreset.** `step` never resets an environment. Reset chosen rows with a boolean mask `td["_reset"]` of shape
   `[num_envs, 1]` (absent: reset all), or use `env.step_and_maybe_reset(td)` to let the driver do it from the done keys.
-- **Step** reads `td["action"]`, shape `[num_envs, action_dim]` in `[-1, 1]`, and returns the outputs under `("next", ...)`.
+- **Step** reads `td["action"]`, shape `[num_envs, n]` in `[-1, 1]` (one value per joint), and returns the outputs under
+  `("next", ...)`.
 - **Done keys:** `done`, `terminated`, `truncated`, each `[num_envs, 1]` bool. `truncated` is the time limit (`horizon`).
-- **Reward:** `[num_envs, 1]` float32.
+- **Reward:** `[num_envs, 1]` float32, from the task.
 - **Always present** in the observation: `success` `[num_envs, 1]` bool and `episode_step` `[num_envs, 1]` int64, a
-  `task` group and a `proprio` group with at least `qpos` and `qvel`, each `[num_envs, n]`.
-- **Injected state:** the reset TensorDict may carry `qpos` and `qvel` (and `target` on `native/reach`), which override
-  the random initialization. This is how two backends are compared from the same start, or an episode is replayed.
+  `task` group (whatever the task observes) and a `proprio` group with `qpos`, `qvel` and `effort`, each `[num_envs, n]`.
+- **Injected state:** the reset TensorDict may carry `qpos` and `qvel`, and whatever the task accepts (the
+  [native reach](tasks/native.md) task takes `target`), which override the random initialization. This is how two
+  backends are compared from the same start, or an episode is replayed.
 - **Seeding:** `env.set_seed(seed)`. The same backend, device and seed give the same episodes.
-- **Attributes:** `env.cfg` (the resolved config), `env.robot_hash`, `env.env_hash`.
-- `check_env_specs(env)` passes for every backend (the tests run it).
+- **Attributes:** `env.cfg` (the resolved config), `env.robot_hash`, `env.env_hash`, `env.task` (the task's engine side),
+  `env.interface` (a `RobotInterface`, below), `env.q_target` (position targets in `joint_pos_delta` mode).
+- `env.render(...)` returns an RGB frame of the live state, with the overlays the task draws; see [viz](viz.md).
+- `check_env_specs(env)` passes for every task (the tests run it).
 
-### `native/reach` on `mujoco`
-
-| key | shape | meaning |
-|---|---|---|
-| `task/ee_pos` | `[N, 3]` | end effector, in the robot's base frame |
-| `task/target_pos` | `[N, 3]` | target, in the base frame |
-| `proprio/qpos`, `proprio/qvel` | `[N, n]` | joint position and velocity |
-| `proprio/effort` | `[N, n]` | actuator force (N·m) at the last physics sub-step of the step |
-| action | `[N, n]` | one value per joint; the meaning is the control mode (see [ControlConfig](configs/control.md#modes)) |
-
-Extra attributes: `env.interface` (a `RobotInterface`, below) and `env.q_target` (the position targets in
-`joint_pos_delta` mode). `env.render(...)` returns an RGB frame of the live state; see [viz](viz.md).
-
-### `robosuite/<EnvName>` on `robosuite`
-
-One robosuite environment per batch element, stepped one after another in this process.
-
-| key | shape | meaning |
-|---|---|---|
-| `task/<name>` | `[N, d]` | every robosuite observation that does not belong to the robot (`cube_pos`, `handle_pos`, ...); the names and sizes are the environment's own |
-| `proprio/qpos`, `proprio/qvel` | `[N, n]` | joint position and velocity |
-| `proprio/<name>` | `[N, d]` | the robot's other observations with the `robot0_` prefix removed (`eef_pos`, `gripper_qpos`, ...). There is no `effort` |
-| action | `[N, n + g]` | `n` joint increments, then the gripper's `g` dimensions (`g = 1` for the Panda gripper, `0` for the wiping tool) |
-
-The aggregate `*-state` vectors robosuite builds are dropped as redundant; scalar observations become length-1 vectors.
-The observation keys are read from the environment at construction, so they differ between tasks; an environment whose
-keys change between episodes is refused.
-
-Behaviour worth knowing:
-
-- **Control.** `joint_pos_delta` keeps an accumulated target, `q_target += action * action_scale`, exactly as the native
-  backend does, and hands it to robosuite's joint controller as an absolute target. The controller adds gravity
-  compensation and re-evaluates the inertia every step, so the dynamics are close to, not identical with, the native
-  servo. See [ControlConfig](configs/control.md#inertiascaledgainsbandwidth-damping_ratio).
-- **Reset.** robosuite's `hard_reset` is off: a reset re-randomizes the task without rebuilding the simulation. robosuite's
-  own initial-state noise is zeroed; the robot starts at `home_qpos` plus `reset_noise` from our generator, or at the
-  injected `qpos`.
-- **Randomness.** Each sub-environment `i` has its own random stream, seeded with `seed + i`, so an environment's
-  episodes do not depend on resets of the others.
-- **No rendering yet.** This backend turns camera observations and the renderers off; `env.render()` and
-  `robotdesigner.viz` work with the native backend only (see [viz](viz.md#adding-rendering-to-another-backend)).
-- **Library defaults.** `env.resolved_env_kwargs` is the complete argument set the environment ran with. `env.env_name`,
-  `env.robosuite_version`, `env.robosuite_envs` (the underlying environments) and `env.q_target` are also available.
-- **Versions.** robosuite 1.5.x as released fails on MuJoCo 3.10 and later. `robotdesigner.backends.robosuite.apply_compat()`
-  patches the two affected code paths in the running process, applies only what the installed MuJoCo needs, and is called
-  for you. Call it yourself in worker processes started with `spawn`.
+`proprio/effort` is the actuator force (N·m) at the last physics sub-step of the step. The action's meaning is the
+control mode (see [ControlConfig](configs/control.md#modes)). The keys of the `task` group are the task's own and are
+documented on its page.
 
 ## `RobotInterface`
 
-What tasks and wrappers need to know about a compiled robot, without engine-specific names (native backend):
+What tasks and wrappers need to know about a compiled robot, without engine-specific names:
 
 | field | meaning |
 |---|---|
@@ -140,13 +105,30 @@ What tasks and wrappers need to know about a compiled robot, without engine-spec
 | `base_pose` | the base frame |
 | `kp`, `kd` | effective gains `(n,)`; `None` for torque control |
 
+## How an environment is put together
+
+```
+make_env(cfg)
+  ├─ backend  = get_backend(cfg.sim.backend)              the simulator
+  ├─ provider = provider_for(cfg.task.id)                 owner of the task id's namespace
+  ├─ problems = capabilities + backend.validate + provider.validate     (all at once)
+  └─ backend.make_env(cfg)
+        ├─ task = provider.build(cfg, backend.name)       engine side of the task (a TaskImpl)
+        └─ MujocoEnv(cfg, task)
+              compile_robot(cfg, scene_hook=task.attach)  scene preset, then the task's assets, then the robot
+              BatchedSim, control law, masked reset, episode counters, rendering   (shared by every task)
+              task.reset / observe / success / reward                                (the task's part)
+```
+
 ## Adding a backend
 
 1. Write a class with `name`, `capabilities()`, `validate(cfg)` and `make_env(cfg)`. Import the engine inside
-   `validate` and `make_env`, not at module level.
+   `validate` and `make_env`, not at module level. `make_env` gets the task with
+   `provider_for(cfg.task.id)[0].build(cfg, self.name)`.
 2. Register it: `register_backend("name", "your.module:YourBackend")`.
 3. Register its options class: `register_backend_options("name", YourOptions)` (it needs `to_dict` and `from_dict`).
 4. Return an `EnvBase` that follows the contract above: nested `task` / `proprio` observations, `[num_envs, ...]` shapes,
    no autoreset, `_reset` mask, injected state, deterministic seeding. Test it with `check_env_specs`, a masked-reset
    test and a seeding test.
-5. Add a task id the same way if the backend brings its own tasks (see [TaskConfig](configs/task.md#adding-a-task-id)).
+5. Tell the providers it exists: a provider accepts a backend by name in its `validate`, and builds the engine side the
+   backend needs in `build` (a provider that only knows MuJoCo reports `sim.backend` as a problem on yours).

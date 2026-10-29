@@ -2,15 +2,17 @@
 
 The complete, declarative description of one environment: robot, control, task, sim and backend options, with one hash.
 Everything that changes behaviour is in here, so a run is identified by its `env_hash`. Importing it needs numpy only.
+An `EnvConfig` is data: `env = make_env(cfg)` is the one step that turns it into an environment (see
+[building the environment](#building-the-environment)).
 
 ```python
 import json
 from dataclasses import replace
 
 from robotdesigner.config import (
-    ConfigError, ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, ReachParams,
-    RobosuiteOptions, SimConfig, TaskConfig, chain,
+    ConfigError, ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
 )
+from robotdesigner.tasks.native import ReachParams
 ```
 
 Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [TaskConfig](task.md), [SimConfig](sim.md),
@@ -24,7 +26,7 @@ Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [TaskConfig
 | `control` | `ControlConfig` | [ControlConfig](control.md) |
 | `task` | `TaskConfig` | [TaskConfig](task.md) |
 | `sim` | `SimConfig` | [SimConfig](sim.md) |
-| `backend_options` | the options class of `sim.backend` | `MujocoOptions` for `"mujoco"`, `RobosuiteOptions` for `"robosuite"` |
+| `backend_options` | the options class of `sim.backend` | `MujocoOptions` for `"mujoco"` |
 
 Checks across the sections, on top of each section's own:
 
@@ -33,8 +35,8 @@ Checks across the sections, on top of each section's own:
   has options registered at all (path `sim.backend`);
 - per-joint `kp` and `kd` in `FixedGains` have exactly `robot.n` entries (path `control.gains.kp` or `.kd`).
 
-Whether the backend can run the combination (a control mode, a task, a device, the time step) is not checked here: the
-backend reports it when the environment is built.
+Whether the simulator can run the combination (a control mode, a device, the time step) and whether the task's provider
+accepts it on that simulator is not checked here: `make_env` reports it when the environment is built.
 
 ## Example
 
@@ -44,7 +46,7 @@ arm = chain(3, "zyz", total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5
 cfg = EnvConfig(
     robot=arm,
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-    task=TaskConfig("native/reach", horizon=200, success_tolerance=0.02,
+    task=TaskConfig("native/reach", horizon=200, success_tolerance=0.02,   # a task of the `native` provider
                     target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),
                     params=ReachParams(reset_noise=0.0, terminate_on_success=False)),
     sim=SimConfig(backend="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
@@ -89,7 +91,7 @@ first 12 characters.
 |---|---|
 | any physical or control parameter, the task, the time step, the integrator, the scene, the options | the robot's `label` |
 | `num_envs` and `seed` (they define the run) | key order in a dict, `-0.0` versus `0.0`, scaling an axis or a quaternion |
-| the backend name | |
+| the backend name and the task id | |
 
 Not in the hash, because they are not part of the config: the version of MuJoCo, robosuite or this package, and robosuite's
 own defaults for arguments you did not set (those are recorded on the environment as `resolved_env_kwargs`).
@@ -121,7 +123,7 @@ def error_of(build):
     raise AssertionError("no error")
 
 # the options class must match the backend
-assert error_of(lambda: replace(cfg, backend_options=RobosuiteOptions("explicit"))).path == "backend_options"
+assert error_of(lambda: replace(cfg, backend_options=ReachParams(0.0, False))).path == "backend_options"
 # a per-joint gain list must have n entries (the arm has 3 joints)
 assert error_of(lambda: replace(cfg, control=ControlConfig("joint_pos_abs", FixedGains((1.0, 2.0), 1.0), None))).path == "control.gains.kp"
 # an unknown backend has no options class
@@ -132,10 +134,16 @@ assert error_of(lambda: replace(cfg, sim=replace(cfg.sim, backend="nope"))).path
 
 ```python no-run
 # needs the env extra (torch, torchrl, mujoco)
-from robotdesigner.envs import make_env
+from robotdesigner import make_env
 env = make_env(cfg)
 print(env.robot_hash, env.env_hash)   # the 12-character hashes of the robot and of this whole config
 ```
+
+`make_env(cfg)` is the only way an `EnvConfig` becomes an environment, and it works the same for every task: the simulator
+is the one named in `cfg.sim.backend`, the task comes from the provider that owns `cfg.task.id`
+(see [TaskConfig](task.md#where-task-ids-come-from)). `EnvConfig` itself has no `make()` method, so the config layer
+stays free of engines. Everything the simulator or the task cannot do with this config is reported in one `ConfigError`
+([backends](../backends.md#capabilities)).
 
 Every environment exposes `cfg`, `robot_hash` (`robot.config_hash`) and `env_hash`. Keep the JSON from `to_dict()` with
 each run: `EnvConfig.from_dict(json.load(f)).env_hash` must equal the recorded `env_hash`.

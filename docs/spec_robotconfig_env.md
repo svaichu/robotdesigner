@@ -1,8 +1,9 @@
 # RobotConfig, EnvConfig and backends: design record (v7, as built)
 
-> **Status.** Implemented and tested: the config layer, the native CPU MuJoCo backend (`native/reach`) and the robosuite
-> backend (any single-arm environment). Not implemented: the `warp` GPU backend, `ExternalRobot`, family-reachable target
-> regions and end-effector control modes. Written 2026-10-27 as a proposal, brought in line with the code on 2026-10-29.
+> **Status.** Implemented and tested: the config layer, the CPU MuJoCo backend with one generic environment, task providers
+> (the `native` provider with the reach task, and `robosuite` as a source of arenas and objects). Not implemented: the `warp` GPU backend, `ExternalRobot`, family-reachable target
+> regions and end-effector control modes. Written 2026-10-27 as a proposal, brought in line with the code on 2026-10-29, and revised the same day for task
+> providers (section 5a; Appendix A is rewritten).
 > Field-level detail lives in the reference pages ([docs/README.md](README.md)), which the tests check against the code;
 > this document keeps the purpose, the principles, the decisions and their reasons. Companion note:
 > `.agent/quotient_space.md`. Working notes: `.agent/memory.md`.
@@ -39,11 +40,13 @@ simulators; a Gymnasium-native contract (an adapter may follow).
 
 ```
 robotdesigner.config               numpy only: configs, generators, validation, hashing, kinematics oracle
-robotdesigner.envs                 make_env(cfg)
+robotdesigner.make_env             make_env(cfg), the one step from an EnvConfig to an environment (robotdesigner.envs.make_env)
 robotdesigner.viz                  clips, frame recorder, camera framing (saving needs the viz extra); see viz.md
-robotdesigner.backends             protocol, capabilities, lazy registry
-robotdesigner.backends.mujoco      CPU reference backend; arm_spec.add_arm builds the chain for every MuJoCo-based backend
-robotdesigner.backends.robosuite   robosuite tasks with our robot; the compatibility layer
+robotdesigner.backends             simulators: protocol, capabilities, lazy registry
+robotdesigner.backends.mujoco      CPU reference backend and its generic env; arm_spec.add_arm builds the chain
+robotdesigner.tasks                task contract (base.py); one subpackage per provider namespace, found by config.providers
+robotdesigner.tasks.native         tasks without third-party assets (reach)
+robotdesigner.tasks.robosuite      robosuite arenas and objects as a task; the compatibility layer
 (planned) backends.warp            GPU training
 ```
 
@@ -83,9 +86,9 @@ EnvConfig(robot, control, task, sim, backend_options)
 |---|---|---|
 | robot | `ParametricArm` (a `RobotConfig`) | [robot.md](configs/robot.md) |
 | control | `ControlConfig` with `FixedGains` or `InertiaScaledGains` | [control.md](configs/control.md) |
-| task | `TaskConfig` with `ReachParams` or `RobosuiteParams` | [task.md](configs/task.md) |
-| sim | `SimConfig` | [sim.md](configs/sim.md) |
-| backend options | `MujocoOptions`, `RobosuiteOptions` | [sim.md](configs/sim.md#backend-options) |
+| task | `TaskConfig` with the params class of the task's provider | [task.md](configs/task.md), [native.md](tasks/native.md), [robosuite.md](tasks/robosuite.md) |
+| sim | `SimConfig` (names a simulator) | [sim.md](configs/sim.md) |
+| backend options | `MujocoOptions` | [sim.md](configs/sim.md#backend-options) |
 
 As built, and where it differs from the first proposal:
 
@@ -93,14 +96,13 @@ As built, and where it differs from the first proposal:
   `n = len(segments)` and `chain()` as the generator. Every dynamic parameter is required. `ExternalRobot` (a reference to
   an existing model, for baselines such as the stock Panda) is designed but not implemented. The hash is the SHA-256 of the
   canonical JSON without the label; quaternion signs are canonicalized so the first non-zero component is positive.
-- **ControlConfig.** Six mode names are declared; the native backend implements four (`joint_pos_abs`, `joint_pos_delta`,
-  `joint_vel`, `joint_torque`), robosuite one (`joint_pos_delta` with `InertiaScaledGains`), and no backend implements the
-  end-effector modes. Hardware limits stay in the robot (`effort_limit`).
-- **TaskConfig.** Task ids are `native/reach` and `robosuite/<EnvName>`. A target region is `FixedBox` or `OwnReachable()`
-  (no margin); a family-reachable region is deferred. Tasks that define their own goal (every robosuite task) take `None`
-  for `target_region` and `success_tolerance`.
+- **ControlConfig.** Six mode names are declared; the MuJoCo backend implements four (`joint_pos_abs`, `joint_pos_delta`,
+  `joint_vel`, `joint_torque`), and no backend implements the end-effector modes. Hardware limits stay in the robot (`effort_limit`).
+- **TaskConfig.** An id is `<namespace>/<name>`; the namespace selects a task provider (section 5a) that owns the params
+  class, so the core knows no task. A target region is `FixedBox` or `OwnReachable()` (no margin); a family-reachable
+  region is deferred. Tasks that define their own goal take `None` for `target_region` and `success_tolerance`.
 - **SimConfig.** `backend, num_envs, device, dt, integrator, control_freq, seed, scene`, all required, no defaults (the
-  proposal planned defaults for `dt` and `integrator` and a `render` field; neither exists). `1 / (control_freq * dt)`
+  proposal planned defaults for `dt` and `integrator` and a `render` field; neither exists). `backend` names a simulator. `1 / (control_freq * dt)`
   must be a positive integer. Rendering is not a config field: `env.render()` on the native env and `robotdesigner.viz`
   produce frames and clips ([viz.md](viz.md)).
 - **EnvConfig.** `resolve()` is the identity today (nothing needs resolving until family-reachable regions exist);
@@ -110,24 +112,43 @@ As built, and where it differs from the first proposal:
 
 A backend implements `capabilities()`, `validate(cfg)` (a list of problems, before anything is built) and `make_env(cfg)`.
 
-| | `mujoco` | `robosuite` | `warp` (planned) |
-|---|---|---|---|
-| Role | reference, debugging | library tasks | training |
-| Device | CPU | CPU | CUDA |
-| Robot | ours, compiled to `MjSpec` | ours, generated into a robosuite robot class | ours |
-| Scene, task | ours (`native/reach`) | the library's | ours |
-| Control | ours: actuators and the env layer | the library's joint controller, driven with our accumulated target | ours |
-| Stepping | N `MjData` stepped in a loop | N robosuite environments stepped in a loop | MuJoCo Warp, `nworld = num_envs` |
+| | `mujoco` | `warp` (planned) |
+|---|---|---|
+| Role | reference, debugging | training |
+| Device | CPU | CUDA |
+| Robot | ours, compiled to `MjSpec` | ours |
+| Scene, task | a scene preset plus whatever the task's provider attaches | the same |
+| Control | ours: actuators and the env layer | ours |
+| Stepping | N `MjData` stepped in a loop | MuJoCo Warp, `nworld = num_envs` |
 
-- **`mujoco`.** `ParametricArm` compiles to a robot-only `MjSpec`, is attached to a scene preset and compiled to one
+- **`mujoco`.** `ParametricArm` compiles, with a scene preset and the task's assets attached to the same `MjSpec`, to one
   `MjModel`; the compile also produces the `RobotInterface`. `MjSpec` reads angles as degrees unless
   `compiler.degree = False`; the compile sets it (an early version did not, and joint limits came out 57 times too small).
-- **`robosuite`.** Task ids `robosuite/<EnvName>` for every registered single-arm manipulation environment. See Appendix A.
 - **`warp`.** Not started. The plan: the same `MjModel` goes through `put_model` and `make_data(nworld, ...)`, state is
   exposed as torch tensors, parity is tested against the CPU backend from injected state, and per-world model fields may
   let same-topology embodiments share one simulation (different `n` needs a separate simulation per topology group).
 - **Shared robot construction.** `backends/mujoco/arm_spec.add_arm` builds the links, joints and capsules for every
   MuJoCo-based backend, so the physical robot is identical across them.
+
+### 5a. Task providers (2026-10-29)
+
+The first version had the backend choose the task: `MujocoBackend` built the reach environment, `RobosuiteBackend` ran
+robosuite's own simulation, and each listed task ids in its capabilities. Two things were wrong with that. A backend is a
+simulator and should be able to run any task, and a task source (robosuite) is not a simulator, yet it was a value of
+`sim.backend`, with its own controller and physics, so embodiments could not be compared across tasks on one control path.
+
+- **`env = make_env(cfg)`** is the only construction path. `EnvConfig` stays data (no `make()`, so `config` imports no engine).
+- **A task provider owns a namespace.** Config side: params classes (numpy only). Engine side: a `TaskImpl` that adds scene
+  assets to the model spec, places things at reset, observes, scores. `validate(cfg, backend)` collects the provider's
+  problems with the backend's into one `ConfigError`; `Capabilities` has no task ids.
+- **One generic environment per simulator.** `MujocoEnv` owns the robot, control law, batching, masked reset, episode
+  counters and rendering; a task states only what it adds.
+- **No task is named in the core.** Providers are the subpackages of `robotdesigner.tasks`, the entry-point group
+  `robotdesigner.task_providers`, or `register_task_provider`; `tests/test_no_hardcoded_tasks.py` reads the names from the
+  registry and fails if config, backends, envs, viz or the task contract mention one.
+- **robosuite is a source of assets** (Appendix A). Reward and success are ours.
+- Moving the reach task out of the core changed nothing it computes: rollouts of four configs (absolute, delta with a masked
+  reset, torque with self-collision, velocity) are bit-identical to those of the previous version, and so are the `env_hash`es.
 
 ## 6. Env contract (TorchRL)
 
@@ -149,7 +170,7 @@ Subclasses implement `_reset`, `_step` and `_set_seed` and declare the specs; th
 - **No autoreset inside the env.** The driver reads the done keys and writes `_reset`.
 - **Partial reset** honours the `_reset` mask. TorchRL does not verify that an env implements it, so each backend has its
   own test.
-- **Injected state:** optional entries in the reset TensorDict (`qpos`, `qvel`; `target` on `native/reach`) override random
+- **Injected state:** optional entries in the reset TensorDict (`qpos`, `qvel`, and whatever the task accepts, such as reach's `target`) override random
   initialization, for parity tests and for replaying a world on another backend.
 - **Seeding:** the same backend, device and seed give the same results; random resets differ across backends, so parity uses
   injected state.
@@ -199,17 +220,20 @@ Not done or not verified:
 4. The env contract is TorchRL `EnvBase`; the env never autoresets; nested observations are primary.
 5. GPU backend: MuJoCo Warp driven from torch. JAX is shelved. CPU MuJoCo is the reference and debugging backend.
 6. Frozen dataclasses with hand-written validation; packaging as in section 3.
-7. The robosuite backend is generic over environments (`robosuite/<EnvName>`), not tied to one task. robosuite keeps the
-   task, scene, gripper and reward; we supply the robot and the control.
-8. robosuite's joint controller is driven in absolute mode with the accumulated target `q_target += action * scale`, so one
-   `ControlConfig` means the same on both backends (robosuite's own delta input adds to the current position and the arm
-   settles far below the commanded rate).
+7. robosuite is a source of task assets, generic over environments (`robosuite/<EnvName>`): its arena, objects and placement
+   rule are loaded into our MuJoCo simulation; we supply the robot, the control, the physics settings, success and
+   reward. (Replaces the first design, in which robosuite ran its own simulation and controller as a backend.)
+8. Control means the same for every task because there is one control path. (The first design drove robosuite's joint
+   controller with our accumulated target to approximate that.)
 9. robosuite's incompatibility with current MuJoCo is patched at run time, only where the installed MuJoCo needs it,
    instead of capping MuJoCo.
 10. Tasks that define their own goal take `None` for `target_region` and `success_tolerance`; passing a value is an error.
 11. Environments whose observation keys change between episodes (`PickPlaceSingle`, `NutAssemblySingle`) are refused, and
     two-arm environments are refused.
 12. `.agent/` is committed, with no machine-specific strings.
+13. `sim.backend` names a simulator only; a task source is never a backend.
+14. The core names no task, and a test enforces it. Providers register themselves.
+15. Objects without a free joint (fixtures) are placed once at build time, because the envs of a batch share one model.
 
 **Open:**
 
@@ -224,44 +248,32 @@ Not done or not verified:
 1. **Config layer and CPU backend.** Done. `dt` and `integrator` stayed explicit (no defaults).
 2. **Native Reach on CPU (TorchRL).** Done: `check_env_specs`, masked `_reset`, seeding, injected state.
 3. **`warp` backend.** Not started.
-4. **robosuite.** Done for generated arms in any single-arm environment, in a more general form than the planned `Lift`
-   only. The stock-Panda baseline needs `ExternalRobot` and has not been done.
+4. **robosuite.** Done as a source of assets (Appendix A) for generated arms: scenes of any single-arm environment that has
+   a physical object, with objectives of our own. The stock-Panda baseline needs `ExternalRobot` and has not been done.
 5. **Later:** Playground and JAX backends.
 
-## Appendix A. The robosuite backend as built
+## Appendix A. robosuite as a task provider, as built
 
-Entry points: `RobosuiteBackend` (capabilities, `validate`, `make_env`), `RobosuiteEnv`, `arm.py` (robot class and
-controller config), `_introspect.py` (reads robosuite's environment classes), `_compat.py` (the compatibility layer).
+Package `robotdesigner.tasks.robosuite`. Reference: [tasks/robosuite.md](tasks/robosuite.md).
 
-- **Environment names.** Read from robosuite's registry: single-arm manipulation environments only. `validate` checks that
-  the name exists, that the class is single-arm, that it defines `_check_success`, that `env_kwargs` are arguments it
-  accepts (following `**kwargs` forwarding up the class chain), and that it does not pick a random object per episode.
-- **Robot.** `arm_xml` builds a robot-only MJCF from the `ParametricArm` (root body `base`, mount body `link0` carrying
-  `base_pose` and the `right_center` site that robosuite's controller uses as the arm's base frame, the shared chain,
-  a `right_hand` body at the end-effector pose, one torque motor per joint limited to `effort_limit`). A `ManipulatorModel`
-  subclass named from the config hash reads that file. robosuite's registries are global to the process, so the class is
-  registered once and reused. `ToolSpec.gripper` and its mount offsets select and place the gripper.
-- **Placement.** `RobosuiteOptions.base_placement`: `env_default` mounts the arm where robosuite mounts a stock arm (the rule
-  is read from robosuite's own Panda) and treats `base_pose` as relative to that point; `explicit` puts the root at the
-  arena origin.
-- **Control.** A composite controller with the arm `JOINT_POSITION` controller in absolute mode, `kp = bandwidth²`, the given
-  damping ratio, and the `GRIP` gripper controller. The action layout is `[arm (n), gripper dimensions]`. robosuite adds
-  gravity compensation and re-evaluates the inertia every step.
-- **Observations.** `task` is every non-robot observation under robosuite's own names; `proprio` is `qpos`, `qvel` and the
-  robot's other observations without the `robot0_` prefix; aggregate `*-state` vectors are dropped.
-- **Reward and done.** The reward is robosuite's, as `[N, 1]`; `success` is the environment's success check; `truncated` is
-  the horizon; `terminated` is success only if `terminate_on_success`.
-- **Reset and seeding.** `hard_reset` is off. The robot starts from `robot.init_qpos`, which is set to `home_qpos` plus our
-  noise or to the injected `qpos`; robosuite's own noise is zeroed. Each sub-environment has its own numpy random stream
-  seeded with `seed + i`, swapped in around every call into robosuite; robosuite 1.5.2 is also given `seed` and its
-  generator is reseeded in place.
-- **Physics.** robosuite owns the time step (0.002) and the integrator (MuJoCo's default, Euler), so the backend rejects
-  other values of `sim.dt` and `sim.integrator`.
-- **Compatibility layer.** Two patches, each applied only if its probe fails: robosuite's joint-address lookup compares a
-  numpy integer with an enum (False from MuJoCo 3.12), and its controller reads `MjData.qM` with the old `mj_fullM`
-  signature (changed in 3.10, `qM` removed in 3.11). Upstream reports: robosuite issue 831 and pull request 832.
-
-**Constraints on an embodiment family.** Scale: the task layouts are built around Panda-sized arms, so `chain` with
-`total_length` keeps families comparable. Degrees of freedom: whether a 3-DoF arm can grasp a 4 cm cube is itself a study
-result. Gains: robosuite's default joint gains were tuned for Panda inertias; `InertiaScaledGains` makes them follow the
-arm. Compute: the environments run on the CPU, one after another.
+- **Loading.** `scene.load_scene` builds the robosuite environment once, with a stock Panda and without rendering, seeded
+  from `sim.seed` (robosuite draws object sizes while it builds). It keeps the arena and objects (as one MJCF document
+  made by `ManipulationTask` without robots), the placement sampler and the position where robosuite mounts a stock arm,
+  then closes the environment. Its simulation is never stepped.
+- **Attaching.** `clean_xml` drops the `<option>`, `<size>` and `<visual>` sections (the simulator settings are ours) and
+  the IK mocap bodies; `MjSpec.attach` merges the rest under the prefix `rs_`. The arena brings its own floor, so
+  `sim.scene` must be `empty`. Physics settings follow `SimConfig` and MuJoCo's defaults.
+- **Placement.** At every reset, per env, robosuite's own sampler draws poses for the objects that have a free joint, with
+  the global numpy stream (robosuite 1.5.1) or the sampler's generator (1.5.2, not exercised) seeded from the environment's
+  generator, and restored afterwards. Objects without a free joint are placed once when the task is bound and written
+  into the shared model.
+- **Objective.** `LiftObject(object, height)` and `ReachObject(object, tolerance)`; reward is the negative distance from the
+  end effector to the object. Observations are `ee_pos` and `<object>_pos` / `<object>_quat` for physical objects, in the
+  robot's base frame.
+- **Versions.** `_compat.apply_compat` patches two robosuite 1.5.x code paths that break on MuJoCo >= 3.10 (joint-address
+  enum comparison, the mass-matrix call), each only if its probe fails. It is needed because building a robosuite environment
+  runs its controller setup.
+- **Not carried over from the first design:** the generated robot class and gripper (`arm.py`), robosuite's controller,
+  `RobosuiteOptions.base_placement`, the per-sub-environment robosuite instances and their random streams, the fixed
+  `dt = 0.002`. `default_mount(env_name)` replaces `env_default` placement: it returns the pose, you use it (or not) as the
+  base of your arm.

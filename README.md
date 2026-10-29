@@ -11,8 +11,8 @@ pip install -e ".[env]"       # + torch, torchrl, tensordict, mujoco: the CPU Mu
 pip install -e ".[env,dev]"   # + pytest, ruff
 ```
 
-Python >= 3.10. Other extras: `viz` (Pillow, imageio-ffmpeg: GIF and MP4 output), `robosuite` (the robosuite
-backend, below) and `warp` (a later milestone; declared only).
+Python >= 3.10. Other extras: `viz` (Pillow, imageio-ffmpeg: GIF and MP4 output), `robosuite` (robosuite arenas and
+objects as tasks, below) and `warp` (a later milestone; declared only).
 `import robotdesigner.config` works with numpy alone and never imports an engine.
 
 ## The idea
@@ -21,26 +21,31 @@ backend, below) and `warp` (a later milestone; declared only).
   `config_hash` (12 characters, SHA-256 prefix) that ignores labels and float noise.
 - **Everything that changes behaviour is in `EnvConfig`**: robot, control, task, sim and backend options. There
   are no hidden defaults. `env_hash` identifies a run.
-- **Backends realize configs.** `sim.backend = "mujoco"` is the CPU reference backend. An unsupported combination
-  (control mode, device, task, ...) is rejected up front with every problem listed, never approximated.
-- **One env contract.** Every backend returns a TorchRL `EnvBase` with `batch_size = [num_envs]`. The env never
+- **`env = make_env(cfg)`** is the one step from config to environment, for every task.
+- **Simulators and tasks are separate.** `sim.backend = "mujoco"` names the simulator (the CPU reference backend). A
+  task id is `"<namespace>/<name>"` and comes from a **task provider**: the package knows no task by name, providers
+  register themselves (see [TaskConfig](docs/configs/task.md#where-task-ids-come-from)). An unsupported combination
+  (control mode, device, task on this simulator, ...) is rejected up front with every problem listed, never
+  approximated.
+- **One env contract.** Every environment is a TorchRL `EnvBase` with `batch_size = [num_envs]`. The env never
   autoresets; reset rows with the `_reset` mask.
 
 ## Documentation
 
 Reference pages in [`docs/`](docs/README.md): [RobotConfig](docs/configs/robot.md), [ControlConfig](docs/configs/control.md),
 [TaskConfig](docs/configs/task.md), [SimConfig and backend options](docs/configs/sim.md), [EnvConfig](docs/configs/env.md),
-[backends and the environment contract](docs/backends.md), and the [design spec](docs/spec_robotconfig_env.md).
+[backends and the environment contract](docs/backends.md), the task providers [native tasks](docs/tasks/native.md) and
+[robosuite scenes](docs/tasks/robosuite.md), and the [design spec](docs/spec_robotconfig_env.md).
 The Python examples in them are executed by the tests.
 
 ## Quick start
 
 ```python
+from robotdesigner import make_env
 from robotdesigner.config import (
-    ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, ReachParams,
-    SimConfig, TaskConfig, chain,
+    ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
 )
-from robotdesigner.envs import make_env
+from robotdesigner.tasks.native import ReachParams      # the params of a task come from the provider that owns it
 
 arm = chain(n=3, axes="zyz", total_length=0.9, total_mass=3.0, radius=0.03,
             damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5),
@@ -76,57 +81,47 @@ td = env.step(td)                              # outputs under ("next", ...)
 data, td = env.step_and_maybe_reset(td)
 ```
 
-## robosuite backend
+## robosuite scenes as tasks
 
-Any single-arm robosuite environment, with the robot built from our `ParametricArm`. robosuite keeps the task, scene,
-gripper and reward; robotdesigner supplies the arm. Full details: [backends](docs/backends.md#robosuiteenvname-on-robosuite).
+robosuite supplies the arena, the objects and their placement; our MuJoCo simulation steps everything, with your robot
+and your control law. The task id is `robosuite/<EnvName>` and the config says what counts as success. Full details:
+[robosuite scenes](docs/tasks/robosuite.md).
 
 ```python
-from robotdesigner.config import (ControlConfig, EnvConfig, InertiaScaledGains, Pose, RobosuiteOptions,
-                                  RobosuiteParams, SimConfig, TaskConfig, ToolSpec, chain)
-from robotdesigner.envs import make_env
+from robotdesigner import make_env
+from robotdesigner.config import ControlConfig, EnvConfig, FixedGains, MujocoOptions, SimConfig, TaskConfig, chain
+from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams, default_mount
 
-arm = chain(4, "zyyy", link_length=[0.1, 0.4, 0.4, 0.15], total_mass=8.0, radius=0.04, damping=1.0, armature=0.05,
-            frictionloss=0.0, effort_limit=80.0, range=(-2.9, 2.9), home_qpos=(0.0, -1.06, 1.91, 0.72),
-            base_pose=Pose((0.0, 0.0, 1.1), (1.0, 0.0, 0.0, 0.0)),            # shoulder height above the stock mount
-            end_effector=Pose((0.0, 0.0, 0.0), (0.7071068, 0.0, 0.7071068, 0.0)),   # gripper axis along the last link
-            tool=ToolSpec("PandaGripper", (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0)))
+arm = chain(4, "zyyy", total_length=0.9, total_mass=6.0, radius=0.04, damping=1.0, armature=0.05, frictionloss=0.0,
+            effort_limit=80.0, range=(-2.9, 2.9), base_pose=default_mount("Lift"))   # where robosuite mounts a stock arm
 cfg = EnvConfig(
     robot=arm,
-    control=ControlConfig("joint_pos_delta", InertiaScaledGains(bandwidth=7.0, damping_ratio=1.0), action_scale=0.05),
+    control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
     task=TaskConfig("robosuite/Lift", horizon=200, success_tolerance=None, target_region=None,
-                    params=RobosuiteParams({"reward_shaping": True}, reset_noise=0.0, terminate_on_success=False)),
-    sim=SimConfig("robosuite", num_envs=4, device="cpu", dt=0.002, integrator="euler", control_freq=20.0, seed=0,
-                  scene="env"),
-    backend_options=RobosuiteOptions(base_placement="env_default"),
+                    params=RobosuiteParams({}, LiftObject("cube", height=0.84), reset_noise=0.0,
+                                           terminate_on_success=False)),
+    sim=SimConfig("mujoco", num_envs=4, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
+                  scene="empty"),                       # the arena brings its own floor
+    backend_options=MujocoOptions(self_collision=False),
 )
-env = make_env(cfg)   # a TorchRL env with the same contract as native/reach
+env = make_env(cfg)   # the same contract as every other task
 ```
 
-- **Tasks:** `robosuite/<EnvName>` for any registered single-arm env (`Lift`, `Stack`, `Door`, `PickPlace`, `Wipe`, ...).
-  Task arguments go in `RobosuiteParams.env_kwargs`; robosuite's own defaults for the rest are recorded in
-  `env.resolved_env_kwargs` and are not part of the config hash. Two-arm envs are refused, as are
-  `PickPlaceSingle` / `NutAssemblySingle`, which pick a random object per episode (fix it with
-  `single_object_mode=2, object_type=...`).
-- **Robot:** `ToolSpec.gripper` must be a robosuite gripper (`Wipe` insists on `WipingGripper`). The action is
-  `n` joint increments followed by the gripper's dimensions. `base_placement="env_default"` mounts the arm where the
-  environment mounts a stock arm and `base_pose` is relative to that point; `"explicit"` puts the root at the arena
-  origin and `base_pose` is the world pose.
-- **Control:** `joint_pos_delta` with `InertiaScaledGains`, with the same accumulated target as the native backend.
-  robosuite's controller adds gravity compensation and re-evaluates the inertia every step, so dynamics are close to,
-  not identical with, the native servo.
-- **Fixed by robosuite:** `sim.dt` is 0.002, the integrator is MuJoCo's default (`"euler"`), and `sim.scene` is `"env"`.
-- **Observations:** `task` holds the environment's own observations, `proprio` the robot's (`qpos`, `qvel` first).
+- **Assets, not physics.** The arena, objects and their placement rule are robosuite's; the time step, integrator,
+  control modes and gains are yours. robosuite's controllers, robots, grippers and rewards are not used.
+- **Success and reward** are the `objective` in `RobosuiteParams` (`LiftObject`, `ReachObject`).
+- **Tried on:** `Lift`, `Stack`, `NutAssembly*`, `PickPlace*`, `Door`, `ToolHang`; the random-object `*Single` variants and
+  two-arm environments are refused. The table is in the [robosuite page](docs/tasks/robosuite.md#which-environments-work).
 - **Versions:** robosuite 1.5.x does not run on MuJoCo >= 3.10 as released; `apply_compat()` patches that in the running
-  process (it applies only what the installed MuJoCo needs) and is called automatically.
-- **Cost:** one robosuite environment per batch element, stepped in turn on one CPU core.
+  process and is called automatically.
 
 ## Control modes and targets
 
 Four joint-space modes (`joint_pos_abs`, `joint_pos_delta`, `joint_vel`, `joint_torque`) with `FixedGains` or
-`InertiaScaledGains`, and targets drawn from `FixedBox` or `OwnReachable`. What each mode and target means, and which
-backend supports what, is in [ControlConfig](docs/configs/control.md), [TaskConfig](docs/configs/task.md) and
-[backends](docs/backends.md). Reset can inject `target`, `qpos` and `qvel` through the reset TensorDict.
+`InertiaScaledGains`, and goal targets drawn from `FixedBox` or `OwnReachable`. What each mode and target means, and
+which simulator supports what, is in [ControlConfig](docs/configs/control.md), [TaskConfig](docs/configs/task.md) and
+[backends](docs/backends.md). Reset can inject `qpos` and `qvel` through the reset TensorDict, and whatever the task
+accepts (the [native reach](docs/tasks/native.md) task takes `target`).
 
 ## Rendering and video (optional)
 
@@ -144,11 +139,9 @@ clip.show("gif")          # show inline in a chosen format
 
 `env.render(env_index=0, camera=None, size=(240, 320), overlays=True)` returns one `uint8 (H, W, 3)` frame of the live
 state, like Gymnasium's `rgb_array`, so any step loop can collect its own frames. A frame shows the whole MuJoCo scene
-(floor, robot, anything else in the model) plus overlays drawn from task state: the target (a sphere of radius
-`success_tolerance` with a cross-hair, red until reached, then green) and, for a `FixedBox` region, its edges as a
-wireframe box.
-Rendering works on a scratch copy of the state, so it never changes the simulation.
-Only the CPU MuJoCo backend (`native/reach`) renders so far.
+(floor, robot, arena and objects of the task) plus the overlays the task draws for state that is not in the model (the
+native reach task draws its target). Rendering works on a scratch copy of the state, so it never changes the simulation.
+Only the CPU MuJoCo backend renders so far.
 
 - **Which envs.** `env_index` is an int, a list of ints or `"all"`. Several envs are tiled and labelled.
 - **Camera.** A view name (`"iso"` is the default, `"front"`, `"side"`, `"top"`; world frame, `+x` forward), a
@@ -169,7 +162,8 @@ Only the CPU MuJoCo backend (`native/reach`) renders so far.
 ```
 src/robotdesigner/
     config/      numpy only: configs, chain() generator, validation, hashing, kinematics oracle
-    backends/    protocol, capabilities and lazy registry; mujoco/ is the CPU backend, robosuite/ wraps robosuite tasks
+    backends/    simulators: protocol, capabilities and lazy registry; mujoco/ is the CPU backend and its generic env
+    tasks/       task providers, one subpackage per namespace (native/, robosuite/), and the task contract (base.py)
     envs/        make_env(cfg)
     viz/         Clip (save GIF / MP4, show inline), frame recorder, camera framing; numpy only
 ```
@@ -182,5 +176,6 @@ Documentation is in `docs/` (start at `docs/README.md`); the design record is `d
 pytest -m "not gpu and not robosuite and not render"
 ```
 
-Markers: `gpu`, `robosuite`, `render` (skipped when no OpenGL context is available). `tests/test_docs.py` runs the Python
+Markers: `gpu`, `robosuite` (needs the robosuite extra: `pytest -m robosuite`), `render` (skipped when no OpenGL context
+is available). `tests/test_docs.py` runs the Python
 examples in `docs/` and checks that every link and anchor resolves; it needs no simulator.

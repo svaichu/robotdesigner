@@ -1,4 +1,4 @@
-"""Record a random-policy rollout of native/reach as MP4 and GIF, all envs tiled and labelled.
+"""Record a random-policy rollout of the native reach task as MP4 and GIF, all envs tiled and labelled.
 
 Run (headless):  MUJOCO_GL=egl python examples/reach_record.py [out_dir]
 Needs the viz extra:  pip install -e ".[env,viz]"

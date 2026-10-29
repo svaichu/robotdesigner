@@ -19,8 +19,7 @@ Related pages: [RobotConfig](robot.md), [TaskConfig](task.md), [SimConfig](sim.m
 | `gains` | `FixedGains` or `InertiaScaledGains` | |
 | `action_scale` | float or `None` | `> 0` and required for `joint_pos_delta` and `joint_vel`; must be `None` for every other mode |
 
-Every environment takes actions in `[-1, 1]`, one per joint (the robosuite backend adds the gripper's dimensions). The
-mode decides what an action means.
+Every environment takes actions in `[-1, 1]`, one per joint. The mode decides what an action means.
 
 ### Modes
 
@@ -67,9 +66,7 @@ kd = max(2 * zeta * (kp * M) ** 0.5 - joint_damping, 0.0)
 assert abs(kp - 50.0) < 1e-12 and abs(kd - 9.5) < 1e-12
 ```
 
-The native backend evaluates `M` once at `home_qpos`. The robosuite backend maps the same two numbers onto robosuite's
-joint controller, which uses `kp = bandwidth²` and `damping_ratio`, re-evaluates `M` at every step and compensates
-gravity; it does not subtract the joint damping.
+The MuJoCo backend evaluates `M` once at `home_qpos`.
 
 ## Examples
 

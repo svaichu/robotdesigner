@@ -1,10 +1,11 @@
-"""Headless random-policy rollout of native/reach on a three-link arm (CPU MuJoCo backend).
+"""Headless random-policy rollout of the reach task of the native provider on a three-link arm (CPU MuJoCo).
 
 Run:  python examples/reach_cpu.py
 """
 
 from __future__ import annotations
 
+from robotdesigner import make_env
 from robotdesigner.config import (
     ControlConfig,
     EnvConfig,
@@ -12,12 +13,11 @@ from robotdesigner.config import (
     FixedGains,
     MujocoOptions,
     Pose,
-    ReachParams,
     SimConfig,
     TaskConfig,
     chain,
 )
-from robotdesigner.envs import make_env
+from robotdesigner.tasks.native import ReachParams
 
 
 def build_config(num_envs: int = 8, horizon: int = 200) -> EnvConfig:

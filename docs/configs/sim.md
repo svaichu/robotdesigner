@@ -1,13 +1,14 @@
 # SimConfig and backend options
 
-How the simulation runs: which backend, how many environments, the time step and the seed. Nothing here has a default
-value. Importing it needs numpy only.
+How the simulation runs: which simulator, how many environments, the time step and the seed. Nothing here has a default
+value. Importing it needs numpy only. `backend` names a **simulator** (a physics engine); where the task's scene and
+objects come from is the business of the [task](task.md) and its provider.
 
 ```python
 from robotdesigner.config import (
-    ConfigError, INTEGRATORS, MujocoOptions, RobosuiteOptions, SimConfig, register_backend_options,
+    ConfigError, INTEGRATORS, MujocoOptions, SimConfig, register_backend_options,
 )
-from robotdesigner.config.sim import BACKEND_OPTIONS, BASE_PLACEMENTS
+from robotdesigner.config.sim import BACKEND_OPTIONS
 ```
 
 Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [TaskConfig](task.md), [EnvConfig](env.md),
@@ -17,7 +18,7 @@ Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [TaskConfig
 
 | field | type | rule |
 |---|---|---|
-| `backend` | str | non-empty; the registered name of a backend (`"mujoco"`, `"robosuite"`) |
+| `backend` | str | non-empty; the registered name of a simulator backend (`"mujoco"`) |
 | `num_envs` | int | `>= 1`; the batch size of the environment |
 | `device` | str | `"cpu"` or `"cuda:N"` |
 | `dt` | float | `> 0`; physics time step in seconds |
@@ -33,17 +34,17 @@ Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [TaskConfig
 integrator, time step and scene is checked by the backend when the environment is built, and every problem is reported
 at once (see [backends](../backends.md#capabilities)).
 
-| field | `mujoco` | `robosuite` |
-|---|---|---|
-| `device` | `cpu` | `cpu` |
-| `dt` | any | fixed by robosuite at `0.002` |
-| `integrator` | all four | `euler` (MuJoCo's default, which robosuite does not change) |
-| `scene` | `empty` or `plain_floor` | `env`: the scene is whatever the robosuite environment builds |
-| `num_envs` | N simulations stepped one after another in one process | N robosuite environments stepped one after another |
-| `seed` | seeds the generator behind target and reset-noise draws | sub-environment `i` is seeded with `seed + i`; the generator behind reset noise uses `seed` |
+| field | `mujoco` |
+|---|---|
+| `device` | `cpu` |
+| `dt` | any |
+| `integrator` | all four |
+| `scene` | `empty` or `plain_floor`; a task that brings its own floor (an arena) asks for `empty` |
+| `num_envs` | N simulations stepped one after another in one process |
+| `seed` | seeds the generator behind target, placement and reset-noise draws |
 
-Scene presets of the native backend: `empty` has nothing but the robot; `plain_floor` adds a floor plane at `z = 0` that
-robot geoms collide with, and a light. Same backend, device and seed reproduce the same results; random draws differ
+Scene presets of the MuJoCo backend: `empty` has nothing but the robot; `plain_floor` adds a floor plane at `z = 0` that
+robot geoms collide with, and a light. Same backend, device and seed reproduce the same results; random draws can differ
 between backends.
 
 ```python
@@ -69,22 +70,9 @@ the backend named in `sim.backend`.
 |---|---|---|
 | `self_collision` | bool | `False`: robot links collide with the scene only. `True`: they also collide with each other (non-adjacent links) |
 
-### `RobosuiteOptions(base_placement)`
-
-| field | type | meaning |
-|---|---|---|
-| `base_placement` | `"env_default"` or `"explicit"` | where the robot goes in the robosuite scene |
-
-- `"env_default"`: the arm's root sits where the environment mounts a stock arm (robosuite's own placement rule for the
-  environment, for example 0.56 m behind the table centre for a table task), and `robot.base_pose` is relative to that
-  point, for example the shoulder height above it.
-- `"explicit"`: the root sits at the arena origin and `robot.base_pose` is the pose of the arm base in the arena frame.
-
 ```python
 assert MujocoOptions(self_collision=False).to_dict() == {"self_collision": False}
-assert RobosuiteOptions("env_default").to_dict() == {"base_placement": "env_default"}
-assert BASE_PLACEMENTS == ("env_default", "explicit")
-assert BACKEND_OPTIONS["mujoco"] is MujocoOptions and BACKEND_OPTIONS["robosuite"] is RobosuiteOptions
+assert BACKEND_OPTIONS["mujoco"] is MujocoOptions
 ```
 
 A backend defined outside this package registers its options with `register_backend_options("name", OptionsClass)`.
@@ -107,5 +95,4 @@ assert error_of(lambda: SimConfig(**{**args, "num_envs": 0})).path == "num_envs"
 assert error_of(lambda: SimConfig(**{**args, "device": "gpu"})).path == "device"
 assert error_of(lambda: SimConfig(**{**args, "integrator": "leapfrog"})).path == "integrator"
 assert error_of(lambda: SimConfig(**{**args, "dt": 0.0})).path == "dt"
-assert error_of(lambda: RobosuiteOptions("nowhere")).path == "base_placement"
 ```

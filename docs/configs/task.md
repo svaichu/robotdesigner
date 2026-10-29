@@ -4,118 +4,112 @@ What the robot is asked to do. A task never mentions the number of joints or the
 can be given to different embodiments. Importing it needs numpy only.
 
 ```python
+from dataclasses import dataclass
+
 from robotdesigner.config import (
-    ConfigError, FixedBox, OwnReachable, ReachParams, RobosuiteParams, TaskConfig,
+    ConfigError, FixedBox, OwnReachable, TaskConfig, list_task_providers, register_task_provider,
+    unregister_task_provider,
 )
-from robotdesigner.config.task import RESERVED_ENV_KWARGS
 ```
 
 Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [SimConfig](sim.md), [EnvConfig](env.md),
-[backends](../backends.md).
+[backends](../backends.md), and the pages of the task providers that ship with the package:
+[native tasks](../tasks/native.md) and [robosuite scenes](../tasks/robosuite.md).
 
 ## `TaskConfig(id, horizon, success_tolerance, target_region, params)`
 
 | field | type | rule |
 |---|---|---|
-| `id` | str | `native/reach`, or `robosuite/<EnvName>` for any robosuite environment name |
+| `id` | str | `"<namespace>/<name>"`. The namespace selects a **task provider**, which decides what names exist |
 | `horizon` | int | `>= 1`; the episode is truncated after this many steps |
-| `success_tolerance` | float or `None` | `> 0` for tasks defined by a goal (`native/reach`); must be `None` for `robosuite/*` |
-| `target_region` | `FixedBox`, `OwnReachable` or `None` | required for `native/reach`; must be `None` for `robosuite/*` |
-| `params` | the id's parameter class | `ReachParams` for `native/reach`, `RobosuiteParams` for `robosuite/*` |
+| `success_tolerance` | float or `None` | `> 0` when the task's params class sets `uses_goal = True`; must be `None` otherwise |
+| `target_region` | `FixedBox`, `OwnReachable` or `None` | required when `uses_goal` is true; must be `None` otherwise |
+| `params` | the provider's params class for this id | validated and hashed with the config |
 
-`success_tolerance` and `target_region` exist only for tasks that are defined by a goal point. A robosuite task defines
-its own goal and success, so both must be `None` there; passing a value is an error rather than silently ignored.
+`success_tolerance` and `target_region` exist only for tasks that are defined by a goal point. A task that defines its own
+success (an objective on a scene object, say) takes `None` for both; passing a value is an error rather than silently
+ignored.
 
-An unknown id is rejected with the list of known ones. Which backend can run which id is decided by the backend, not
-here (see [backends](../backends.md#capabilities)).
+An unknown id is rejected with the list of every registered id. Which simulator can run a task is decided when the
+environment is built, by the task's provider and the backend together (see [backends](../backends.md#capabilities)),
+never here.
 
-## `native/reach`
+## Where task ids come from
 
-Move the end effector to a target point. Runs on the native MuJoCo backend.
+The package itself knows no task. A **task provider** owns a namespace: it names its tasks, gives each a typed params
+class, checks a config against a simulator, and builds the task for it. Providers are registered, not listed:
 
-- **Target:** drawn at every reset from `target_region`, in the **robot's base frame**, so a region means the same thing
-  wherever the base is placed.
-- **Reward:** `-‖ee − target‖` (negative distance, metres), every step.
-- **Success:** `‖ee − target‖ < success_tolerance`.
-- **End of episode:** `truncated` when the step count reaches `horizon`; `terminated` when successful, only if
-  `terminate_on_success` is true. The environment never resets itself.
+- every subpackage of `robotdesigner.tasks` is a provider, named like the subpackage (`PROVIDER` is its entry point);
+- another installed package adds one through the entry-point group `robotdesigner.task_providers`;
+- `register_task_provider(namespace, provider)` adds one in the running process and takes precedence over the first two.
 
-### `ReachParams(reset_noise, terminate_on_success)`
+`list_task_providers()` returns the namespaces. Importing a provider's config side imports no simulator, torch or
+robosuite, so `TaskConfig` stays numpy-only.
 
-| field | type | rule |
-|---|---|---|
-| `reset_noise` | float | `>= 0`; at reset each joint starts at `home_qpos + u`, with `u` uniform in `[-reset_noise, reset_noise]` rad, clipped to the joint range |
-| `terminate_on_success` | bool | |
+## Target regions
 
-### Target regions
+Goal tasks draw a target from a region, in the **robot's base frame**, so a region means the same wherever the base is
+placed.
 
 | region | targets |
 |---|---|
 | `FixedBox(low, high)` | uniform in an axis-aligned box, in the base frame; `low <= high` componentwise |
 | `OwnReachable()` | the end-effector position of a uniformly sampled joint configuration of the arm itself (inside the joint ranges, `±pi` for unlimited joints), expressed in the base frame, so the target is always reachable |
 
-Both are drawn by the environment's seeded generator. The reset can also inject `target`, `qpos` and `qvel` through the
-reset TensorDict, which overrides the random draw (used for parity tests and replays).
+Both are drawn by the environment's seeded generator.
 
 ```python
-reach = TaskConfig(
-    id="native/reach",
-    horizon=200,
-    success_tolerance=0.02,
-    target_region=FixedBox(low=(0.2, -0.3, 0.0), high=(0.6, 0.3, 0.4)),
-    params=ReachParams(reset_noise=0.0, terminate_on_success=False),
-)
-assert reach.to_dict() == {
-    "id": "native/reach",
-    "horizon": 200,
-    "success_tolerance": 0.02,
-    "target_region": {"kind": "fixed_box", "low": [0.2, -0.3, 0.0], "high": [0.6, 0.3, 0.4]},
-    "params": {"reset_noise": 0.0, "terminate_on_success": False},
-}
-assert TaskConfig.from_dict(reach.to_dict()) == reach
-
-own = TaskConfig("native/reach", 200, 0.02, OwnReachable(), ReachParams(0.05, True))
-assert own.to_dict()["target_region"] == {"kind": "own_reachable"}
+box = FixedBox(low=(0.2, -0.3, 0.0), high=(0.6, 0.3, 0.4))
+assert box.to_dict() == {"kind": "fixed_box", "low": [0.2, -0.3, 0.0], "high": [0.6, 0.3, 0.4]}
+assert OwnReachable().to_dict() == {"kind": "own_reachable"}
 ```
 
-## `robosuite/<EnvName>`
+## A task config, end to end
 
-Any single-arm manipulation environment that robosuite registers: `Lift`, `Stack`, `Door`, `PickPlace`, `Wipe`,
-`NutAssembly`, `ToolHang` and their variants. robosuite owns the scene, the objects, the reward and the success check;
-robotdesigner supplies the robot and the control. Runs on the robosuite backend.
-
-### `RobosuiteParams(env_kwargs, reset_noise, terminate_on_success)`
-
-| field | type | rule |
-|---|---|---|
-| `env_kwargs` | mapping | keyword arguments for the robosuite environment constructor (`reward_shaping`, `table_full_size`, `single_object_mode`, ...). Keys must be argument names; values must be `bool`, `int`, `float`, `str`, `None`, lists or mappings of those. The backend rejects names the environment does not accept |
-| `reset_noise` | float | `>= 0`, as for `native/reach` |
-| `terminate_on_success` | bool | `terminated` when robosuite's success check passes |
-
-The arguments that robotdesigner sets itself cannot appear in `env_kwargs`: the robot, controller, gripper, control
-frequency, horizon, rendering and seed come from the robot, control, sim and task configs. The list is
-`robotdesigner.config.task.RESERVED_ENV_KWARGS`.
-
-- **Only what you list is configured.** Every other argument takes robosuite's own default. The environment records the
-  complete set it ran with in `env.resolved_env_kwargs`, but those defaults are **not** part of `env_hash`.
-- **Success and reward** are robosuite's. `reward_shaping` and `reward_scale` are ordinary `env_kwargs` where the
-  environment has them.
-- Values are stored immutably: lists become tuples, and key order does not matter.
-- The random-object variants `PickPlaceSingle` and `NutAssemblySingle` are refused by the backend, because their
-  observations change from episode to episode; fix the object with `single_object_mode=2` and `object_type`.
+The page registers a toy provider so that the example needs no engine. Real providers do the same with more behind
+`validate` and `build` ([adding a task provider](#adding-a-task-provider)).
 
 ```python
-lift = TaskConfig(
-    id="robosuite/Lift",
-    horizon=200,
-    success_tolerance=None,
-    target_region=None,
-    params=RobosuiteParams({"reward_shaping": True, "table_full_size": [0.8, 0.8, 0.05]}, reset_noise=0.0,
-                           terminate_on_success=False),
-)
-assert lift.params.kwargs == {"reward_shaping": True, "table_full_size": (0.8, 0.8, 0.05)}
-assert TaskConfig.from_dict(lift.to_dict()) == lift
-assert "robots" in RESERVED_ENV_KWARGS and "reward_shaping" not in RESERVED_ENV_KWARGS
+@dataclass(frozen=True)
+class DemoParams:
+    uses_goal = False                      # the task defines its own success: no tolerance, no region
+
+    reset_noise: float
+
+    def to_dict(self):
+        return {"reset_noise": self.reset_noise}
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(**d)
+
+
+class DemoTasks:
+    def task_names(self):
+        return ("hold",)
+
+    def params_class(self, name):
+        return DemoParams if name == "hold" else None
+
+    def validate(self, cfg, backend):
+        return []
+
+    def build(self, cfg, backend):
+        raise NotImplementedError("a real provider returns a tasks.base.TaskImpl here")
+
+
+register_task_provider("demo", DemoTasks(), replace=True)
+assert "demo" in list_task_providers()
+
+task = TaskConfig(id="demo/hold", horizon=200, success_tolerance=None, target_region=None, params=DemoParams(0.0))
+assert task.to_dict() == {
+    "id": "demo/hold",
+    "horizon": 200,
+    "success_tolerance": None,
+    "target_region": None,
+    "params": {"reset_noise": 0.0},
+}
+assert TaskConfig.from_dict(task.to_dict()) == task
 ```
 
 ## Errors
@@ -128,23 +122,41 @@ def error_of(build):
         return e
     raise AssertionError("no error")
 
-ok = RobosuiteParams({}, 0.0, False)
-assert error_of(lambda: TaskConfig("native/lift", 10, 0.02, OwnReachable(), ReachParams(0.0, False))).path == "id"
-assert error_of(lambda: TaskConfig("native/reach", 0, 0.02, OwnReachable(), ReachParams(0.0, False))).path == "horizon"
-assert error_of(lambda: TaskConfig("native/reach", 10, None, OwnReachable(), ReachParams(0.0, False))).path == "success_tolerance"
-assert error_of(lambda: TaskConfig("robosuite/Lift", 10, 0.02, None, ok)).path == "success_tolerance"   # robosuite defines success
-assert error_of(lambda: TaskConfig("robosuite/Lift", 10, None, OwnReachable(), ok)).path == "target_region"
-assert error_of(lambda: TaskConfig("robosuite/", 10, None, None, ok)).path == "id"                       # needs an environment name
+ok = DemoParams(0.0)
+assert error_of(lambda: TaskConfig("nope/hold", 10, None, None, ok)).path == "id"       # no such provider
+assert error_of(lambda: TaskConfig("demo/nope", 10, None, None, ok)).path == "id"       # the provider has no such task
+assert error_of(lambda: TaskConfig("demo", 10, None, None, ok)).path == "id"            # not <namespace>/<name>
+assert error_of(lambda: TaskConfig("demo/hold", 0, None, None, ok)).path == "horizon"
+assert error_of(lambda: TaskConfig("demo/hold", 10, 0.02, None, ok)).path == "success_tolerance"
+assert error_of(lambda: TaskConfig("demo/hold", 10, None, OwnReachable(), ok)).path == "target_region"
+assert error_of(lambda: TaskConfig("demo/hold", 10, None, None, box)).path == "params"   # the wrong params class
 assert error_of(lambda: FixedBox((1.0, 0.0, 0.0), (0.0, 1.0, 1.0))).path == "low[0]"
-assert error_of(lambda: ReachParams(-1.0, False)).path == "reset_noise"
-assert error_of(lambda: RobosuiteParams({"robots": "Panda"}, 0.0, False)).path == "env_kwargs"
-assert error_of(lambda: RobosuiteParams({"x": object()}, 0.0, False)).path == "env_kwargs.x"
-assert error_of(lambda: TaskConfig("robosuite/Lift", 10, None, None, ReachParams(0.0, False))).path == "params"
+assert "demo/hold" in str(error_of(lambda: TaskConfig("nope/hold", 10, None, None, ok)))   # the message lists the known ids
+
+unregister_task_provider("demo")
+assert "demo" not in list_task_providers()
 ```
 
-## Adding a task id
+## Adding a task provider
 
-A task id needs a parameter class with `to_dict` / `from_dict`, registered in `robotdesigner.config.task.TASK_PARAMS`
-(an exact id) or `TASK_PREFIX_PARAMS` (a prefix such as `robosuite/`). A parameter class with the class attribute
-`uses_goal = False` takes `None` for `success_tolerance` and `target_region`. A backend then lists the id in its
-capabilities and implements it in its environment.
+A provider has two halves, kept apart so that the config layer never imports an engine.
+
+1. **Config side.** One params class per task: a frozen dataclass with `to_dict()` and `from_dict()`, validated in
+   `__post_init__`, with the class attribute `uses_goal` (`True` if the task is defined by a target region and a
+   tolerance). If the params have `reset_noise` (radians of uniform noise on the initial joint positions) or
+   `terminate_on_success`, the environment applies them. Use `robotdesigner.config._canon.freeze` / `thaw` for free-form
+   mappings.
+2. **Provider object.** `task_names()` (names or patterns, for error messages), `params_class(name)`,
+   `validate(cfg, backend) -> list[Problem]` (every reason this task cannot run on that simulator, collected with the
+   backend's own problems into one `ConfigError`) and `build(cfg, backend)`, which imports the engine and returns the
+   task.
+3. **Engine side.** A `robotdesigner.tasks.base.TaskImpl` (subclass `BaseTask` to skip the optional hooks): `attach(spec)`
+   adds scene elements to the MuJoCo spec before it is compiled, `bind(sim)` resolves names to ids, `observation_spec`
+   and `observe` give the `task` observation group, `reset` places the task for the masked envs, `success` and `reward`
+   score a step. The robot, the control law, batching, masked resets, episode counters and rendering belong to the
+   environment, so a task states only what it adds.
+4. **Register.** A subpackage of `robotdesigner.tasks` exposing `PROVIDER`, or an entry point in the group
+   `robotdesigner.task_providers` in another package (`name = "your.package:PROVIDER"`), or `register_task_provider`.
+
+Keep the module that defines the provider free of engine imports (put them inside `validate` and `build`, or in the
+module that `build` imports). Test it with `check_env_specs`, a masked-reset test and a seeding test.
