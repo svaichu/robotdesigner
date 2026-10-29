@@ -107,3 +107,16 @@ def test_contacts_robot_vs_scene_only():
 
     assert collides(g[0], floor) and collides(g[1], floor)
     assert not collides(g[0], g[1])
+
+
+@pytest.mark.parametrize("name", ARMS)
+def test_joint_limits_compile_in_radians(name):
+    # MjSpec reads angles as degrees unless told otherwise; the config and RobotInterface use radians.
+    arm = ARMS[name]()
+    compiled = compile_robot(make_cfg(arm))
+    model, iface = compiled.model, compiled.interface
+    limited = np.isfinite(iface.joint_range[:, 0])
+    ids = [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, f"joint_{i}") for i in range(arm.n)]
+    assert limited.any()
+    np.testing.assert_array_equal(model.jnt_limited[ids].astype(bool), limited)
+    np.testing.assert_allclose(model.jnt_range[ids][limited], iface.joint_range[limited])

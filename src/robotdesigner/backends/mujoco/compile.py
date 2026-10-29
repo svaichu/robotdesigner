@@ -79,6 +79,7 @@ def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float]) -> mujoco.MjSp
     control = cfg.control
 
     spec = mujoco.MjSpec()
+    spec.compiler.degree = False  # MjSpec reads angles as degrees by default; all angles here are radians
     spec.option.timestep = cfg.sim.dt
     spec.option.integrator = _INTEGRATORS[cfg.sim.integrator]
     apply_scene(spec, cfg.sim.scene)
