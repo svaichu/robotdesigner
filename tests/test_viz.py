@@ -8,8 +8,9 @@ import pytest
 
 import robotdesigner.viz.clip as clipmod
 from robotdesigner.config import (
-    ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, ReachParams, SimConfig, TaskConfig, chain,
+    ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
 )
+from robotdesigner.tasks.native import ReachParams
 from robotdesigner.viz import (
     CameraSpec, Clip, FrameRecorder, annotate, auto_camera, record_rollout, tile, tile_clips, workspace_points,
 )

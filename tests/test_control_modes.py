@@ -9,9 +9,10 @@ from torchrl.envs.utils import check_env_specs  # noqa: E402
 
 from robotdesigner.backends.mujoco.compile import compile_robot  # noqa: E402
 from robotdesigner.config import (  # noqa: E402
-    ControlConfig, EnvConfig, FixedBox, InertiaScaledGains, MujocoOptions, ReachParams, SimConfig,
+    ControlConfig, EnvConfig, FixedBox, InertiaScaledGains, MujocoOptions, SimConfig,
     Pose, TaskConfig, chain,
 )
+from robotdesigner.tasks.native import ReachParams
 from robotdesigner.envs import make_env  # noqa: E402
 
 COMMON = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0)

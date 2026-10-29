@@ -7,9 +7,9 @@ from dataclasses import replace  # noqa: E402
 
 from robotdesigner.backends.mujoco.compile import compile_robot  # noqa: E402
 from robotdesigner.config import (  # noqa: E402
-    ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, ReachParams,
-    SimConfig, TaskConfig, chain,
+    ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
 )
+from robotdesigner.tasks.native import ReachParams
 from robotdesigner.config import kinematics as kin  # noqa: E402
 
 COMMON = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0)
