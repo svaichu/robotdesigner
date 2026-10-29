@@ -11,8 +11,8 @@ pip install -e ".[env]"       # + torch, torchrl, tensordict, mujoco: the CPU Mu
 pip install -e ".[env,dev]"   # + pytest, ruff
 ```
 
-Python >= 3.10. Other extras: `viz` (imageio), `robosuite` (the robosuite backend, below) and `warp` (a later milestone;
-declared only).
+Python >= 3.10. Other extras: `viz` (Pillow, imageio-ffmpeg: GIF and MP4 output), `robosuite` (the robosuite
+backend, below) and `warp` (a later milestone; declared only).
 `import robotdesigner.config` works with numpy alone and never imports an engine.
 
 ## The idea
@@ -56,7 +56,7 @@ traj = env.rollout(50)          # random policy, TorchRL's own rollout
 print(traj.shape)               # torch.Size([8, 50])
 ```
 
-The full script is `examples/reach_cpu.py` (headless; `python examples/reach_cpu.py`). A walkthrough notebook is `examples/reach_cpu.ipynb` (embodiment comparison, control modes, rendering).
+The full script is `examples/reach_cpu.py` (headless; `python examples/reach_cpu.py`). A walkthrough notebook is `examples/reach_cpu.ipynb` (embodiment comparison, control modes, rendering). Recording, saving and showing videos: `examples/reach_viz.ipynb`.
 
 Step by hand:
 
@@ -134,16 +134,41 @@ compiled model's `RobotInterface` (`kp`, `kd`).
 uniformly sampled joint configurations, so targets are always reachable. Reset can inject `target`, `qpos` and
 `qvel` through the reset TensorDict.
 
-## Rendering (optional)
+## Rendering and video (optional)
+
+Rendering needs an OpenGL context; on headless machines set `MUJOCO_GL=egl` before the first import of mujoco.
+Saving videos needs the `viz` extra (`pip install -e ".[env,viz]"`): Pillow writes GIFs, imageio-ffmpeg writes MP4s.
 
 ```python
-from robotdesigner.backends.mujoco.render import render_rgb, launch_viewer
+from robotdesigner.viz import record_rollout
 
-frame = render_rgb(env, env_index=0, size=(240, 320))   # uint8 (H, W, 3); needs an OpenGL context
-launch_viewer(env, env_index=0)                          # passive viewer; needs a display
+traj, clip = record_rollout(env, 150, env_index=0)   # renders the live state while the rollout runs
+clip                      # last expression of a notebook cell: plays inline (MP4, or a GIF if MP4 support is missing)
+clip.save("run.mp4")      # the format follows the suffix: .mp4 or .gif
+clip.show("gif")          # show inline in a chosen format
 ```
 
-On headless machines set `MUJOCO_GL=egl` before importing mujoco. No other code path needs rendering.
+`env.render(env_index=0, camera=None, size=(240, 320), overlays=True)` returns one `uint8 (H, W, 3)` frame of the live
+state, like Gymnasium's `rgb_array`, so any step loop can collect its own frames. A frame shows the whole MuJoCo scene
+(floor, robot, anything else in the model) plus overlays drawn from task state: the target (a sphere of radius
+`success_tolerance` with a cross-hair, red until reached, then green) and, for a `FixedBox` region, its edges as a
+wireframe box.
+Rendering works on a scratch copy of the state, so it never changes the simulation.
+Only the CPU MuJoCo backend (`native/reach`) renders so far.
+
+- **Which envs.** `env_index` is an int, a list of ints or `"all"`. Several envs are tiled and labelled.
+- **Camera.** A view name (`"iso"` is the default, `"front"`, `"side"`, `"top"`; world frame, `+x` forward), a
+  `CameraSpec`, a `mujoco.MjvCamera`, or a camera name in the model. The named views are framed on the robot's
+  reachable workspace and the target region.
+- **Comparing embodiments.** Use one camera for all of them: `cam = auto_camera(cfg_a, cfg_b)`, then
+  `record_rollout(env_a, 150, camera=cam)`, the same for `env_b`, and `tile_clips([clip_a, clip_b], labels=[...])`.
+  Pass the same `reset_td` (for example one that injects `target`) to give them the same task.
+- **Rate.** The clip plays at `control_freq / every` fps. A GIF stores delays in 10 ms steps, so use 50, 25, 20 or
+  10 fps for an exact rate (a warning says when it is not exact). MP4 files are much smaller than GIFs.
+- **Low level.** `FrameRecorder` is the rollout callback behind `record_rollout`; `render_rgb(env, ...)` is
+  `env.render` under its old name; `launch_viewer(env)` opens the interactive viewer (needs a display).
+
+`examples/reach_record.py` records a four-env rollout to `reach.mp4` and `reach.gif`. The full guide is `docs/viz.md`.
 
 ## Layout
 
@@ -152,6 +177,7 @@ src/robotdesigner/
     config/      numpy only: configs, chain() generator, validation, hashing, kinematics oracle
     backends/    protocol, capabilities and lazy registry; mujoco/ is the CPU backend, robosuite/ wraps robosuite tasks
     envs/        make_env(cfg)
+    viz/         Clip (save GIF / MP4, show inline), frame recorder, camera framing; numpy only
 ```
 
 The design spec is in `docs/spec_robotconfig_env.md`.
