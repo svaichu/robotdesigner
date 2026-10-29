@@ -11,9 +11,8 @@ pip install -e ".[env]"       # + torch, torchrl, tensordict, mujoco: the CPU Mu
 pip install -e ".[env,dev]"   # + pytest, ruff
 ```
 
-Python >= 3.10. Other extras: `viz` (imageio), `warp` and `robosuite` (later milestones; declared only).
-robosuite 1.5.x breaks on MuJoCo >= 3.10; `robotdesigner.backends.robosuite.apply_compat()` patches the two affected
-code paths in the running process (it applies only what the installed MuJoCo needs). The robosuite backend itself is not implemented yet.
+Python >= 3.10. Other extras: `viz` (imageio), `robosuite` (the robosuite backend, below) and `warp` (a later milestone;
+declared only).
 `import robotdesigner.config` works with numpy alone and never imports an engine.
 
 ## The idea
@@ -70,6 +69,51 @@ td = env.step(td)                              # outputs under ("next", ...)
 data, td = env.step_and_maybe_reset(td)
 ```
 
+## robosuite backend
+
+Any single-arm robosuite environment, with the robot built from our `ParametricArm`. robosuite keeps the task, scene,
+gripper and reward; robotdesigner supplies the arm.
+
+```python
+from robotdesigner.config import (ControlConfig, EnvConfig, InertiaScaledGains, Pose, RobosuiteOptions,
+                                  RobosuiteParams, SimConfig, TaskConfig, ToolSpec, chain)
+from robotdesigner.envs import make_env
+
+arm = chain(4, "zyyy", link_length=[0.1, 0.4, 0.4, 0.15], total_mass=8.0, radius=0.04, damping=1.0, armature=0.05,
+            frictionloss=0.0, effort_limit=80.0, range=(-2.9, 2.9), home_qpos=(0.0, -1.06, 1.91, 0.72),
+            base_pose=Pose((0.0, 0.0, 1.1), (1.0, 0.0, 0.0, 0.0)),            # shoulder height above the stock mount
+            end_effector=Pose((0.0, 0.0, 0.0), (0.7071068, 0.0, 0.7071068, 0.0)),   # gripper axis along the last link
+            tool=ToolSpec("PandaGripper", (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0)))
+cfg = EnvConfig(
+    robot=arm,
+    control=ControlConfig("joint_pos_delta", InertiaScaledGains(bandwidth=7.0, damping_ratio=1.0), action_scale=0.05),
+    task=TaskConfig("robosuite/Lift", horizon=200, success_tolerance=None, target_region=None,
+                    params=RobosuiteParams({"reward_shaping": True}, reset_noise=0.0, terminate_on_success=False)),
+    sim=SimConfig("robosuite", num_envs=4, device="cpu", dt=0.002, integrator="euler", control_freq=20.0, seed=0,
+                  scene="env"),
+    backend_options=RobosuiteOptions(base_placement="env_default"),
+)
+env = make_env(cfg)   # a TorchRL env with the same contract as native/reach
+```
+
+- **Tasks:** `robosuite/<EnvName>` for any registered single-arm env (`Lift`, `Stack`, `Door`, `PickPlace`, `Wipe`, ...).
+  Task arguments go in `RobosuiteParams.env_kwargs`; robosuite's own defaults for the rest are recorded in
+  `env.resolved_env_kwargs` and are not part of the config hash. Two-arm envs are refused, as are
+  `PickPlaceSingle` / `NutAssemblySingle`, which pick a random object per episode (fix it with
+  `single_object_mode=2, object_type=...`).
+- **Robot:** `ToolSpec.gripper` must be a robosuite gripper (`Wipe` insists on `WipingGripper`). The action is
+  `n` joint increments followed by the gripper's dimensions. `base_placement="env_default"` mounts the arm where the
+  environment mounts a stock arm and `base_pose` is relative to that point; `"explicit"` puts the root at the arena
+  origin and `base_pose` is the world pose.
+- **Control:** `joint_pos_delta` with `InertiaScaledGains`, with the same accumulated target as the native backend.
+  robosuite's controller adds gravity compensation and re-evaluates the inertia every step, so dynamics are close to,
+  not identical with, the native servo.
+- **Fixed by robosuite:** `sim.dt` is 0.002, the integrator is MuJoCo's default (`"euler"`), and `sim.scene` is `"env"`.
+- **Observations:** `task` holds the environment's own observations, `proprio` the robot's (`qpos`, `qvel` first).
+- **Versions:** robosuite 1.5.x does not run on MuJoCo >= 3.10 as released; `apply_compat()` patches that in the running
+  process (it applies only what the installed MuJoCo needs) and is called automatically.
+- **Cost:** one robosuite environment per batch element, stepped in turn on one CPU core.
+
 ## Control modes (CPU backend)
 
 | mode | action `a in [-1, 1]` |
@@ -106,7 +150,7 @@ On headless machines set `MUJOCO_GL=egl` before importing mujoco. No other code 
 ```
 src/robotdesigner/
     config/      numpy only: configs, chain() generator, validation, hashing, kinematics oracle
-    backends/    protocol, capabilities and lazy registry; mujoco/ is the CPU backend
+    backends/    protocol, capabilities and lazy registry; mujoco/ is the CPU backend, robosuite/ wraps robosuite tasks
     envs/        make_env(cfg)
 ```
 

@@ -9,7 +9,7 @@ from typing import Any, Protocol, runtime_checkable
 @dataclass(frozen=True)
 class Capabilities:
     control_modes: frozenset[str]
-    task_ids: frozenset[str]  # exact ids, for example {"native/reach"}
+    task_ids: frozenset[str]  # exact ids, for example {"native/reach"}; "robosuite/*" matches any id with that prefix
     devices: frozenset[str]  # {"cpu"}; "cuda" matches any "cuda:N"
     robot_kinds: frozenset[str]  # {"parametric"}
     integrators: frozenset[str]
@@ -50,7 +50,8 @@ def check_capabilities(cfg: Any, caps: Capabilities, backend: str = "") -> list[
     problems: list[Problem] = []
 
     def check(path: str, value: str, allowed: frozenset[str], what: str) -> None:
-        if value not in allowed:
+        wildcard = any(a.endswith("*") and value.startswith(a[:-1]) for a in allowed)
+        if value not in allowed and not wildcard:
             problems.append(Problem(path, f"{who} does not support {what} {value!r}; supported: {sorted(allowed)}"))
 
     check("control.mode", cfg.control.mode, caps.control_modes, "control mode")

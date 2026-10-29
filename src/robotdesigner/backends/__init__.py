@@ -48,3 +48,4 @@ def get_backend(name: str) -> Backend:
 
 
 register_backend("mujoco", "robotdesigner.backends.mujoco:MujocoBackend")
+register_backend("robosuite", "robotdesigner.backends.robosuite:RobosuiteBackend")
