@@ -5,8 +5,8 @@ from .control import CONTROL_MODES, ControlConfig, FixedGains, InertiaScaledGain
 from .env import EnvConfig
 from .errors import ConfigError
 from .generators import chain
-from .sim import INTEGRATORS, MujocoOptions, SimConfig, register_backend_options
-from .task import FixedBox, OwnReachable, ReachParams, TaskConfig
+from .sim import INTEGRATORS, MujocoOptions, RobosuiteOptions, SimConfig, register_backend_options
+from .task import FixedBox, OwnReachable, ReachParams, RobosuiteParams, TaskConfig
 from .robot import (
     Capsule,
     JointSpec,
@@ -28,6 +28,8 @@ __all__ = [
     "MujocoOptions",
     "OwnReachable",
     "ReachParams",
+    "RobosuiteOptions",
+    "RobosuiteParams",
     "SimConfig",
     "TaskConfig",
     "register_backend_options",

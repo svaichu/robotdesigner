@@ -108,3 +108,37 @@ def test_inertia_scaled_gains_round_trip_and_validation():
     assert back == cfg2 and back.env_hash == cfg2.env_hash != cfg.env_hash
     with pytest.raises(ConfigError, match="^bandwidth"):
         InertiaScaledGains(0.0, 1.0)
+
+
+def test_robosuite_task_config_round_trip_hash_and_validation():
+    from dataclasses import replace
+
+    from robotdesigner.config import InertiaScaledGains, RobosuiteOptions, RobosuiteParams
+
+    cfg = make_cfg()
+    params = RobosuiteParams({"reward_shaping": True, "table_full_size": [0.8, 0.8, 0.05]}, 0.01, False)
+    task = TaskConfig("robosuite/Lift", 100, None, None, params)
+    sim = SimConfig("robosuite", 2, "cpu", 0.002, "euler", 20.0, 0, "env")
+    rs = replace(
+        cfg, task=task, sim=sim, backend_options=RobosuiteOptions("env_default"),
+        control=ControlConfig("joint_pos_delta", InertiaScaledGains(7.0, 1.0), 0.05),
+    )
+    back = EnvConfig.from_dict(rs.to_dict())
+    assert back == rs and back.env_hash == rs.env_hash and hash(back.task) == hash(task)
+    assert back.task.params.kwargs["table_full_size"] == (0.8, 0.8, 0.05)
+    reordered = RobosuiteParams({"table_full_size": (0.8, 0.8, 0.05), "reward_shaping": True}, 0.01, False)
+    assert replace(rs, task=replace(task, params=reordered)).env_hash == rs.env_hash  # key order is not config
+    changed = RobosuiteParams({"reward_shaping": False, "table_full_size": [0.8, 0.8, 0.05]}, 0.01, False)
+    assert replace(rs, task=replace(task, params=changed)).env_hash != rs.env_hash
+
+    ok = RobosuiteParams({}, 0.0, False)
+    with pytest.raises(ConfigError, match="unknown task"):
+        TaskConfig("robosuite/", 10, None, None, ok)
+    with pytest.raises(ConfigError, match="success_tolerance: must be None"):
+        TaskConfig("robosuite/Lift", 10, 0.02, None, ok)  # the library defines success
+    with pytest.raises(ConfigError, match="env_kwargs.*set from the robot"):
+        RobosuiteParams({"robots": "Panda"}, 0.0, False)  # robot, controller and gripper come from our config
+    with pytest.raises(ConfigError, match="success_tolerance"):
+        TaskConfig("native/reach", 10, None, None, ReachParams(0.0, False))  # reach still needs its goal
+    with pytest.raises(ConfigError, match="base_placement"):
+        RobosuiteOptions("nowhere")

@@ -81,8 +81,38 @@ class MujocoOptions:
         return cls(**d)
 
 
+BASE_PLACEMENTS = ("env_default", "explicit")
+
+
+@dataclass(frozen=True, slots=True)
+class RobosuiteOptions:
+    """Options of the robosuite backend.
+
+    ``base_placement`` decides where the robot goes. ``"env_default"``: the robot root sits where the robosuite
+    environment mounts a stock arm (its ``base_xpos_offset`` rule) and ``robot.base_pose`` is relative to that
+    point, for example the shoulder height above it. ``"explicit"``: the robot root sits at the arena origin and
+    ``robot.base_pose`` is the pose of the arm base in the arena frame.
+    """
+
+    base_placement: str
+
+    def __post_init__(self):
+        if self.base_placement not in BASE_PLACEMENTS:
+            raise ConfigError(
+                "base_placement", f"unknown {self.base_placement!r}; expected one of {list(BASE_PLACEMENTS)}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {f.name: getattr(self, f.name) for f in fields(self)}
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "RobosuiteOptions":
+        check_keys(d, {f.name for f in fields(cls)}, "")
+        return cls(**d)
+
+
 # One typed options class per backend name. Backends outside this package may register theirs.
-BACKEND_OPTIONS: dict[str, type] = {"mujoco": MujocoOptions}
+BACKEND_OPTIONS: dict[str, type] = {"mujoco": MujocoOptions, "robosuite": RobosuiteOptions}
 
 
 def register_backend_options(backend: str, cls: type) -> None:
