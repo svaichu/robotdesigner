@@ -15,6 +15,7 @@ Start with the [README](../README.md) for installation and a first environment.
 | [SimConfig and backend options](configs/sim.md) | backend, batch size, time step, seed, scene, `MujocoOptions`, `RobosuiteOptions` |
 | [EnvConfig](configs/env.md) | how the sections combine, serialization, hashing, errors |
 | [Backends](backends.md) | capabilities, what each backend supports, the environment contract, adding a backend |
+| [Recording and showing videos](viz.md) | `env.render()`, `robotdesigner.viz` clips, the frame recorder and camera framing |
 | [Design spec](spec_robotconfig_env.md) | why it is built this way, status and decisions |
 
 Every Python example in the configuration pages is executed by the test suite (`tests/test_docs.py`), so they match the code.

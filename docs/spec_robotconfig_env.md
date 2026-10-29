@@ -40,6 +40,7 @@ simulators; a Gymnasium-native contract (an adapter may follow).
 ```
 robotdesigner.config               numpy only: configs, generators, validation, hashing, kinematics oracle
 robotdesigner.envs                 make_env(cfg)
+robotdesigner.viz                  clips, frame recorder, camera framing (saving needs the viz extra); see viz.md
 robotdesigner.backends             protocol, capabilities, lazy registry
 robotdesigner.backends.mujoco      CPU reference backend; arm_spec.add_arm builds the chain for every MuJoCo-based backend
 robotdesigner.backends.robosuite   robosuite tasks with our robot; the compatibility layer
@@ -100,7 +101,8 @@ As built, and where it differs from the first proposal:
   for `target_region` and `success_tolerance`.
 - **SimConfig.** `backend, num_envs, device, dt, integrator, control_freq, seed, scene`, all required, no defaults (the
   proposal planned defaults for `dt` and `integrator` and a `render` field; neither exists). `1 / (control_freq * dt)`
-  must be a positive integer. Rendering is a helper (`backends/mujoco/render.py`), not a config field.
+  must be a positive integer. Rendering is not a config field: `env.render()` on the native env and `robotdesigner.viz`
+  produce frames and clips ([viz.md](viz.md)).
 - **EnvConfig.** `resolve()` is the identity today (nothing needs resolving until family-reachable regions exist);
   `env_hash` covers the robot's full hash, control, task, sim and options, so `seed` and `num_envs` are part of it.
 

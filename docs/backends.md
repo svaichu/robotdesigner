@@ -90,7 +90,7 @@ Every backend returns a TorchRL `EnvBase` with these properties.
 | action | `[N, n]` | one value per joint; the meaning is the control mode (see [ControlConfig](configs/control.md#modes)) |
 
 Extra attributes: `env.interface` (a `RobotInterface`, below) and `env.q_target` (the position targets in
-`joint_pos_delta` mode).
+`joint_pos_delta` mode). `env.render(...)` returns an RGB frame of the live state; see [viz](viz.md).
 
 ### `robosuite/<EnvName>` on `robosuite`
 
@@ -118,6 +118,8 @@ Behaviour worth knowing:
   injected `qpos`.
 - **Randomness.** Each sub-environment `i` has its own random stream, seeded with `seed + i`, so an environment's
   episodes do not depend on resets of the others.
+- **No rendering yet.** This backend turns camera observations and the renderers off; `env.render()` and
+  `robotdesigner.viz` work with the native backend only (see [viz](viz.md#adding-rendering-to-another-backend)).
 - **Library defaults.** `env.resolved_env_kwargs` is the complete argument set the environment ran with. `env.env_name`,
   `env.robosuite_version`, `env.robosuite_envs` (the underlying environments) and `env.q_target` are also available.
 - **Versions.** robosuite 1.5.x as released fails on MuJoCo 3.10 and later. `robotdesigner.backends.robosuite.apply_compat()`
