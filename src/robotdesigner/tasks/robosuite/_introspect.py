@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from ...config.task import RESERVED_ENV_KWARGS
+from .params import RESERVED_ENV_KWARGS
 
 
 def env_class(name: str) -> type | None:

@@ -7,7 +7,7 @@ pytestmark = pytest.mark.robosuite
 suite = pytest.importorskip("robosuite")
 mujoco = pytest.importorskip("mujoco")
 
-from robotdesigner.backends.robosuite import apply_compat  # noqa: E402
+from robotdesigner.tasks.robosuite import apply_compat  # noqa: E402
 
 KNOWN_PATCHES = {"joint-address-enum", "mass-matrix"}
 
@@ -94,7 +94,7 @@ def test_joint_addresses_match_mujoco_named_access():
 
 
 def test_mass_matrix_check_switches_off_when_robosuite_no_longer_reads_qM():
-    from robotdesigner.backends.robosuite import _compat
+    from robotdesigner.tasks.robosuite import _compat
 
     class Fixed:
         class Controller:
