@@ -24,6 +24,7 @@ import re
 from typing import Any, Protocol, runtime_checkable
 
 from .errors import ConfigError, Problem
+from .robot import Pose
 
 __all__ = [
     "ENTRY_POINT_GROUP",
@@ -51,6 +52,10 @@ class TaskProvider(Protocol):
 
     def params_class(self, name: str) -> type | None:
         """The ``params`` class of task ``name`` (``to_dict`` / ``from_dict``), or ``None`` if there is no such task."""
+        ...
+
+    def default_mount(self, name: str) -> Pose:
+        """Where task ``name`` expects the robot base (a world pose); the origin when the scene has no opinion."""
         ...
 
     def validate(self, cfg: Any, simulator: str) -> list[Problem]:

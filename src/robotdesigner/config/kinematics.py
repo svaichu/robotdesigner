@@ -1,6 +1,6 @@
 """Pure-numpy forward kinematics of a ``ParametricArm``: the engine-independent oracle.
 
-Convention: ``T_0 = base_pose``; for each segment ``F_i = T_i . joint_frame_i``,
+Convention: ``T_0 = base`` (the robot base in the world: the task's ``mount``; identity when not given); for each segment ``F_i = T_i . joint_frame_i``,
 ``L_i = F_i . Rot(axis_i, q_i)``, ``tip_i = L_i . Pose(tip_offset_i, identity)``,
 ``T_{i+1} = tip_i``; ``ee = T_n . end_effector``.
 """
@@ -51,12 +51,12 @@ def axis_angle_matrices(axis, angles: np.ndarray) -> np.ndarray:
     return T
 
 
-def _forward_batch(arm: ParametricArm, q: np.ndarray):
+def _forward_batch(arm: ParametricArm, q: np.ndarray, base: Pose | None = None):
     q = np.asarray(q, dtype=float)
     if q.ndim != 2 or q.shape[1] != arm.n:
         raise ValueError(f"q must have shape (B, {arm.n}), got {q.shape}")
     B = q.shape[0]
-    T = np.broadcast_to(pose_to_matrix(arm.base_pose), (B, 4, 4))
+    T = np.broadcast_to(np.eye(4) if base is None else pose_to_matrix(base), (B, 4, 4))
     links, tips = [], []
     for i, seg in enumerate(arm.segments):
         F = T @ pose_to_matrix(seg.link.joint_frame)
@@ -70,18 +70,20 @@ def _forward_batch(arm: ParametricArm, q: np.ndarray):
     return np.stack(links, axis=1), np.stack(tips, axis=1), ee
 
 
-def forward(arm: ParametricArm, q) -> FK:
-    """Forward kinematics for one joint configuration ``q`` of shape ``(n,)``."""
+def forward(arm: ParametricArm, q, base: Pose | None = None) -> FK:
+    """Forward kinematics for one joint configuration ``q`` of shape ``(n,)``. Poses are in the frame the robot base
+    ``base`` is given in (the task's ``mount``: the world); the base frame itself when ``base`` is ``None``."""
     q = np.asarray(q, dtype=float)
     if q.shape != (arm.n,):
         raise ValueError(f"q must have shape ({arm.n},), got {q.shape}")
-    links, tips, ee = _forward_batch(arm, q[None])
+    links, tips, ee = _forward_batch(arm, q[None], base)
     return FK(link_frames=links[0], tip_frames=tips[0], ee=ee[0])
 
 
-def forward_ee_batch(arm: ParametricArm, q_batch) -> np.ndarray:
-    """End-effector positions in the world frame (``base_pose`` included), ``(B, n) -> (B, 3)``."""
-    return _forward_batch(arm, q_batch)[2][:, :3, 3]
+def forward_ee_batch(arm: ParametricArm, q_batch, base: Pose | None = None) -> np.ndarray:
+    """End-effector positions, ``(B, n) -> (B, 3)``: in the world frame when ``base`` is the mount of the robot, in the
+    robot's base frame when it is ``None``."""
+    return _forward_batch(arm, q_batch, base)[2][:, :3, 3]
 
 
 def sample_joint_positions(arm: ParametricArm, num: int, rng: np.random.Generator) -> np.ndarray:

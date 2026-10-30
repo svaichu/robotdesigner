@@ -6,7 +6,7 @@ arena, the objects and the placement rule of the robosuite environment `<EnvName
 step; robosuite's own physics options, controllers, robots and rewards are not used.
 
 ```python
-from robotdesigner.config import TaskConfig
+from robotdesigner.config import Pose, TaskConfig
 from robotdesigner.tasks.robosuite import LiftObject, ReachObject, RobosuiteParams
 from robotdesigner.tasks.robosuite.params import RESERVED_ENV_KWARGS
 ```
@@ -42,6 +42,7 @@ lift = TaskConfig(
     horizon=200,
     success_tolerance=None,
     target_region=None,
+    mount=Pose((-0.56, 0.0, 0.912), (1.0, 0.0, 0.0, 0.0)),   # where robosuite mounts a stock arm in Lift
 )
 assert lift.id == "robosuite/Lift"          # derived: the class names the provider, `name` the environment
 assert lift.to_dict()["provider"] == "robosuite" and lift.to_dict()["params"]["name"] == "Lift"
@@ -76,21 +77,22 @@ from robotdesigner.config import (ControlConfig, EnvConfig, FixedGains, MujocoOp
 from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams, default_mount
 
 arm = chain(4, "zyyy", total_length=0.9, total_mass=6.0, radius=0.04, damping=1.0, armature=0.05, frictionloss=0.0,
-            effort_limit=80.0, range=(-2.9, 2.9), base_pose=default_mount("Lift"))   # where robosuite mounts a stock arm
+            effort_limit=80.0, range=(-2.9, 2.9))
 cfg = EnvConfig(
     robot=arm,
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
     task=TaskConfig(RobosuiteParams("Lift", {}, LiftObject("cube", 0.84), reset_noise=0.0, terminate_on_success=False),
-                    horizon=200, success_tolerance=None, target_region=None),
+                    horizon=200, success_tolerance=None, target_region=None,
+                    mount=default_mount("Lift")),               # where robosuite mounts a stock arm in this scene
     sim=SimConfig("mujoco", num_envs=4, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
                   scene="empty", options=MujocoOptions(self_collision=False)),
 )
 env = make_env(cfg)
 ```
 
-- **Robot placement.** `robot.base_pose` is a world pose, as for every task; the arena origin is the world origin, and
-  the table top of `Lift` is at z = 0.8. `default_mount(env_name, **env_kwargs)` returns where robosuite would mount a
-  stock arm in that scene (for `Lift`: `(-0.56, 0, 0.912)`); use it, or any pose, as the base of your arm.
+- **Robot placement.** `task.mount` is the world pose of the robot base, as for every task; the arena origin is the world origin, and
+  the table top of `Lift` is at z = 0.8. `default_mount(env_name, **env_kwargs)` (also `PROVIDER.default_mount(name)`) returns where robosuite would mount a
+  stock arm in that scene (for `Lift`: `(-0.56, 0, 0.912)`); use it, or any pose, as the mount. The arm itself has no pose, so its `robot_hash` is the same in every scene.
 - **Scene.** `sim.scene` must be `"empty"`: the arena brings its own floor.
 - **Validation.** `make_env` reports every problem at once: a wrong scene, an unknown environment, a multi-arm
   environment, `env_kwargs` the environment does not accept, an objective naming an object that is not in the scene
@@ -140,8 +142,8 @@ def error_of(build):
 objective = ReachObject("cube", 0.05)
 ok = RobosuiteParams("Lift", {}, objective, 0.0, False)
 assert error_of(lambda: RobosuiteParams("", {}, objective, 0.0, False)).path == "name"                # needs an environment name
-assert error_of(lambda: TaskConfig(ok, 10, 0.02, None)).path == "success_tolerance"                  # the objective defines success
-assert error_of(lambda: TaskConfig(objective, 10, None, None)).path == "params"                      # not a params object
+assert error_of(lambda: TaskConfig(ok, 10, 0.02, None, Pose.identity())).path == "success_tolerance"                  # the objective defines success
+assert error_of(lambda: TaskConfig(objective, 10, None, None, Pose.identity())).path == "params"                      # not a params object
 assert error_of(lambda: RobosuiteParams("Lift", {"robots": "Panda"}, objective, 0.0, False)).path == "env_kwargs"
 assert error_of(lambda: RobosuiteParams("Lift", {"x": object()}, objective, 0.0, False)).path == "env_kwargs.x"
 assert error_of(lambda: RobosuiteParams("Lift", {}, "lift", 0.0, False)).path == "objective"

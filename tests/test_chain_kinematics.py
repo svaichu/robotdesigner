@@ -23,9 +23,14 @@ def test_worked_examples():
 
 def test_base_translation_shifts_ee():
     a = chain(2, "zz", link_length=0.5, mass=1.0, **COMMON)
-    b = chain(2, "zz", link_length=0.5, mass=1.0, base_pose=Pose((0, 0, 0.1), (1, 0, 0, 0)), **COMMON)
     q = (0.3, -0.7)
-    assert np.allclose(ee(b, q) - ee(a, q), (0, 0, 0.1), atol=1e-12)
+    mount = Pose((0, 0, 0.1), (1, 0, 0, 0))
+    shifted = kin.forward(a, q, mount).ee[:3, 3]
+    assert np.allclose(shifted - ee(a, q), (0, 0, 0.1), atol=1e-12)
+    # the world-frame end effector is the mount applied to the base-frame one
+    T = kin.pose_to_matrix(Pose((0.2, -0.1, 0.4), (0.8, 0.2, 0.4, 0.1)))
+    world = kin.forward(a, q, Pose((0.2, -0.1, 0.4), (0.8, 0.2, 0.4, 0.1))).ee
+    assert np.allclose(world, T @ kin.forward(a, q).ee, atol=1e-12)
 
 
 def test_batch_matches_single():

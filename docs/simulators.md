@@ -107,7 +107,7 @@ What tasks and wrappers need to know about a compiled robot, without engine-spec
 | `ee_site_id` | the end-effector site |
 | `joint_range` | `(n, 2)`, `-inf`/`+inf` where unlimited |
 | `effort_limit`, `home_qpos` | `(n,)` |
-| `base_pose` | the base frame |
+| `mount` | the base pose in the world (`task.mount`) |
 | `kp`, `kd` | effective gains `(n,)`; `None` for torque control |
 
 ## How an environment is put together

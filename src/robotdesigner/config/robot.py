@@ -251,7 +251,6 @@ class ParametricArm:
 
     schema_version: int
     segments: tuple[Segment, ...]
-    base_pose: Pose
     home_qpos: tuple[float, ...]
     end_effector: Pose
     tool: ToolSpec | None
@@ -271,7 +270,7 @@ class ParametricArm:
                 raise ConfigError(f"segments[{i}]", "expected a Segment")
         object.__setattr__(self, "segments", segments)
 
-        for name in ("base_pose", "end_effector"):
+        for name in ("end_effector",):
             if not isinstance(getattr(self, name), Pose):
                 raise ConfigError(name, "expected a Pose")
         if self.tool is not None and not isinstance(self.tool, ToolSpec):
@@ -298,7 +297,6 @@ class ParametricArm:
             "kind": "parametric_arm",
             "schema_version": self.schema_version,
             "segments": [s.to_dict() for s in self.segments],
-            "base_pose": self.base_pose.to_dict(),
             "home_qpos": list(self.home_qpos),
             "end_effector": self.end_effector.to_dict(),
             "tool": None if self.tool is None else self.tool.to_dict(),
@@ -309,7 +307,7 @@ class ParametricArm:
     def from_dict(cls, d: Mapping[str, Any]) -> "ParametricArm":
         check_keys(
             d,
-            {"kind", "schema_version", "segments", "base_pose", "home_qpos", "end_effector", "tool"},
+            {"kind", "schema_version", "segments", "home_qpos", "end_effector", "tool"},
             "",
             optional={"label"},
         )
@@ -322,7 +320,6 @@ class ParametricArm:
         return cls(
             schema_version=d["schema_version"],
             segments=tuple(within(f"segments[{i}]", Segment.from_dict, s) for i, s in enumerate(segs)),
-            base_pose=within("base_pose", Pose.from_dict, d["base_pose"]),
             home_qpos=d["home_qpos"],
             end_effector=within("end_effector", Pose.from_dict, d["end_effector"]),
             tool=None if tool is None else within("tool", ToolSpec.from_dict, tool),

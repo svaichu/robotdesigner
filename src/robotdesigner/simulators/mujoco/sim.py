@@ -24,7 +24,7 @@ class BatchedSim:
         self.num_envs = num_envs
         self.n_substeps = n_substeps
         self.data: list[mujoco.MjData] = [mujoco.MjData(self.model) for _ in range(num_envs)]
-        T = pose_to_matrix(self.iface.base_pose)
+        T = pose_to_matrix(self.iface.mount)
         self._base_R = T[:3, :3]
         self._base_pos = T[:3, 3]
         self.reset()

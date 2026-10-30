@@ -18,7 +18,7 @@ ROBOT_CONTYPE = 1
 def add_arm(parent, arm: ParametricArm, *, conaffinity: int):
     """Add ``link_i`` bodies, ``joint_i`` hinges and ``geom_i`` capsules under ``parent``.
 
-    ``parent`` is the base body: ``arm.base_pose`` is the caller's business. Angles in the spec are radians
+    ``parent`` is the base body: the base pose (the task's mount) is the caller's business. Angles in the spec are radians
     (the caller must set ``spec.compiler.degree = False``). Returns ``(last_body, tip)`` where ``tip`` is the last
     link's ``tip_offset`` in its own frame, from which the caller places the end effector.
     """

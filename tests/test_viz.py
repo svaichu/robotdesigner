@@ -23,12 +23,13 @@ def _frames(t=6, h=24, w=32):
 def _cfg(n=3, length=0.9):
     arm = chain(
         n, ("zy" * n)[:n], total_length=length, total_mass=2.0, radius=0.03, damping=0.5, armature=0.01,
-        frictionloss=0.0, effort_limit=50.0, range=(-2.0, 2.0), base_pose=Pose((0.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0)),
+        frictionloss=0.0, effort_limit=50.0, range=(-2.0, 2.0),
     )
     return EnvConfig(
         robot=arm,
         control=ControlConfig("joint_pos_abs", FixedGains(60.0, 6.0), None),
-        task=TaskConfig(ReachParams("reach", 0.0, False), 20, 0.02, FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4))),
+        task=TaskConfig(ReachParams("reach", 0.0, False), 20, 0.02, FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)),
+                        mount=Pose((0.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0))),
         sim=SimConfig("mujoco", 2, "cpu", 0.002, "euler", 50, 0, "plain_floor", options=MujocoOptions(False)),
     )
 
@@ -294,3 +295,13 @@ def test_record_rollout_follows_the_torchrl_callback_contract():
     assert len(clip) == 6 and clip.fps == 50.0  # steps + 1 frames
     with pytest.raises(TypeError, match="callback"):
         record_rollout(env, 5, callback=print)
+
+
+def test_workspace_follows_the_mount_and_a_bare_arm_sits_at_the_origin():
+    cfg = _cfg()
+    from dataclasses import replace
+
+    shifted = replace(cfg, task=replace(cfg.task, mount=Pose((1.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0))))
+    d = workspace_points(shifted) - workspace_points(cfg)
+    assert np.allclose(d, (1.0, 0.0, 0.0))
+    assert np.allclose(workspace_points(cfg.robot)[0], (0.0, 0.0, 0.0))

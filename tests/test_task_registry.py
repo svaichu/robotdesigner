@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import pytest
 
 import robotdesigner.tasks
-from robotdesigner.config import ConfigError, Problem, TaskConfig, list_task_providers, register_task_provider
+from robotdesigner.config import ConfigError, Pose, Problem, TaskConfig, list_task_providers, register_task_provider
 from robotdesigner.config import providers
 from robotdesigner.config.providers import ENTRY_POINT_GROUP, known_task_ids, params_class, split_task_id
 
@@ -34,6 +34,9 @@ class ExtTasks:
 
     def params_class(self, name):
         return ExtParams if name == "thing" else None
+
+    def default_mount(self, name):
+        return Pose.identity()
 
     def validate(self, cfg, simulator):
         return []
@@ -94,7 +97,7 @@ def test_explicit_registration_and_duplicates(clean_registry):
         register_task_provider("ext", ExtTasks())
     register_task_provider("ext", ExtTasks, replace=True)  # a class is instantiated on first use
     assert params_class("ext/thing") is ExtParams
-    cfg = TaskConfig(ExtParams(), 5, None, None)
+    cfg = TaskConfig(ExtParams(), 5, None, None, Pose.identity())
     assert TaskConfig.from_dict(cfg.to_dict()) == cfg
 
 
@@ -147,7 +150,7 @@ def test_object_without_the_protocol_is_rejected(clean_registry):
 
 def test_unknown_provider_and_name_errors_carry_paths_and_list_what_is_known(clean_registry):
     register_task_provider("ext", EXT)
-    good = TaskConfig(ExtParams(), 5, None, None).to_dict()
+    good = TaskConfig(ExtParams(), 5, None, None, Pose.identity()).to_dict()
     with pytest.raises(ConfigError) as e:
         TaskConfig.from_dict({**good, "provider": "nope"})
     assert str(e.value).startswith("provider:") and all(ns in str(e.value) for ns in list_task_providers())

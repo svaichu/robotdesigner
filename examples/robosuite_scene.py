@@ -32,7 +32,6 @@ def build_config(num_envs: int = 4, horizon: int = 100) -> EnvConfig:
         frictionloss=0.0,
         effort_limit=50.0,
         range=(-2.5, 2.5),
-        base_pose=default_mount("Lift"),  # where robosuite mounts a stock arm in this scene
     )
     return EnvConfig(
         robot=arm,
@@ -45,6 +44,7 @@ def build_config(num_envs: int = 4, horizon: int = 100) -> EnvConfig:
             horizon=horizon,
             success_tolerance=None,
             target_region=None,
+            mount=default_mount("Lift"),  # where robosuite mounts a stock arm in this scene
         ),
         sim=SimConfig(
             simulator="mujoco", num_envs=num_envs, device="cpu", dt=0.002,

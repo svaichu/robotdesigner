@@ -79,7 +79,6 @@ def chain(
     effort_limit: float | Sequence[float],
     range: Any = None,
     home_qpos: Sequence[float] | None = None,
-    base_pose: Pose | None = None,
     end_effector: Pose | None = None,
     tool: ToolSpec | None = None,
     label: str = "",
@@ -129,7 +128,6 @@ def chain(
     return ParametricArm(
         schema_version=1,
         segments=segments,
-        base_pose=Pose.identity() if base_pose is None else base_pose,
         home_qpos=(0.0,) * n if home_qpos is None else tuple(home_qpos),
         end_effector=Pose.identity() if end_effector is None else end_effector,
         tool=tool,

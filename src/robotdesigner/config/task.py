@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 from ._canon import as_float, as_int, as_vector, check_keys, within
 from .errors import ConfigError
+from .robot import Pose
 from .providers import get_task_provider, known_task_ids, list_task_providers
 
 
@@ -76,12 +77,17 @@ class TaskConfig:
     namespace) and a field ``name`` (the task within the provider). Besides ``to_dict`` / ``from_dict`` the
     environment reads ``reset_noise`` (rad, uniform noise on the initial joint positions) and
     ``terminate_on_success`` from it when they exist.
+
+    ``mount`` is the pose of the robot base in the world: where the scene expects the arm
+    (``TaskProvider.default_mount(name)``). The robot itself has no pose, so ``robot_hash`` identifies the embodiment
+    alone. Target regions are in the robot's base frame and follow the mount.
     """
 
     params: Any
     horizon: int
     success_tolerance: float | None
     target_region: TargetRegion | None
+    mount: Pose
 
     def __post_init__(self):
         provider = getattr(self.params, "provider", None)
@@ -95,6 +101,8 @@ class TaskConfig:
         params_cls = _params_class(provider, name, "params", "params.name")
         if not isinstance(self.params, params_cls):
             raise ConfigError("params", f"task {self.id!r} requires {params_cls.__name__}")
+        if not isinstance(self.mount, Pose):
+            raise ConfigError("mount", "expected a Pose: the robot base in the world")
         horizon = as_int(self.horizon, "horizon")
         if horizon < 1:
             raise ConfigError("horizon", "must be >= 1")
@@ -126,11 +134,12 @@ class TaskConfig:
             "horizon": self.horizon,
             "success_tolerance": self.success_tolerance,
             "target_region": None if self.target_region is None else self.target_region.to_dict(),
+            "mount": self.mount.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "TaskConfig":
-        check_keys(d, {"provider", "params", "horizon", "success_tolerance", "target_region"}, "")
+        check_keys(d, {"provider", "params", "horizon", "success_tolerance", "target_region", "mount"}, "")
         raw = d["params"]
         if not isinstance(raw, Mapping):
             raise ConfigError("params", f"expected a mapping, got {type(raw).__name__}")
@@ -143,6 +152,7 @@ class TaskConfig:
             horizon=d["horizon"],
             success_tolerance=d["success_tolerance"],
             target_region=None if region is None else within("target_region", region_from_dict, region),
+            mount=within("mount", Pose.from_dict, d["mount"]),
         )
 
 

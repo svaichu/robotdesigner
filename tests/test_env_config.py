@@ -3,6 +3,7 @@ import copy
 import pytest
 
 from robotdesigner.config import (
+    Pose,
     ConfigError,
     ControlConfig,
     EnvConfig,
@@ -30,6 +31,7 @@ def make_cfg(dt=0.002, num_envs=8, horizon=200, kp=60.0, mass=3.0, region=None):
             horizon=horizon,
             success_tolerance=0.02,
             target_region=region or FixedBox(low=(0.2, -0.3, 0.0), high=(0.6, 0.3, 0.4)),
+            mount=Pose.identity(),
         ),
         sim=SimConfig(simulator="mujoco", num_envs=num_envs, device="cpu", dt=dt, integrator="euler",
                       control_freq=50, seed=0, scene="plain_floor", options=MujocoOptions(self_collision=False)),
@@ -134,16 +136,16 @@ def test_inertia_scaled_gains_round_trip_and_validation():
 def test_task_config_rules_come_from_the_provider():
     ok = ReachParams("reach", 0.0, False)
     with pytest.raises(ConfigError, match="success_tolerance"):
-        TaskConfig(ok, 10, None, None)  # a goal task needs its tolerance
+        TaskConfig(ok, 10, None, None, mount=Pose.identity())  # a goal task needs its tolerance
     with pytest.raises(ConfigError, match="target_region"):
-        TaskConfig(ok, 10, 0.02, None)  # and its target region
+        TaskConfig(ok, 10, 0.02, None, mount=Pose.identity())  # and its target region
     with pytest.raises(ConfigError, match="horizon"):
-        TaskConfig(ok, 0, 0.02, OwnReachable())
+        TaskConfig(ok, 0, 0.02, OwnReachable(), mount=Pose.identity())
     with pytest.raises(ConfigError, match="^params: expected a task provider's params object"):
-        TaskConfig(MujocoOptions(False), 10, 0.02, OwnReachable())
+        TaskConfig(MujocoOptions(False), 10, 0.02, OwnReachable(), mount=Pose.identity())
     for bad in ("", "nope", "Reach"):
         with pytest.raises(ConfigError, match="^params.name: unknown task"):
-            TaskConfig(ReachParams(bad, 0.0, False), 10, 0.02, OwnReachable())
+            TaskConfig(ReachParams(bad, 0.0, False), 10, 0.02, OwnReachable(), mount=Pose.identity())
     d = make_cfg().task.to_dict()
     with pytest.raises(ConfigError, match="^provider: unknown task provider 'nope'"):
         TaskConfig.from_dict({**d, "provider": "nope"})
@@ -172,5 +174,18 @@ def test_task_params_validate_themselves():
         ReachParams("reach", -1.0, False)
     with pytest.raises(ConfigError, match="terminate_on_success"):
         ReachParams("reach", 0.0, "yes")
-    spelled = TaskConfig(ReachParams("reach", 0.05, True), 200, 0.02, OwnReachable())
+    spelled = TaskConfig(ReachParams("reach", 0.05, True), 200, 0.02, OwnReachable(), mount=Pose.identity())
     assert TaskConfig.from_dict(spelled.to_dict()) == spelled
+
+
+def test_the_mount_belongs_to_the_task_not_the_robot():
+    from dataclasses import replace
+
+    cfg = make_cfg()
+    moved = replace(cfg, task=replace(cfg.task, mount=Pose((0.1, 0.2, 0.3), (1.0, 0.0, 0.0, 0.0))))
+    assert moved.robot == cfg.robot and moved.robot.config_hash == cfg.robot.config_hash  # one embodiment, whatever the mount
+    assert moved.env_hash != cfg.env_hash and moved.to_dict()["task"]["mount"]["pos"] == [0.1, 0.2, 0.3]
+    assert EnvConfig.from_dict(moved.to_dict()) == moved
+    assert "base_pose" not in cfg.robot.to_dict()
+    with pytest.raises(ConfigError, match="^task.mount"):
+        EnvConfig.from_dict({**cfg.to_dict(), "task": {**cfg.to_dict()["task"], "mount": [0, 0, 0]}})

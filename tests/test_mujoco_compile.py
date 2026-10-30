@@ -15,7 +15,10 @@ from robotdesigner.config import kinematics as kin  # noqa: E402
 COMMON = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0)
 
 
-def make_cfg(arm, mode="joint_pos_abs", **sim):
+MOUNT = Pose((0.1, -0.2, 0.3), (0.9, 0.1, 0.3, 0.2))
+
+
+def make_cfg(arm, mode="joint_pos_abs", mount=None, **sim):
     sim_kw = dict(simulator="mujoco", num_envs=2, device="cpu", dt=0.002, integrator="euler",
                   control_freq=50, seed=0, scene="plain_floor", options=MujocoOptions(self_collision=False))
     sim_kw.update(sim)
@@ -23,14 +26,13 @@ def make_cfg(arm, mode="joint_pos_abs", **sim):
         robot=arm,
         control=ControlConfig(mode=mode, gains=FixedGains(60.0, 6.0), action_scale=None),
         task=TaskConfig(ReachParams("reach", 0.0, False), 100, 0.02,
-                        FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4))),
+                        FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)), mount=Pose.identity() if mount is None else mount),
         sim=SimConfig(**sim_kw),
     )
 
 
 ARMS = {
     "zy2": lambda: chain(2, "zy", total_length=0.9, total_mass=2.0, range=[None, (-2.0, 2.0)],
-                         base_pose=Pose((0.1, -0.2, 0.3), (0.9, 0.1, 0.3, 0.2)),
                          end_effector=Pose((0.05, 0.0, 0.02), (0.8, 0.0, 0.6, 0.0)), **COMMON),
     "zyyz4": lambda: chain(4, "zyyz", link_length=[0.3, 0.25, 0.2, 0.1], mass=[1.0, 0.8, 0.5, 0.2],
                            range=(-2.5, 2.5), **COMMON),
@@ -40,14 +42,14 @@ ARMS = {
 @pytest.mark.parametrize("name", ARMS)
 def test_kinematics_oracle(name):
     arm = ARMS[name]()
-    compiled = compile_robot(make_cfg(arm))
+    compiled = compile_robot(make_cfg(arm, mount=MOUNT))
     model, iface = compiled.model, compiled.interface
     data = mujoco.MjData(model)
     rng = np.random.default_rng(0)
     for q in kin.sample_joint_positions(arm, 5, rng):
         data.qpos[iface.qpos_adr] = q
         mujoco.mj_forward(model, data)
-        fk = kin.forward(arm, q).ee
+        fk = kin.forward(arm, q, MOUNT).ee
         assert np.allclose(data.site_xpos[iface.ee_site_id], fk[:3, 3], atol=1e-9)
         assert np.allclose(data.site_xmat[iface.ee_site_id].reshape(3, 3), fk[:3, :3], atol=1e-9)
 
@@ -119,3 +121,11 @@ def test_joint_limits_compile_in_radians(name):
     assert limited.any()
     np.testing.assert_array_equal(model.jnt_limited[ids].astype(bool), limited)
     np.testing.assert_allclose(model.jnt_range[ids][limited], iface.joint_range[limited])
+
+
+def test_base_body_sits_at_the_task_mount():
+    compiled = compile_robot(make_cfg(ARMS["zyyz4"](), mount=MOUNT))
+    base = mujoco.mj_name2id(compiled.model, mujoco.mjtObj.mjOBJ_BODY, "base")
+    assert np.allclose(compiled.model.body_pos[base], MOUNT.pos)
+    assert np.allclose(compiled.model.body_quat[base], MOUNT.quat)
+    assert compiled.interface.mount == MOUNT

@@ -37,6 +37,9 @@ class RobosuiteTasks:
     def params_class(self, name: str) -> type | None:
         return RobosuiteParams if name else None
 
+    def default_mount(self, name: str) -> Pose:
+        return default_mount(name)
+
     def validate(self, cfg: Any, simulator: str) -> list[Problem]:
         if simulator not in self.SIMULATORS:
             return [Problem("sim.simulator", f"task {cfg.task.id!r} runs on {sorted(self.SIMULATORS)}, not on {simulator!r}")]
@@ -113,7 +116,7 @@ PROVIDER = RobosuiteTasks()
 def default_mount(env_name: str, **env_kwargs: Any) -> Pose:
     """Where robosuite mounts a stock arm in ``env_name`` (world frame, identity orientation).
 
-    Use it as the base of your own robot, for example ``chain(..., base_pose=default_mount("Lift"))``, so the arm
+    Use it as the base of your own robot, for example ``TaskConfig(..., mount=default_mount("Lift"))``, so the arm
     stands where the robosuite scene expects it. Builds the robosuite environment once, so it needs robosuite.
     """
     from .scene import load_scene

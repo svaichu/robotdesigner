@@ -21,7 +21,7 @@ Related pages: [ControlConfig](control.md), [TaskConfig](task.md), [SimConfig](s
   non-zero component is positive (`q` and `-q` are the same rotation, so they hash the same).
 - **Everything dynamic is explicit.** Damping, armature, friction loss, effort limit, mass and radius have no defaults;
   a simulator never fills one in. Only `label`, and the optional arguments of `chain()` listed below, have defaults.
-- **Frames.** The chain starts at the *base frame*, placed in the world by `base_pose`. Segment `i` has a *joint frame*
+- **Frames.** The chain starts at the *base frame*. The robot has no pose of its own: where the base stands in the world is a property of the scene, `TaskConfig.mount`, so the same arm has the same `config_hash` in every scene. Segment `i` has a *joint frame*
   (the pose of the joint relative to the previous link's end frame; the base frame for `i = 0`), a *link frame* (the
   joint frame rotated by the joint angle) and an *end frame* (the link frame translated by `tip_offset`; same
   orientation). The end effector is the last end frame composed with `end_effector`.
@@ -29,7 +29,7 @@ Related pages: [ControlConfig](control.md), [TaskConfig](task.md), [SimConfig](s
 In formulas (this is exactly what `robotdesigner.config.kinematics` computes):
 
 ```
-T_0 = base_pose
+T_0 = base                          the base frame (the task's mount; the identity if you work in the base frame)
 F_i = T_i · joint_frame_i          joint frame of segment i
 L_i = F_i · Rot(axis_i, q_i)       link frame
 T_{i+1} = L_i · Pose(tip_offset_i) end frame (becomes the next base)
@@ -99,13 +99,12 @@ A gripper mounted on the end effector.
 
 It is stored and hashed. The MuJoCo simulator does not build grippers yet and ignores it, so it changes `env_hash` but not the physics.
 
-### `ParametricArm(schema_version, segments, base_pose, home_qpos, end_effector, tool, label="")`
+### `ParametricArm(schema_version, segments, home_qpos, end_effector, tool, label="")`
 
 | field | type | rule |
 |---|---|---|
 | `schema_version` | int | must be `1` |
 | `segments` | tuple of `Segment` | at least one; `n = len(segments)` |
-| `base_pose` | `Pose` | the base frame in the world |
 | `home_qpos` | `n` floats | each inside its joint's `range` |
 | `end_effector` | `Pose` | relative to the last end frame |
 | `tool` | `ToolSpec` or `None` | |
@@ -129,7 +128,7 @@ inertia. `n` is an argument of the generator, not a stored field, so a study can
 | `radius`, `damping`, `armature`, `frictionloss`, `effort_limit` | required; a scalar (all joints) or `n` per-joint values |
 | `range` | `None` (unlimited), one `(lo, hi)` for all joints, or `n` entries each `(lo, hi)` or `None` |
 | `home_qpos` | default: all zeros |
-| `base_pose`, `end_effector` | default: `Pose.identity()` |
+| `end_effector` | default: `Pose.identity()` |
 | `tool` | default: `None` |
 | `label` | default: `""` |
 
@@ -181,7 +180,6 @@ seg = Segment(
 tower = ParametricArm(
     schema_version=1,
     segments=(seg, seg),
-    base_pose=Pose.identity(),
     home_qpos=(0.0, 0.0),
     end_effector=Pose.identity(),
     tool=None,
@@ -191,18 +189,20 @@ ee = kinematics.forward(tower, [0.0, 0.0]).ee
 assert close(ee[2, 3], 0.1 + 0.4 + 0.1 + 0.4)   # two links, each 0.1 above the previous end plus 0.4 long
 ```
 
-### Placing the base, the end effector and a gripper
+### The end effector, a gripper and the mount
 
 ```python
 placed = chain(
     3, "zyy", total_length=0.9, total_mass=3.0, **common,
-    base_pose=Pose((0.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0)),            # the arm stands 0.5 m above the world origin
     end_effector=Pose((0.0, 0.0, 0.05), (0.7071068, 0.0, 0.7071068, 0.0)),   # tool frame: 5 cm along z, rotated 90 deg about y
     tool=ToolSpec("PandaGripper", (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0)),
 )
 assert placed.tool.gripper == "PandaGripper"
-p = kinematics.forward(placed, [0.0, 0.0, 0.0]).ee[:3, 3]
+mount = Pose((0.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0))       # where the arm stands: given to the kinematics (and to `TaskConfig.mount`), not to the arm
+p = kinematics.forward(placed, [0.0, 0.0, 0.0], mount).ee[:3, 3]
 assert close(p[0], 0.9) and close(p[1], 0.0) and close(p[2], 0.5 + 0.05)   # along +x at height 0.5, plus the 5 cm tool offset
+q = kinematics.forward(placed, [0.0, 0.0, 0.0]).ee[:3, 3]                 # without a mount: in the base frame
+assert close(q[2], 0.05)
 ```
 
 ## Serialization and the hash
@@ -266,8 +266,8 @@ use it to check every compiled model.
 
 | function | returns |
 |---|---|
-| `forward(arm, q)` | `FK` with `link_frames` `(n, 4, 4)`, `tip_frames` `(n, 4, 4)` and `ee` `(4, 4)`, all world poses (`base_pose` included) |
-| `forward_ee_batch(arm, q_batch)` | end-effector positions `(B, 3)` in the **world** frame, `base_pose` included |
+| `forward(arm, q, base=None)` | `FK` with `link_frames` `(n, 4, 4)`, `tip_frames` `(n, 4, 4)` and `ee` `(4, 4)`, all poses in the frame `base` is given in: world poses for `base = task.mount`, base-frame poses for `None` |
+| `forward_ee_batch(arm, q_batch, base=None)` | end-effector positions `(B, 3)`: in the **world** frame with `base = task.mount`, in the robot's base frame with `None` |
 | `sample_joint_positions(arm, num, rng)` | `(num, n)` samples, uniform inside each joint range and in `[-pi, pi]` for unlimited joints |
 
 ```python
@@ -286,7 +286,7 @@ assert q.shape == (10, 3) and np.all(np.abs(q) <= 2.5)
 | names | `base`, `link_{i}`, `joint_{i}`, `geom_{i}`, `ee` (site), `act_{i}` |
 | actuators | position servo, velocity servo or torque, by control mode; force limited to `±effort_limit` |
 | `ToolSpec` | ignored |
-| `base_pose` | world pose of the base, for every task |
+| mount | the `base` body sits at `TaskConfig.mount`, for every task |
 | collisions | robot geoms collide with the scene; with each other only if `MujocoOptions.self_collision` |
 
 The chain is built by one function (`simulators/mujoco/arm_spec.py`), so the physical robot is the same in every scene.

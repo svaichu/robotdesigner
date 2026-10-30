@@ -42,23 +42,23 @@ class CameraSpec:
 
 
 def _parts(cfg):
-    """``cfg`` is an ``EnvConfig`` (robot and target region) or a bare ``ParametricArm``."""
+    """``cfg`` is an ``EnvConfig`` (robot, mount and target region) or a bare ``ParametricArm`` (at the origin)."""
     robot = getattr(cfg, "robot", cfg)
-    region = getattr(getattr(cfg, "task", None), "target_region", None)
-    return robot, region
+    task = getattr(cfg, "task", None)
+    return robot, getattr(task, "target_region", None), getattr(task, "mount", None)
 
 
 def workspace_points(cfg, n_samples: int = 512, seed: int = 0) -> np.ndarray:
     """World-frame points the camera should cover: base, floor under the base, end-effector samples over the
     joint ranges, the home pose, and the corners of a ``FixedBox`` target region. Uses its own random
     generator, so it never touches an environment's random stream."""
-    robot, region = _parts(cfg)
+    robot, region, mount = _parts(cfg)
     rng = np.random.default_rng(seed)
-    T = kin.pose_to_matrix(robot.base_pose)
+    T = np.eye(4) if mount is None else kin.pose_to_matrix(mount)
     base = T[:3, 3]
     pts = [base[None], np.array([[base[0], base[1], 0.0]])]
-    pts.append(kin.forward_ee_batch(robot, kin.sample_joint_positions(robot, n_samples, rng)))
-    pts.append(kin.forward_ee_batch(robot, np.asarray(robot.home_qpos, dtype=float)[None]))
+    pts.append(kin.forward_ee_batch(robot, kin.sample_joint_positions(robot, n_samples, rng), mount))
+    pts.append(kin.forward_ee_batch(robot, np.asarray(robot.home_qpos, dtype=float)[None], mount))
     if isinstance(region, FixedBox):
         lo, hi = np.asarray(region.low, dtype=float), np.asarray(region.high, dtype=float)
         corners = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])

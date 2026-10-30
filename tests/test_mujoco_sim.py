@@ -10,9 +10,9 @@ from robotdesigner.config import kinematics as kin  # noqa: E402
 from tests.test_mujoco_compile import COMMON, make_cfg  # noqa: E402
 
 
-def make_sim(num_envs=3, **arm_kw):
-    arm = chain(2, "zy", link_length=0.5, mass=1.0, range=(-2.0, 2.0), **COMMON, **arm_kw)
-    cfg = make_cfg(arm, mode="joint_torque", num_envs=num_envs)
+def make_sim(num_envs=3, mount=None):
+    arm = chain(2, "zy", link_length=0.5, mass=1.0, range=(-2.0, 2.0), **COMMON)
+    cfg = make_cfg(arm, mode="joint_torque", mount=mount, num_envs=num_envs)
     return BatchedSim(compile_robot(cfg), num_envs, cfg.sim.n_substeps), cfg, arm
 
 
@@ -52,11 +52,11 @@ def test_time_bookkeeping():
 
 def test_ee_pos_base_matches_oracle_with_offset_base():
     base = Pose((0.3, 0.1, 0.5), (0.8, 0.2, 0.4, 0.1))
-    sim, _, arm = make_sim(base_pose=base)
+    sim, _, arm = make_sim(mount=base)
     q = np.random.default_rng(2).uniform(-1, 1, size=(3, 2))
     sim.reset(qpos=q)
     T = kin.pose_to_matrix(base)
-    world = kin.forward_ee_batch(arm, q)
+    world = kin.forward_ee_batch(arm, q, base)
     expected = (world - T[:3, 3]) @ T[:3, :3]
     assert np.allclose(sim.ee_pos_base(), expected, atol=1e-9)
 

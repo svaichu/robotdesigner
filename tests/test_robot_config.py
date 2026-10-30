@@ -36,7 +36,6 @@ def make_arm(axis0=(0, 0, 1), mass0=1.0, range1=(-1.8, 1.8), home=(0.0, 0.0), la
                 ),
             ),
         ),
-        base_pose=Pose.identity(),
         home_qpos=home,
         end_effector=Pose.identity(),
         tool=None,

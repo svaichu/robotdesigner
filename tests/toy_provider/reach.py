@@ -51,8 +51,8 @@ class ReachTask(BaseTask):
         lo = np.where(np.isfinite(rng[:, 0]), rng[:, 0], -np.pi)
         hi = np.where(np.isfinite(rng[:, 1]), rng[:, 1], np.pi)
         q = lo + rand(N, sim.iface.n).numpy() * (hi - lo)
-        world = kin.forward_ee_batch(self.cfg.robot, q)
-        T = kin.pose_to_matrix(self.cfg.robot.base_pose)
+        world = kin.forward_ee_batch(self.cfg.robot, q, self.cfg.task.mount)
+        T = kin.pose_to_matrix(self.cfg.task.mount)
         return torch.from_numpy((world - T[:3, 3]) @ T[:3, :3]).to(torch.float32)
 
     def reset(self, sim, mask, rand, injected) -> None:

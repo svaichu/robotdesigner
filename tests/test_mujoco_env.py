@@ -10,6 +10,7 @@ pytest.importorskip("torchrl")
 from torchrl.envs.utils import check_env_specs  # noqa: E402
 
 from robotdesigner.config import (  # noqa: E402
+    Pose,
     ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, OwnReachable, SimConfig, TaskConfig, chain,
 )
 from tests.toy_provider import ReachParams
@@ -24,7 +25,7 @@ def make_cfg(n=2, num_envs=3, seed=0, horizon=20, region=None, mode="joint_pos_a
         robot=arm,
         control=ControlConfig(mode, FixedGains(60.0, 6.0), None),
         task=TaskConfig(ReachParams("reach", noise, terminate), horizon, 0.02,
-                        region or FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4))),
+                        region or FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)), mount=Pose.identity()),
         sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, seed, "plain_floor", options=MujocoOptions(False)),
     )
 

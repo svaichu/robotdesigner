@@ -95,7 +95,7 @@ class RobosuiteTask(BaseTask):
                 fixtures.append(name)
         self.fixtures = tuple(fixtures)
         self._base_pos, self._base_R = sim._base_pos, sim._base_R
-        q = np.asarray(self.cfg.robot.base_pose.quat, dtype=float)
+        q = np.asarray(self.cfg.task.mount.quat, dtype=float)
         self._base_quat_inv = np.array([q[0], -q[1], -q[2], -q[3]]) / float(q @ q)
 
     def observation_spec(self, num_envs: int):

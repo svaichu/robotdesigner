@@ -53,15 +53,15 @@ from robotdesigner.config import (
 from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams, default_mount   # a task comes from the provider that owns it
 
 arm = chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0, radius=0.03,
-            damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5),
-            base_pose=default_mount("Lift"))        # where robosuite mounts a stock arm in this scene
+            damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5))
 
 cfg = EnvConfig(
     robot=arm,
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
     task=TaskConfig(params=RobosuiteParams(name="Lift", env_kwargs={}, objective=LiftObject("cube", height=0.84),
                                            reset_noise=0.0, terminate_on_success=False),
-                    horizon=200, success_tolerance=None, target_region=None),
+                    horizon=200, success_tolerance=None, target_region=None,
+                    mount=default_mount("Lift")),   # where robosuite mounts a stock arm in this scene
     sim=SimConfig(simulator="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
                   control_freq=50, seed=0, scene="empty",      # the arena brings its own floor
                   options=MujocoOptions(self_collision=False)),

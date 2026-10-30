@@ -13,6 +13,7 @@ import importlib
 from typing import Any
 
 from robotdesigner.config.errors import Problem
+from robotdesigner.config.robot import Pose
 
 from .params import ReachParams
 
@@ -33,6 +34,9 @@ class ToyTasks:
     def params_class(self, name: str) -> type | None:
         entry = self.TASKS.get(name)
         return None if entry is None else entry[0]
+
+    def default_mount(self, name: str) -> Pose:
+        return Pose.identity()
 
     def validate(self, cfg: Any, simulator: str) -> list[Problem]:
         if simulator not in self.SIMULATORS:

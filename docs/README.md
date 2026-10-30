@@ -83,7 +83,7 @@ MOUNT = Pose((-0.56, 0.0, 0.912), (1.0, 0.0, 0.0, 0.0))   # where robosuite moun
 def arm_with(n):
     # the same total length and mass, spread over n joints: a yaw joint followed by n - 1 pitch joints
     return chain(n, "z" + "y" * (n - 1), total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5,
-                 armature=0.01, frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5), base_pose=MOUNT,
+                 armature=0.01, frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5),
                  label=f"{n}-joint")
 
 base = EnvConfig(
@@ -91,7 +91,8 @@ base = EnvConfig(
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
     task=TaskConfig(params=RobosuiteParams("Lift", {}, LiftObject("cube", height=0.84), reset_noise=0.0,
                                            terminate_on_success=False),   # the same table and cube for every arm
-                    horizon=200, success_tolerance=None, target_region=None),
+                    horizon=200, success_tolerance=None, target_region=None,
+                    mount=MOUNT),   # where the scene expects the arm: a property of the task, not of the robot
     sim=SimConfig("mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
                   scene="empty", options=MujocoOptions(self_collision=False)),
 )

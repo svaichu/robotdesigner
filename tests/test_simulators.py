@@ -12,7 +12,7 @@ from robotdesigner.simulators import (
     register_simulator,
 )
 
-from robotdesigner.config import ConfigError, TaskConfig, register_simulator_options, register_task_provider
+from robotdesigner.config import ConfigError, Pose, TaskConfig, register_simulator_options, register_task_provider
 from robotdesigner.envs import make_env
 from tests.test_env_config import make_cfg
 
@@ -53,6 +53,9 @@ class DummyTasks:
     def params_class(self, name):
         return DummyParams if name == "noop" else None
 
+    def default_mount(self, name):
+        return Pose.identity()
+
     def validate(self, cfg, simulator):
         return self.problems
 
@@ -85,7 +88,7 @@ def dummy_cfg(**sim):
     from dataclasses import replace
 
     base = make_cfg()
-    task = TaskConfig(DummyParams(), 10, None, None)
+    task = TaskConfig(DummyParams(), 10, None, None, Pose.identity())
     return type(base)(base.robot, base.control, task, replace(base.sim, simulator="dummy", options=DummyOptions(), **sim))
 
 

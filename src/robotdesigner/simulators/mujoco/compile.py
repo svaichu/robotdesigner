@@ -34,7 +34,7 @@ class RobotInterface:
     joint_range: np.ndarray  # (n, 2); -inf / +inf where unlimited
     effort_limit: np.ndarray  # (n,)
     home_qpos: np.ndarray  # (n,)
-    base_pose: Pose
+    mount: Pose  # the robot base in the world, from the task
     kp: np.ndarray | None  # (n,) effective position gains; None for torque control
     kd: np.ndarray | None  # (n,) effective damping / velocity gains; None for torque control
 
@@ -87,7 +87,7 @@ def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float], scene_hook=Non
     conaffinity = 1 if self_collision else 0
 
     base = spec.worldbody.add_body(
-        name="base", pos=list(arm.base_pose.pos), quat=list(arm.base_pose.quat)
+        name="base", pos=list(cfg.task.mount.pos), quat=list(cfg.task.mount.quat)
     )
 
     parent, prev_tip = add_arm(base, arm, conaffinity=conaffinity)
@@ -177,7 +177,7 @@ def compile_robot(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
         joint_range=joint_range,
         effort_limit=np.array([s.joint.effort_limit for s in arm.segments]),
         home_qpos=np.array(arm.home_qpos),
-        base_pose=arm.base_pose,
+        mount=cfg.task.mount,
         kp=None if control.mode == "joint_torque" else np.array(kp),
         kd=None if control.mode == "joint_torque" else np.array(kd),
     )

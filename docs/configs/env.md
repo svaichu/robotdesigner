@@ -39,15 +39,15 @@ accepts it on that simulator is not checked here: `make_env` reports it when the
 
 ```python
 arm = chain(3, "zyy", total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5, armature=0.01,
-            frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5), label="three-joint arm",
-            base_pose=Pose((-0.56, 0.0, 0.912), (1.0, 0.0, 0.0, 0.0)))   # the mount of a stock arm in robosuite's Lift
+            frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5), label="three-joint arm")
 cfg = EnvConfig(
     robot=arm,
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
     task=TaskConfig(params=RobosuiteParams(name="Lift", env_kwargs={},                  # a task of the `robosuite` provider
                                            objective=LiftObject("cube", height=0.84),
                                            reset_noise=0.0, terminate_on_success=False),
-                    horizon=200, success_tolerance=None, target_region=None),
+                    horizon=200, success_tolerance=None, target_region=None,
+                    mount=Pose((-0.56, 0.0, 0.912), (1.0, 0.0, 0.0, 0.0))),   # the mount of a stock arm in robosuite's Lift
     sim=SimConfig(simulator="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
                   control_freq=50.0, seed=0, scene="empty",                # the arena brings its own floor
                   options=MujocoOptions(self_collision=False)),            # the settings of "mujoco" only

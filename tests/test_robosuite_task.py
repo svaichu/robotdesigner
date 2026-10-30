@@ -15,7 +15,7 @@ from robotdesigner import make_env  # noqa: E402
 from robotdesigner.config import (  # noqa: E402
     ConfigError, ControlConfig, EnvConfig, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
 )
-from robotdesigner.tasks.robosuite import LiftObject, ReachObject, RobosuiteParams, default_mount  # noqa: E402
+from robotdesigner.tasks.robosuite import LiftObject, ReachObject, RobosuiteParams, PROVIDER, default_mount  # noqa: E402
 
 COMMON = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0)
 HIGH = Pose((-0.56, 0.0, 1.2), (1.0, 0.0, 0.0, 0.0))  # well above the table: the arm does not touch the scene
@@ -23,12 +23,12 @@ HIGH = Pose((-0.56, 0.0, 1.2), (1.0, 0.0, 0.0, 0.0))  # well above the table: th
 
 def make_cfg(name="Lift", objective=None, kwargs=None, num_envs=2, seed=0, scene="empty", base=HIGH, n=3, axes="zyy",
              mode="joint_pos_abs", horizon=50, noise=0.0):
-    arm = chain(n, axes, total_length=0.9, total_mass=3.0, range=(-2.5, 2.5), base_pose=base, **COMMON)
+    arm = chain(n, axes, total_length=0.9, total_mass=3.0, range=(-2.5, 2.5), **COMMON)
     objective = objective or LiftObject("cube", 0.84)
     return EnvConfig(
         robot=arm,
         control=ControlConfig(mode, FixedGains(60.0, 6.0), None),
-        task=TaskConfig(RobosuiteParams(name, kwargs or {}, objective, noise, False), horizon, None, None),
+        task=TaskConfig(RobosuiteParams(name, kwargs or {}, objective, noise, False), horizon, None, None, mount=base),
         sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, seed, scene, options=MujocoOptions(False)),
     )
 
@@ -210,8 +210,8 @@ def test_fixtures_are_placed_once_at_bind_time():
 def test_default_mount_is_where_robosuite_puts_a_stock_arm():
     mount = default_mount("Lift")
     assert mount.pos == pytest.approx((-0.56, 0.0, 0.912)) and mount.quat == (1.0, 0.0, 0.0, 0.0)
-    cfg = make_cfg(base=mount)  # usable as a robot base
-    assert cfg.robot.base_pose == mount
+    cfg = make_cfg(base=mount)  # usable as the mount of the task
+    assert cfg.task.mount == mount == PROVIDER.default_mount("Lift")
 
 
 def test_control_modes_and_time_step_are_ours_not_robosuite_s():

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from robotdesigner.config import (
-    ConfigError, FixedBox, OwnReachable, TaskConfig, list_task_providers, register_task_provider,
+    ConfigError, FixedBox, OwnReachable, Pose, TaskConfig, list_task_providers, register_task_provider,
     unregister_task_provider,
 )
 ```
@@ -18,7 +18,7 @@ Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [SimConfig]
 [simulators](../simulators.md), and the page of the task provider that ships with the package:
 [robosuite scenes](../tasks/robosuite.md).
 
-## `TaskConfig(params, horizon, success_tolerance, target_region)`
+## `TaskConfig(params, horizon, success_tolerance, target_region, mount)`
 
 | field | type | rule |
 |---|---|---|
@@ -26,12 +26,13 @@ Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [SimConfig]
 | `horizon` | int | `>= 1`; the episode is truncated after this many steps |
 | `success_tolerance` | float or `None` | `> 0` when the task's params class sets `uses_goal = True`; must be `None` otherwise |
 | `target_region` | `FixedBox`, `OwnReachable` or `None` | required when `uses_goal` is true; must be `None` otherwise |
+| `mount` | `Pose` | the robot base in the world: where the scene expects the arm. Required; part of the task's dict and of `env_hash`, and **not** of the robot, so `robot_hash` identifies the embodiment alone |
 
 `TaskConfig.id` is a derived, read-only property, `"<provider>/<name>"`, for messages, logs and docs; it is not a field and
 not part of the dict. There is no `provider=` argument: a second argument could contradict the class.
 
-`to_dict()` writes `provider` (taken from the class) next to `params` (which holds `name`), `horizon`, `success_tolerance`
-and `target_region`; `from_dict()` reads `provider` and `params.name`, asks the registry for that params class and builds
+`to_dict()` writes `provider` (taken from the class) next to `params` (which holds `name`), `horizon`, `success_tolerance`,
+`target_region` and `mount`; `from_dict()` reads `provider` and `params.name`, asks the registry for that params class and builds
 it. Hashes (`env_hash`) are over the canonical form of the dict, so key order never matters.
 
 `success_tolerance` and `target_region` exist only for tasks that are defined by a goal point. A task that defines its own
@@ -104,6 +105,9 @@ class DemoTasks:
     def params_class(self, name):
         return DemoParams if name == "hold" else None
 
+    def default_mount(self, name):       # where this task expects the robot base
+        return Pose.identity()
+
     def validate(self, cfg, simulator):
         return []
 
@@ -114,7 +118,8 @@ class DemoTasks:
 register_task_provider("demo", DemoTasks(), replace=True)
 assert "demo" in list_task_providers()
 
-task = TaskConfig(params=DemoParams("hold", 0.0), horizon=200, success_tolerance=None, target_region=None)
+task = TaskConfig(params=DemoParams("hold", 0.0), horizon=200, success_tolerance=None, target_region=None,
+                  mount=Pose((0.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0)))
 assert task.id == "demo/hold"              # derived and read-only
 assert task.to_dict() == {
     "provider": "demo",
@@ -122,6 +127,7 @@ assert task.to_dict() == {
     "horizon": 200,
     "success_tolerance": None,
     "target_region": None,
+    "mount": {"pos": [0.0, 0.0, 0.5], "quat": [1.0, 0.0, 0.0, 0.0]},
 }
 assert TaskConfig.from_dict(task.to_dict()) == task
 ```
@@ -139,13 +145,15 @@ def error_of(build):
 ok = DemoParams("hold", 0.0)
 d = task.to_dict()
 assert error_of(lambda: TaskConfig.from_dict({**d, "provider": "nope"})).path == "provider"       # no such provider
-assert error_of(lambda: TaskConfig(DemoParams("nope", 0.0), 10, None, None)).path == "params.name"   # no such task
+assert error_of(lambda: TaskConfig(DemoParams("nope", 0.0), 10, None, None, Pose.identity())).path == "params.name"   # no such task
 assert error_of(lambda: TaskConfig.from_dict({**d, "params": {**d["params"], "name": "nope"}})).path == "params.name"
 assert error_of(lambda: TaskConfig.from_dict({**d, "id": "demo/hold"}))                                # `id` is not a field
-assert error_of(lambda: TaskConfig(ok, 0, None, None)).path == "horizon"
-assert error_of(lambda: TaskConfig(ok, 10, 0.02, None)).path == "success_tolerance"
-assert error_of(lambda: TaskConfig(ok, 10, None, OwnReachable())).path == "target_region"
-assert error_of(lambda: TaskConfig(box, 10, None, None)).path == "params"   # not a provider's params object
+M = Pose.identity()
+assert error_of(lambda: TaskConfig(ok, 0, None, None, M)).path == "horizon"
+assert error_of(lambda: TaskConfig(ok, 10, 0.02, None, M)).path == "success_tolerance"
+assert error_of(lambda: TaskConfig(ok, 10, None, OwnReachable(), M)).path == "target_region"
+assert error_of(lambda: TaskConfig(box, 10, None, None, M)).path == "params"   # not a provider's params object
+assert error_of(lambda: TaskConfig(ok, 10, None, None, (0, 0, 0))).path == "mount"      # the mount is a Pose
 assert error_of(lambda: FixedBox((1.0, 0.0, 0.0), (0.0, 1.0, 1.0))).path == "low[0]"
 assert "demo/hold" in str(error_of(lambda: TaskConfig.from_dict({**d, "params": {"name": "x"}})))  # the message lists the known ids
 

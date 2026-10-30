@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from robotdesigner.config import (
-    ConfigError, FixedBox, Problem, TaskConfig, list_task_providers, register_task_provider, unregister_task_provider,
+    ConfigError, FixedBox, Pose, Problem, TaskConfig, list_task_providers, register_task_provider, unregister_task_provider,
 )
 
 
@@ -56,7 +56,7 @@ mappings (keyword arguments of a library) use `robotdesigner.config._canon.freez
 
 ## 2. The provider object
 
-Four methods, no engine import at module level.
+Five methods, no engine import at module level. `default_mount(name)` says where the task expects the robot base (the origin when the scene has no opinion); the user's `TaskConfig.mount` is what counts.
 
 ```python
 class MyTasks:
@@ -67,6 +67,9 @@ class MyTasks:
 
     def params_class(self, name):              # None means "no such task"
         return ReachParams if name == "reach" else None
+
+    def default_mount(self, name):             # where the robot base goes if the user does not say: a world Pose
+        return Pose.identity()
 
     def validate(self, cfg, simulator):        # every reason this task cannot run on that simulator
         if simulator not in self.SIMULATORS:
@@ -103,13 +106,14 @@ task = TaskConfig(
     params=ReachParams(name="reach", reset_noise=0.0, terminate_on_success=False),
     horizon=200, success_tolerance=0.02,
     target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),
+    mount=PROVIDER.default_mount("reach"),                        # the robot base in the world; the target region is relative to it
 )
 assert task.id == "mine/reach"                                # derived from the class and the name
 assert task.to_dict()["provider"] == "mine"
 assert TaskConfig.from_dict(task.to_dict()) == task           # provider and params.name pick the params class on the way back in
 
-for wrong in (lambda: TaskConfig(ReachParams("lift", 0.0, False), 200, None, None),          # no such task
-              lambda: TaskConfig(ReachParams("reach", 0.0, False), 200, None, None),         # a goal task needs its tolerance
+for wrong in (lambda: TaskConfig(ReachParams("lift", 0.0, False), 200, None, None, Pose.identity()),          # no such task
+              lambda: TaskConfig(ReachParams("reach", 0.0, False), 200, None, None, Pose.identity()),         # a goal task needs its tolerance
               lambda: ReachParams("reach", -1.0, False)):                                     # the params validate themselves
     try:
         wrong()
