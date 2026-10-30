@@ -286,5 +286,18 @@ class WarpBatchedSim:
                 f"contacts: {nacon}, nconmax={opts.nconmax} per world)"
             )
 
+    def capacity_usage(self) -> dict[str, int]:
+        """What the last step used: the most constraint rows in any world, the most contacts in any world, and the total
+        contacts. Compare with ``njmax``, ``nconmax`` (per world). Reads device counters, so it synchronises."""
+        self._require()
+        d = self._d
+        nacon = min(int(wp.to_torch(d.nacon).max()), int(d.naconmax))
+        per_world = torch.bincount(wp.to_torch(d.contact.worldid)[:nacon].long(), minlength=self.num_envs)
+        return {
+            "max_nefc": int(wp.to_torch(d.nefc).max()),
+            "max_contacts_per_world": int(per_world.max()) if nacon else 0,
+            "nacon": nacon,
+        }
+
     def close(self) -> None:
         self._mw = self._d = self._graph = self._host = None

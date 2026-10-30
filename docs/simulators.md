@@ -87,7 +87,7 @@ CapacityError: capacity exceeded: NEFC (most constraint rows in a world: 340, nj
 ```
 
 Raise the options (`.sim(options=WarpOptions(njmax=512, nconmax=128, cuda_graph=True))`). A scene with many contacts, such as
-`NutAssembly`, needs more than a free arm. `WarpOptions.default()` is provisional until the throughput issue measures it.
+`NutAssembly`, needs more than a free arm. `benchmarks/bench_warp.py` prints the counts a rollout used (`max_nefc`, `max_contacts_per_world`) next to its throughput, so the capacities can be chosen from a measurement.
 
 ## The environment contract
 

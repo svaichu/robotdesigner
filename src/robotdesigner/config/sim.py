@@ -57,8 +57,11 @@ class WarpOptions:
 
     @classmethod
     def default(cls) -> "WarpOptions":
-        # Provisional; the numbers come from the throughput measurements of the benchmark issue.
-        return cls(njmax=64, nconmax=16, cuda_graph=True)
+        # Plain choices from benchmarks/bench_warp.py (the task counts are in docs/configs/sim.md): the largest counts per world
+        # over a random-policy rollout of a table-top scene with one or two objects were 32 to 52 constraint rows and 8 to 13
+        # contacts, so 128 / 32 leaves about 2.5x headroom; scenes with many contacts need larger options. Counts do not
+        # depend on the device. The CUDA graph is off until it has been validated on a GPU; switch it on for throughput.
+        return cls(njmax=128, nconmax=32, cuda_graph=False)
 
     def to_dict(self) -> dict[str, Any]:
         return {f.name: getattr(self, f.name) for f in fields(self)}

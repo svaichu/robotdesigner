@@ -24,12 +24,12 @@ DEVICES = ["cpu", pytest.param("cuda:0", marks=[pytest.mark.gpu, pytest.mark.ski
 OPTIONS = WarpOptions(njmax=64, nconmax=16, cuda_graph=False)
 
 
-def warp_env(cfg, device):
+def warp_env(cfg, device, options=OPTIONS):
     """Build a WarpEnv directly: make_env rejects the cpu device, which only the tests use."""
     from robotdesigner.config.providers import get_task_provider
 
     s = cfg.sim
-    sim = SimConfig("warp", s.num_envs, device, s.dt, s.integrator, s.control_freq, s.seed, s.scene, OPTIONS)
+    sim = SimConfig("warp", s.num_envs, device, s.dt, s.integrator, s.control_freq, s.seed, s.scene, options)
     cfg = replace(cfg, sim=sim)
     return WarpEnv(cfg, get_task_provider(cfg.task.params.provider).build(cfg, "warp"))
 
@@ -169,3 +169,22 @@ def test_render_matches_the_cpu_env_for_the_same_state(device):
     assert np.abs(a - b).mean() < 1.0  # float32 rounding moves a few edge pixels at most
     warp.close()
     cpu.close()
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_a_too_small_constraint_capacity_raises_capacity_error(device):
+    from robotdesigner.config import Pose, TaskConfig
+    from robotdesigner.simulators.warp.sim import CapacityError
+
+    cfg = make_cfg(n=4, num_envs=4, max_episode_steps=100)
+    cfg = replace(cfg, task=replace(cfg.task, mount=Pose((0.0, 0.0, 0.3), (1.0, 0.0, 0.0, 0.0))))
+    cfg = with_mode(replace(cfg, sim=replace(cfg.sim, scene="plain_floor")), "joint_torque")
+    env = warp_env(cfg, device, WarpOptions(njmax=1, nconmax=16, cuda_graph=False))
+    td = env.reset()
+    action = torch.zeros(4, 4, device=env.device)
+    action[:, 1], action[:, 3] = 0.6, 0.3
+    with pytest.raises(CapacityError, match="njmax=1"):
+        for _ in range(60):  # the arm presses onto the floor: a few constraint rows appear
+            td["action"] = action
+            td = env.step(td)["next"]
+    env.close()

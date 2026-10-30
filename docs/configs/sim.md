@@ -96,8 +96,10 @@ assert SIMULATOR_OPTIONS["warp"] is WarpOptions
 assert WarpOptions.default().njmax >= 1     # provisional numbers, to be set from measurements
 ```
 
-`WarpOptions.default()` is `WarpOptions(njmax=64, nconmax=16, cuda_graph=True)`: provisional numbers, to be replaced by measurements.
-Scenes with many contacts need more (see [capacity overflow](../simulators.md#capacity-overflow)). The config side needs no GPU,
+`WarpOptions.default()` is `WarpOptions(njmax=128, nconmax=32, cuda_graph=False)`: plain choices, not recommendations. They come from the largest
+per-world counts that `benchmarks/bench_warp.py` saw over a random-policy rollout (`robosuite/Lift`: 32 constraint rows and 8 contacts, `Stack`: 52 and 13;
+the counts do not depend on the device), with about 2.5x headroom. The CUDA graph is off until it has been validated on a GPU; switch it on for throughput.
+Scenes with many contacts need more (`NutAssembly`: 374 and 63; see [capacity overflow](../simulators.md#capacity-overflow)). The config side needs no GPU,
 torch or MuJoCo; building the environment (`make_env`) reports a missing CUDA device or library together with every other problem.
 
 ```python

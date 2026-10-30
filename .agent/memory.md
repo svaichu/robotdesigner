@@ -91,7 +91,7 @@ implements it too), `task_seed` in `simulators/base.py`. Warp runs on its CPU de
   after a reset; `reset_data(m, d, reset=mask)` is a masked partial reset; the CPU-versus-Warp errors (float32) are in the docstring of
   `tests/test_warp_parity.py` (all four control modes and integrators match); `NutAssembly*` need `WarpOptions(njmax=512, nconmax=128)`.
 - Not verified (no GPU in the dev container): CUDA graph capture, stream sharing with torch, solver determinism, the parity tolerances on CUDA, the
-  Warp render test (needs OpenGL too), the throughput and the final `WarpOptions.default()` numbers (provisional 64 / 16 / graph on).
+  Warp render test (needs OpenGL too), the throughput (`benchmarks/bench_warp.py` is written and was smoke-run on Warp's CPU device; its timings there mean nothing). `WarpOptions.default()` = 128 / 32 / graph off, from the device-independent per-world counts (Lift 32/8, Stack 52/13, NutAssemblySquare 374/63); turn the graph on after validating on a GPU.
 - Pitfall: a second `mujoco.Renderer` probe after a failed one aborts the process (glfw); import `needs_gl` from `tests/test_render.py` instead.
 - Open: per-world model fields (family batching, exploratory), a shared env base class for `MujocoEnv` and `WarpEnv`.
 

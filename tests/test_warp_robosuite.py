@@ -92,3 +92,19 @@ def test_scene_problems_are_reported_together():
         make_env(cfg)
     msg = str(e.value)
     assert "sim.scene" in msg and ("sim.device" in msg or _t.cuda.is_available())
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_a_too_small_contact_capacity_raises_capacity_error(device):
+    from robotdesigner.config import WarpOptions
+    from robotdesigner.simulators.warp.sim import CapacityError
+
+    cfg = on_warp(make_cfg(num_envs=2), device)
+    cfg = replace(cfg, sim=replace(cfg.sim, options=WarpOptions(njmax=64, nconmax=1, cuda_graph=False)))
+    env = build(cfg)
+    td = env.reset()
+    with pytest.raises(CapacityError, match="nconmax=1"):
+        for _ in range(20):  # the cube rests on the table: 4+ contacts per world against 1 allocated
+            td["action"] = torch.zeros(2, 3, device=env.device)
+            td = env.step(td)["next"]
+    env.close()
