@@ -127,8 +127,8 @@ make_env(cfg)
         ├─ task = provider.build(cfg, simulator.name)       engine side of the task (a TaskImpl)
         └─ MujocoEnv(cfg, task)
               compile_robot(cfg, scene_hook=task.attach)  scene preset, then the task's assets, then the robot
-              BatchedSim, control law, masked reset, episode counters, rendering   (shared by every task)
-              task.reset / observe / success / reward                                (the task's part)
+              BatchedSim (a SimView), control law, masked reset, episode counters, rendering   (shared by every task)
+              task.reset / observe / success / reward                (the task's part, written against the SimView)
 ```
 
 ## Adding a simulator

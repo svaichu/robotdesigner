@@ -171,7 +171,7 @@ class MujocoEnv(SpacesMixin, EnvBase):
         self._sim.reset(mask=mask.numpy(), qpos=qpos, qvel=qvel)
         if self._mode == "joint_pos_delta":
             self._q_target[mask.numpy()] = self._sim.qpos[mask.numpy()]
-        self._task.reset(self._sim, mask.numpy(), self._task_rand, injected)
+        self._task.reset(self._sim, mask, self._task_rand, injected)
         self._episode_step[mask] = 0
 
         out, _ = self._observe()

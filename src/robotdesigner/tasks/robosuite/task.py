@@ -11,21 +11,6 @@ from .params import LiftObject, ReachObject
 from .scene import PREFIX, load_scene
 
 
-def _quat_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Hamilton product of quaternions (w, x, y, z), broadcasting over leading dimensions."""
-    aw, ax, ay, az = np.moveaxis(a, -1, 0)
-    bw, bx, by, bz = np.moveaxis(b, -1, 0)
-    return np.stack(
-        [
-            aw * bw - ax * bx - ay * by - az * bz,
-            aw * bx + ax * bw + ay * bz - az * by,
-            aw * by - ax * bz + ay * bw + az * bx,
-            aw * bz + ax * by - ay * bx + az * bw,
-        ],
-        axis=-1,
-    )
-
-
 def _reseed_generators(sampler, seed: int) -> None:
     """robosuite >= 1.5.2 samples from a numpy Generator the sampler holds; reseed it in place."""
     rng = getattr(sampler, "rng", None)
@@ -94,9 +79,6 @@ class RobosuiteTask(BaseTask):
                 model.body_quat[body] = np.asarray(quat, dtype=float)
                 fixtures.append(name)
         self.fixtures = tuple(fixtures)
-        self._base_pos, self._base_R = sim._base_pos, sim._base_R
-        q = np.asarray(self.cfg.task.mount.quat, dtype=float)
-        self._base_quat_inv = np.array([q[0], -q[1], -q[2], -q[3]]) / float(q @ q)
 
     def observation_spec(self, num_envs: int):
         f32 = torch.float32
@@ -121,30 +103,27 @@ class RobosuiteTask(BaseTask):
             np.random.set_state(state)
 
     def reset(self, sim, mask, rand, injected) -> None:
-        import mujoco
-
         draws = (rand(sim.num_envs) * 2**31).to(torch.int64).numpy()  # one per env, whatever the mask
-        for i in np.flatnonzero(np.asarray(mask, dtype=bool)):
-            d = sim.data[i]
+        values: dict[str, torch.Tensor] = {}
+        placed: dict[str, torch.Tensor] = {}
+        for i in torch.nonzero(mask.cpu()).flatten().tolist():
             for name, (pos, quat, _obj) in self._sample(int(draws[i])).items():
                 item = self._by_name.get(name)
                 if item is not None and item[2] is not None:
-                    d.qpos[item[2] : item[2] + 7] = np.concatenate([np.asarray(pos), np.asarray(quat)])
-            mujoco.mj_forward(sim.model, d)
+                    if name not in values:
+                        values[name] = torch.zeros(sim.num_envs, 7, dtype=torch.float64)
+                        placed[name] = torch.zeros(sim.num_envs, dtype=torch.bool)
+                    values[name][i] = torch.from_numpy(np.concatenate([np.asarray(pos), np.asarray(quat)]))
+                    placed[name][i] = True
+        for name, v in values.items():
+            sim.write_qpos(self._by_name[name][2], v, placed[name])
 
     # --- observations, success, reward -----------------------------------------------
 
-    def _in_base_frame(self, sim, body: int) -> tuple[np.ndarray, np.ndarray]:
-        pos = np.stack([d.xpos[body] for d in sim.data])
-        quat = np.stack([d.xquat[body] for d in sim.data])
-        return (pos - self._base_pos) @ self._base_R, _quat_mul(self._base_quat_inv, quat)
-
     def observe(self, sim) -> dict[str, torch.Tensor]:
-        out = {"ee_pos": torch.from_numpy(sim.ee_pos_base()).to(torch.float32)}
+        out = {"ee_pos": sim.site_pos(sim.iface.ee_site_id, "base")}
         for name, body, _ in self._items:
-            p, q = self._in_base_frame(sim, body)
-            out[f"{name}_pos"] = torch.from_numpy(p).to(torch.float32)
-            out[f"{name}_quat"] = torch.from_numpy(q).to(torch.float32)
+            out[f"{name}_pos"], out[f"{name}_quat"] = sim.body_pose(body, "base")
         return out
 
     def _dist(self, obs) -> torch.Tensor:
@@ -156,7 +135,7 @@ class RobosuiteTask(BaseTask):
             return self._dist(obs) < obj.tolerance
         assert isinstance(obj, LiftObject)
         body = self._by_name[obj.object][1]
-        z = torch.from_numpy(np.array([d.xpos[body][2] for d in sim.data])).reshape(-1, 1)
+        z = sim.body_pose(body, "world")[0][:, 2:3]
         return z >= obj.height
 
     def reward(self, sim, obs) -> torch.Tensor:

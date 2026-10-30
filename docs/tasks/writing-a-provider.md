@@ -133,7 +133,6 @@ Subclass `robotdesigner.tasks.base.BaseTask` (the optional hooks have defaults) 
 masked reset, episode counters and rendering belong to the environment. This is a trimmed `tests/toy_provider/reach.py`.
 
 ```python no-run
-import numpy as np
 import torch
 from torchrl.data import Composite, Unbounded
 
@@ -145,23 +144,22 @@ class ReachTask(BaseTask):
         self._region, self._tol = cfg.task.target_region, cfg.task.success_tolerance
 
     def bind(self, sim):                           # once, after the model is compiled: per-env state for sim.num_envs envs
-        self._target = torch.zeros(sim.num_envs, 3)
+        self._target = torch.zeros(sim.num_envs, 3, device=sim.device)   # per-env state lives on sim.device
 
     def observation_spec(self, num_envs):          # the "task" observation group
         f32 = torch.float32
         return Composite(ee_pos=Unbounded(shape=(num_envs, 3), dtype=f32),
                          target_pos=Unbounded(shape=(num_envs, 3), dtype=f32), shape=(num_envs,))
 
-    def reset(self, sim, mask, rand, injected):    # place the task for the envs selected by mask (bool (N,))
+    def reset(self, sim, mask, rand, injected):    # place the task for the envs selected by mask (bool (N,), on sim.device)
         low, high = (torch.tensor(v, dtype=torch.float64) for v in (self._region.low, self._region.high))
         target = (low + rand(sim.num_envs, 3) * (high - low)).to(torch.float32)   # draw for the WHOLE batch, whatever the mask
         if injected("target") is not None:         # a value the caller put in the reset TensorDict
             target = injected("target").to(torch.float32)
-        m = torch.from_numpy(np.asarray(mask, dtype=bool))
-        self._target[m] = target[m]
+        self._target[mask] = target.to(sim.device)[mask]
 
-    def observe(self, sim):                        # float32 tensors with leading dimension N, positions in the base frame
-        return {"ee_pos": torch.from_numpy(sim.ee_pos_base()).to(torch.float32), "target_pos": self._target.clone()}
+    def observe(self, sim):                        # float32 tensors on sim.device, leading dimension N, base frame
+        return {"ee_pos": sim.site_pos(sim.iface.ee_site_id, "base"), "target_pos": self._target.clone()}
 
     def success(self, sim, obs):                   # bool (N, 1)
         return torch.linalg.norm(obs["ee_pos"] - obs["target_pos"], dim=-1, keepdim=True) < self._tol
@@ -174,6 +172,10 @@ class ReachTask(BaseTask):
   draw for the whole batch and then apply the mask, so the stream does not depend on which envs are reset.
 - **Scene assets.** `attach(spec)` adds bodies and geoms to the `MjSpec` before it is compiled (robosuite's provider attaches an arena and objects under a
   prefix); `bind(sim)` then resolves names to ids. Objects without a free joint are shared by every env of the batch.
+- **The simulation.** Hooks receive a `SimView` (`robotdesigner.tasks.base`), not a simulator's internals: `sim.num_envs`, `sim.device`,
+  `sim.iface`, `sim.body_pose(body, frame)` and `sim.site_pos(site, frame)` (`frame` is `"world"` or `"base"`, float32 on `sim.device`),
+  `sim.write_qpos(adr, values, mask)` to place a free body, `sim.base_frame()` and `sim.host_data(env_index)` for overlays.
+  `bind` is the last point at which the host `sim.model` may be edited.
 - **Overlays.** `overlays(scene, sim, data, env_index)` draws state that is not in the model (a goal marker) into a render scene; a task that keeps everything in
   the model draws none.
 - **Injected state.** `injected(key)` returns a tensor the caller put in the reset TensorDict, or `None`; document the keys you accept.
