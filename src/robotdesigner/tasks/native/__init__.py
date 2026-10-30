@@ -6,9 +6,10 @@ import importlib
 from typing import Any
 
 from ...config.errors import Problem
+from ...config.task import TaskConfig
 from .params import ReachParams
 
-__all__ = ["PROVIDER", "NativeTasks", "ReachParams"]
+__all__ = ["PROVIDER", "NativeTasks", "ReachParams", "reach_task"]
 
 
 class NativeTasks:
@@ -39,3 +40,24 @@ class NativeTasks:
 
 
 PROVIDER = NativeTasks()
+
+
+def reach_task(
+    horizon: int,
+    success_tolerance: float,
+    target_region: Any,
+    reset_noise: float,
+    terminate_on_success: bool,
+) -> TaskConfig:
+    """The reach task as a ``TaskConfig``, so a config does not have to spell the task id.
+
+    Same as ``TaskConfig("<namespace>/reach", horizon, success_tolerance, target_region,
+    ReachParams(reset_noise, terminate_on_success))``; every argument is required, as everywhere in the configs.
+    """
+    return TaskConfig(
+        id=f"{__name__.rsplit('.', 1)[-1]}/reach",
+        horizon=horizon,
+        success_tolerance=success_tolerance,
+        target_region=target_region,
+        params=ReachParams(reset_noise=reset_noise, terminate_on_success=terminate_on_success),
+    )

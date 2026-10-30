@@ -14,7 +14,7 @@ from robotdesigner.config import (
     TaskConfig,
     chain,
 )
-from robotdesigner.tasks.native import ReachParams
+from robotdesigner.tasks.native import ReachParams, reach_task
 
 
 def make_cfg(dt=0.002, num_envs=8, horizon=200, kp=60.0, mass=3.0, region=None):
@@ -125,3 +125,14 @@ def test_task_config_rules_come_from_the_provider():
             TaskConfig(bad, 10, 0.02, OwnReachable(), ok)
     with pytest.raises(ConfigError, match="unknown task"):
         TaskConfig.from_dict({**make_cfg().task.to_dict(), "id": "nope/reach"})
+
+
+def test_reach_task_helper_equals_the_spelled_out_config():
+    spelled = TaskConfig("native/reach", 200, 0.02, OwnReachable(), ReachParams(0.05, True))
+    assert reach_task(200, 0.02, OwnReachable(), 0.05, True) == spelled
+    assert reach_task(horizon=10, success_tolerance=0.1, target_region=OwnReachable(), reset_noise=0.0,
+                      terminate_on_success=False).id == "native/reach"
+    with pytest.raises(ConfigError, match="^reset_noise"):
+        reach_task(10, 0.1, OwnReachable(), -1.0, False)
+    with pytest.raises(ConfigError, match="^target_region"):
+        reach_task(10, 0.1, None, 0.0, False)

@@ -14,10 +14,9 @@ from robotdesigner.config import (
     MujocoOptions,
     Pose,
     SimConfig,
-    TaskConfig,
     chain,
 )
-from robotdesigner.tasks.native import ReachParams
+from robotdesigner.tasks.native import reach_task
 
 
 def build_config(num_envs: int = 8, horizon: int = 200) -> EnvConfig:
@@ -37,12 +36,12 @@ def build_config(num_envs: int = 8, horizon: int = 200) -> EnvConfig:
     return EnvConfig(
         robot=arm,
         control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-        task=TaskConfig(
-            id="native/reach",
+        task=reach_task(
             horizon=horizon,
             success_tolerance=0.02,
             target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),
-            params=ReachParams(reset_noise=0.0, terminate_on_success=False),
+            reset_noise=0.0,
+            terminate_on_success=False,
         ),
         sim=SimConfig(
             backend="mujoco", num_envs=num_envs, device="cpu", dt=0.002,

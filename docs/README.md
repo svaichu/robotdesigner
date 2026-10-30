@@ -61,9 +61,9 @@ robot hash tells the arms apart.
 from dataclasses import replace
 
 from robotdesigner.config import (
-    ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, SimConfig, TaskConfig, chain,
+    ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, SimConfig, chain,
 )
-from robotdesigner.tasks.native import ReachParams       # the params class of the task, from its provider
+from robotdesigner.tasks.native import reach_task        # a task comes from the provider that owns it
 
 def arm_with(n):
     # the same total length and mass, spread over n joints: a yaw joint followed by n - 1 pitch joints
@@ -73,9 +73,9 @@ def arm_with(n):
 base = EnvConfig(
     robot=arm_with(3),
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-    task=TaskConfig("native/reach", horizon=200, success_tolerance=0.02,
+    task=reach_task(horizon=200, success_tolerance=0.02,
                     target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),   # the same targets for every arm
-                    params=ReachParams(reset_noise=0.0, terminate_on_success=False)),
+                    reset_noise=0.0, terminate_on_success=False),
     sim=SimConfig("mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
                   scene="plain_floor"),
     backend_options=MujocoOptions(self_collision=False),

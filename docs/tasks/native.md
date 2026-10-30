@@ -6,7 +6,7 @@ core config:
 
 ```python
 from robotdesigner.config import FixedBox, OwnReachable, TaskConfig
-from robotdesigner.tasks.native import ReachParams
+from robotdesigner.tasks.native import ReachParams, reach_task
 ```
 
 Related pages: [TaskConfig](../configs/task.md), [backends](../backends.md), [robosuite scenes](robosuite.md).
@@ -57,6 +57,14 @@ assert TaskConfig.from_dict(reach.to_dict()) == reach
 
 own = TaskConfig("native/reach", 200, 0.02, OwnReachable(), ReachParams(0.05, True))
 assert own.to_dict()["target_region"] == {"kind": "own_reachable"}
+```
+
+`reach_task(horizon, success_tolerance, target_region, reset_noise, terminate_on_success)` builds the same `TaskConfig`
+without spelling the id, which is what the other pages use:
+
+```python
+assert reach_task(200, 0.02, FixedBox(low=(0.2, -0.3, 0.0), high=(0.6, 0.3, 0.4)), 0.0, False) == reach
+assert reach_task(200, 0.02, OwnReachable(), 0.05, True) == own
 ```
 
 ### Observations

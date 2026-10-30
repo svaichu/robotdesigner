@@ -10,9 +10,9 @@ import json
 from dataclasses import replace
 
 from robotdesigner.config import (
-    ConfigError, ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
+    ConfigError, ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, chain,
 )
-from robotdesigner.tasks.native import ReachParams
+from robotdesigner.tasks.native import reach_task
 ```
 
 Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [TaskConfig](task.md), [SimConfig](sim.md),
@@ -46,9 +46,9 @@ arm = chain(3, "zyz", total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5
 cfg = EnvConfig(
     robot=arm,
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-    task=TaskConfig("native/reach", horizon=200, success_tolerance=0.02,   # a task of the `native` provider
+    task=reach_task(horizon=200, success_tolerance=0.02,       # a task of the `native` provider
                     target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),
-                    params=ReachParams(reset_noise=0.0, terminate_on_success=False)),
+                    reset_noise=0.0, terminate_on_success=False),
     sim=SimConfig(backend="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
                   control_freq=50.0, seed=0, scene="plain_floor"),
     backend_options=MujocoOptions(self_collision=False),
@@ -123,7 +123,7 @@ def error_of(build):
     raise AssertionError("no error")
 
 # the options class must match the backend
-assert error_of(lambda: replace(cfg, backend_options=ReachParams(0.0, False))).path == "backend_options"
+assert error_of(lambda: replace(cfg, backend_options=FixedBox((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)))).path == "backend_options"
 # a per-joint gain list must have n entries (the arm has 3 joints)
 assert error_of(lambda: replace(cfg, control=ControlConfig("joint_pos_abs", FixedGains((1.0, 2.0), 1.0), None))).path == "control.gains.kp"
 # an unknown backend has no options class
