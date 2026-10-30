@@ -42,7 +42,7 @@ assert EnvConfig.from_dict(cfg.to_dict()).env_hash == cfg.env_hash      # the st
 |---|---|---|
 | `.robot(robot=, **fields)` | a `Chain`, a ready `ParametricArm`, or `Chain` fields as keywords | a `Chain` is partial: written fields change, the rest carries. A `ParametricArm` is a fixed robot and replaces the section |
 | `.control(control=, **fields)` | `mode`, `gains`, `action_scale`, or a `ControlConfig` | assigns the fields written |
-| `.task(params=, **fields)` | a provider's params object, `horizon`, `success_tolerance`, `target_region`, `mount`, or a `TaskConfig` | the params object is the task. A *new params class* resets `success_tolerance` and `target_region` (they belong to goal tasks) unless the call writes them |
+| `.task(params=, **fields)` | a provider's params object, `max_episode_steps`, `success_tolerance`, `target_region`, `mount`, or a `TaskConfig` | the params object is the task. A *new params class* resets `success_tolerance` and `target_region` (they belong to goal tasks) unless the call writes them |
 | `.sim(sim=, **fields)` | the fields of `SimConfig` (including `options`), or a `SimConfig` | assigns the fields written; `simulator=` replaces `options` with that simulator's defaults (below) |
 
 An unknown field is a `ConfigError` at the call, with the dotted path (`sim.num_env`). Values are validated by `resolve()`.
@@ -52,12 +52,12 @@ cfg = (
     BaseEnvConfig()
     .robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0))
     .control(gains=FixedGains(kp=60.0, kd=6.0))
-    .task(horizon=100)
+    .task(max_episode_steps=100)
     .sim(num_envs=8)
 )
 fine = cfg.sim(dt=0.001)                 # a new config; cfg is unchanged; num_envs stays 8
 assert cfg.resolve().sim.dt == 0.002 and fine.resolve().sim.dt == 0.001 and fine.resolve().sim.num_envs == 8
-assert cfg.resolve().task.horizon == 100
+assert cfg.resolve().task.max_episode_steps == 100
 ```
 
 ### `Chain`
@@ -243,5 +243,5 @@ The numbers are plain choices, not recommendations (the control and simulator nu
 |---|---|
 | robot | one `z` joint, 0.5 m, 1 kg, radius 0.03, damping 0.5, armature 0.01, friction loss 0, effort limit 50, range ±2.5 |
 | control | `joint_pos_abs`, `FixedGains(kp=60, kd=6)`, `action_scale=None` |
-| task | `empty/idle`, horizon 200, no tolerance or region, the provider's default mount |
+| task | `empty/idle`, max_episode_steps 200, no tolerance or region, the provider's default mount |
 | sim | `mujoco` with `MujocoOptions.default()`, 1 env, `cpu`, `dt` 0.002, `euler`, 50 Hz control, seed 0, scene `empty` |

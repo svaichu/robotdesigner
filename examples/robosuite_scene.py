@@ -20,7 +20,7 @@ from robotdesigner.config import (
 from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams, default_mount
 
 
-def build_config(num_envs: int = 4, horizon: int = 100) -> EnvConfig:
+def build_config(num_envs: int = 4, max_episode_steps: int = 100) -> EnvConfig:
     arm = chain(
         n=3,
         axes="zyy",
@@ -41,7 +41,7 @@ def build_config(num_envs: int = 4, horizon: int = 100) -> EnvConfig:
                 name="Lift", env_kwargs={}, objective=LiftObject("cube", height=0.84),
                 reset_noise=0.0, terminate_on_success=False,
             ),
-            horizon=horizon,
+            max_episode_steps=max_episode_steps,
             success_tolerance=None,
             target_region=None,
             mount=default_mount("Lift"),  # where robosuite mounts a stock arm in this scene
@@ -54,7 +54,7 @@ def build_config(num_envs: int = 4, horizon: int = 100) -> EnvConfig:
 
 
 def main(num_envs: int = 4, steps: int = 50) -> None:
-    env = make_env(build_config(num_envs=num_envs, horizon=max(steps, 1)))
+    env = make_env(build_config(num_envs=num_envs, max_episode_steps=max(steps, 1)))
     print(f"robot_hash={env.robot_hash} env_hash={env.env_hash}")
     traj = env.rollout(steps)
     print("rollout batch shape:", tuple(traj.shape))

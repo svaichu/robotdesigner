@@ -8,6 +8,7 @@ The ``params`` object is the task: its class names the provider (class attribute
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -84,7 +85,7 @@ class TaskConfig:
     """
 
     params: Any
-    horizon: int
+    max_episode_steps: int
     success_tolerance: float | None
     target_region: TargetRegion | None
     mount: Pose
@@ -103,10 +104,10 @@ class TaskConfig:
             raise ConfigError("params", f"task {self.id!r} requires {params_cls.__name__}")
         if not isinstance(self.mount, Pose):
             raise ConfigError("mount", "expected a Pose: the robot base in the world")
-        horizon = as_int(self.horizon, "horizon")
-        if horizon < 1:
-            raise ConfigError("horizon", "must be >= 1")
-        object.__setattr__(self, "horizon", horizon)
+        max_episode_steps = as_int(self.max_episode_steps, "max_episode_steps")
+        if max_episode_steps < 1:
+            raise ConfigError("max_episode_steps", "must be >= 1")
+        object.__setattr__(self, "max_episode_steps", max_episode_steps)
         if getattr(params_cls, "uses_goal", False):
             tol = as_float(self.success_tolerance, "success_tolerance")
             if tol <= 0.0:
@@ -131,7 +132,7 @@ class TaskConfig:
         return {
             "provider": self.params.provider,
             "params": self.params.to_dict(),
-            "horizon": self.horizon,
+            "max_episode_steps": self.max_episode_steps,
             "success_tolerance": self.success_tolerance,
             "target_region": None if self.target_region is None else self.target_region.to_dict(),
             "mount": self.mount.to_dict(),
@@ -139,7 +140,8 @@ class TaskConfig:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "TaskConfig":
-        check_keys(d, {"provider", "params", "horizon", "success_tolerance", "target_region", "mount"}, "")
+        d = migrate_task_dict(d)
+        check_keys(d, {"provider", "params", "max_episode_steps", "success_tolerance", "target_region", "mount"}, "")
         raw = d["params"]
         if not isinstance(raw, Mapping):
             raise ConfigError("params", f"expected a mapping, got {type(raw).__name__}")
@@ -149,11 +151,25 @@ class TaskConfig:
         region = d["target_region"]
         return cls(
             params=within("params", params_cls.from_dict, raw),
-            horizon=d["horizon"],
+            max_episode_steps=d["max_episode_steps"],
             success_tolerance=d["success_tolerance"],
             target_region=None if region is None else within("target_region", region_from_dict, region),
             mount=within("mount", Pose.from_dict, d["mount"]),
         )
+
+
+def migrate_task_dict(d: Any) -> Any:
+    """Read the old key ``horizon`` as ``max_episode_steps`` (Gymnasium's name for the time limit), with a
+    ``DeprecationWarning``. Giving both keys is an error. Other values pass through unchanged."""
+    if not isinstance(d, Mapping) or "horizon" not in d:
+        return d
+    if "max_episode_steps" in d:
+        raise ConfigError("horizon", "is the old name of max_episode_steps; give only max_episode_steps")
+    warnings.warn(
+        "the task key 'horizon' is deprecated: it is now 'max_episode_steps' (Gymnasium's name for the time limit)",
+        DeprecationWarning, stacklevel=3,
+    )
+    return {("max_episode_steps" if k == "horizon" else k): v for k, v in d.items()}
 
 
 def _params_class(provider: str, name: str, provider_path: str, name_path: str | None = None) -> type:

@@ -30,13 +30,13 @@ from robotdesigner import make_env  # noqa: E402
 from robotdesigner.config import ControlConfig, EnvConfig, FixedGains, MujocoOptions, SimConfig, chain  # noqa: E402
 
 
-def make_cfg(horizon=7, num_envs=3, simulator="mujoco"):
+def make_cfg(max_episode_steps=7, num_envs=3, simulator="mujoco"):
     arm = chain(1, "z", link_length=0.5, mass=1.0, radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0,
                 effort_limit=50.0, range=(-2.0, 2.0))
     return EnvConfig(
         robot=arm,
         control=ControlConfig("joint_pos_abs", FixedGains(60.0, 6.0), None),
-        task=TaskConfig(EmptyParams("idle"), horizon, None, None, Pose.identity()),
+        task=TaskConfig(EmptyParams("idle"), max_episode_steps, None, None, Pose.identity()),
         sim=SimConfig(simulator, num_envs, "cpu", 0.002, "euler", 50, 0, "plain_floor", options=MujocoOptions(False)),
     )
 
@@ -49,7 +49,7 @@ def test_runs_a_one_link_arm_and_passes_the_spec_check():
 
 
 def test_reward_zero_never_terminated_truncated_at_horizon():
-    env = make_env(make_cfg(horizon=7))
+    env = make_env(make_cfg(max_episode_steps=7))
     traj = env.rollout(7, break_when_any_done=False)
     assert torch.all(traj["next", "reward"] == 0)
     assert not traj["next", "terminated"].any() and not traj["next", "success"].any()

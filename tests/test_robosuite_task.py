@@ -22,13 +22,13 @@ HIGH = Pose((-0.56, 0.0, 1.2), (1.0, 0.0, 0.0, 0.0))  # well above the table: th
 
 
 def make_cfg(name="Lift", objective=None, kwargs=None, num_envs=2, seed=0, scene="empty", base=HIGH, n=3, axes="zyy",
-             mode="joint_pos_abs", horizon=50, noise=0.0):
+             mode="joint_pos_abs", max_episode_steps=50, noise=0.0):
     arm = chain(n, axes, total_length=0.9, total_mass=3.0, range=(-2.5, 2.5), **COMMON)
     objective = objective or LiftObject("cube", 0.84)
     return EnvConfig(
         robot=arm,
         control=ControlConfig(mode, FixedGains(60.0, 6.0), None),
-        task=TaskConfig(RobosuiteParams(name, kwargs or {}, objective, noise, False), horizon, None, None, mount=base),
+        task=TaskConfig(RobosuiteParams(name, kwargs or {}, objective, noise, False), max_episode_steps, None, None, mount=base),
         sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, seed, scene, options=MujocoOptions(False)),
     )
 
@@ -239,3 +239,14 @@ def test_example_smoke(capsys):
     mod.main(num_envs=2, steps=4)
     out = capsys.readouterr().out
     assert "rollout batch shape: (2, 4)" in out and "cube_pos" in out and "env_hash=" in out
+
+
+def test_action_space_is_the_joint_count_for_a_robosuite_task():
+    # robot.tool is ignored by the MuJoCo simulator, so no gripper dimensions are added to the n joint actions
+    for n, axes in ((2, "zy"), (4, "zyyy")):
+        env = make_env(make_cfg(n=n, axes=axes, num_envs=2))
+        assert env.action_space == torch.Size([n])
+        assert env.batch_size + env.action_space == env.action_spec.shape
+        assert env.observation_space["task"]["ee_pos"] == torch.Size([3])
+        assert env.observation_space["task"]["cube_pos"] == torch.Size([3])
+        env.close()

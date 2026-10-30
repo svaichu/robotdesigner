@@ -15,6 +15,7 @@ from torchrl.data import Binary, Bounded, Composite, Unbounded
 from torchrl.envs import EnvBase
 
 from ...config import EnvConfig
+from ...envs.spaces import SpacesMixin
 from .compile import compile_robot
 from .sim import BatchedSim
 
@@ -25,7 +26,7 @@ def _task_seed(seed: int) -> int:
     return (int(seed) + _TASK_STREAM) % (2**63)
 
 
-class MujocoEnv(EnvBase):
+class MujocoEnv(SpacesMixin, EnvBase):
     """Batched TorchRL environment: ``cfg.robot`` under ``cfg.control`` doing ``task`` in MuJoCo."""
 
     batch_locked = True
@@ -65,7 +66,7 @@ class MujocoEnv(EnvBase):
             self._offset = np.zeros(n)
 
         params = cfg.task.params
-        self._horizon = cfg.task.horizon
+        self._max_episode_steps = cfg.task.max_episode_steps
         self._reset_noise = float(getattr(params, "reset_noise", 0.0))
         self._terminate_on_success = bool(getattr(params, "terminate_on_success", False))
 
@@ -197,7 +198,7 @@ class MujocoEnv(EnvBase):
 
         out, task_obs = self._observe()
         success = out["success"]
-        truncated = self._episode_step >= self._horizon
+        truncated = self._episode_step >= self._max_episode_steps
         terminated = success.clone() if self._terminate_on_success else torch.zeros_like(success)
         out.set("reward", self._task.reward(self._sim, task_obs))
         out.set("terminated", terminated)

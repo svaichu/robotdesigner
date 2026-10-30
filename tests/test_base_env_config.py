@@ -47,7 +47,7 @@ def test_the_base_builds_and_runs():
 def test_calls_return_new_configs_and_leave_the_receiver_alone():
     base = BaseEnvConfig()
     before = copy.deepcopy(base)
-    for new in (base.robot(n=2, axes="zy"), base.control(mode="joint_torque"), base.task(horizon=5), base.sim(seed=3)):
+    for new in (base.robot(n=2, axes="zy"), base.control(mode="joint_torque"), base.task(max_episode_steps=5), base.sim(seed=3)):
         assert new is not base and new != base
     assert base == before and base.diff() == {}
     only_sim = base.sim(num_envs=4).resolve()
@@ -61,8 +61,8 @@ def test_calls_accumulate():
     cfg = BaseEnvConfig().sim(num_envs=8).sim(dt=0.001).resolve().sim
     assert cfg.num_envs == 8 and cfg.dt == 0.001
     c = BaseEnvConfig().task(ReachParams("reach", 0.0, False), success_tolerance=0.02,
-                             target_region=FixedBox((0.1, -0.1, 0.0), (0.4, 0.1, 0.3))).task(horizon=7).resolve()
-    assert c.task.horizon == 7 and c.task.params == ReachParams("reach", 0.0, False) and c.task.success_tolerance == 0.02
+                             target_region=FixedBox((0.1, -0.1, 0.0), (0.4, 0.1, 0.3))).task(max_episode_steps=7).resolve()
+    assert c.task.max_episode_steps == 7 and c.task.params == ReachParams("reach", 0.0, False) and c.task.success_tolerance == 0.02
     base = BaseEnvConfig().robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0, damping=1.5))
     five = base.robot(Chain(n=5, axes="zyyyy")).resolve().robot
     assert five.n == 5 and five.segments[0].joint.damping == 1.5  # the rest carries
@@ -243,7 +243,7 @@ def test_overrides_edit_nested_fields_and_leave_the_rest_of_the_section():
                               "task.target_region.low": [0.0, -0.1, 0.0]})
     r, o = new.resolve(), cfg.resolve()
     assert r.sim.options.self_collision is True and r.sim.num_envs == 64 and r.sim.dt == o.sim.dt
-    assert r.task.params == ReachParams("reach", 0.1, False) and r.task.horizon == o.task.horizon
+    assert r.task.params == ReachParams("reach", 0.1, False) and r.task.max_episode_steps == o.task.max_episode_steps
     assert r.task.target_region.low == (0.0, -0.1, 0.0) and r.task.target_region.high == o.task.target_region.high
     assert sum(s.link.tip_offset[0] for s in r.robot.segments) == pytest.approx(1.2)
     assert r.robot.n == 3 and r.control.gains.kp == 99.0 and r.control.gains.kd == o.control.gains.kd
@@ -479,3 +479,20 @@ def test_sweeping_the_simulator_resets_the_options():
     finally:
         SIMULATOR_OPTIONS.clear()
         SIMULATOR_OPTIONS.update(saved)
+
+
+def test_max_episode_steps_in_the_builder_and_old_files():
+    cfg = BaseEnvConfig().task(max_episode_steps=7)
+    assert cfg.resolve().task.max_episode_steps == 7 and cfg.to_dict()["task"]["max_episode_steps"] == 7
+    assert BaseEnvConfig().with_overrides(["task.max_episode_steps=9"]).resolve().task.max_episode_steps == 9
+    with pytest.raises(ConfigError, match=r"^task.horizon: unknown field \('horizon' was renamed"):
+        BaseEnvConfig().task(horizon=7)
+    old = cfg.to_dict()
+    old["task"] = {k: v for k, v in old["task"].items() if k != "max_episode_steps"} | {"horizon": 7}
+    with pytest.warns(DeprecationWarning, match="horizon"):
+        assert BaseEnvConfig.from_dict(old) == cfg
+    old["task"]["max_episode_steps"] = 7
+    with pytest.raises(ConfigError, match="^task.horizon"):
+        BaseEnvConfig.from_dict(old)
+    with pytest.warns(DeprecationWarning):  # a short file
+        assert BaseEnvConfig.from_dict({"task": {"horizon": 11}}).resolve().task.max_episode_steps == 11

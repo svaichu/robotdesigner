@@ -16,7 +16,7 @@ from robotdesigner.viz import record_rollout
 
 
 def main(out_dir: str = ".", steps: int = 150, num_envs: int = 4) -> None:
-    env = make_env(build_config(num_envs=num_envs, horizon=steps))
+    env = make_env(build_config(num_envs=num_envs, max_episode_steps=steps))
     # camera "rs_sideview" is a camera of the robosuite arena; every 2nd step is 25 fps, an exact GIF rate
     traj, clip = record_rollout(env, steps, env_index="all", every=2, camera="rs_sideview")
     print(clip)

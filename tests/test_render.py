@@ -186,7 +186,7 @@ def test_record_rollout_end_to_end(tmp_path):
 def test_record_rollout_stops_with_the_rollout():
     from robotdesigner.viz import record_rollout
 
-    env = _env(1, horizon=3)  # truncates after 3 steps
+    env = _env(1, max_episode_steps=3)  # truncates after 3 steps
     traj, clip = record_rollout(env, 10, size=(32, 48))
     assert len(clip) == traj.shape[-1] + 1
 

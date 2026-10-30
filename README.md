@@ -60,7 +60,7 @@ cfg = EnvConfig(
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
     task=TaskConfig(params=RobosuiteParams(name="Lift", env_kwargs={}, objective=LiftObject("cube", height=0.84),
                                            reset_noise=0.0, terminate_on_success=False),
-                    horizon=200, success_tolerance=None, target_region=None,
+                    max_episode_steps=200, success_tolerance=None, target_region=None,
                     mount=default_mount("Lift")),   # where robosuite mounts a stock arm in this scene
     sim=SimConfig(simulator="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
                   control_freq=50, seed=0, scene="empty",      # the arena brings its own floor
@@ -71,7 +71,13 @@ env = make_env(cfg)
 print(env.robot_hash, env.env_hash)
 traj = env.rollout(50)          # random policy, TorchRL's own rollout
 print(traj.shape)               # torch.Size([8, 50])
+print(env.action_space)         # torch.Size([3]): the shape of one env's action (n joints)
+print(env.observation_space)    # {'task': {...}, 'proprio': {'qpos': torch.Size([3]), ...}, 'success': torch.Size([1]), ...}
 ```
+
+`env.action_space` and `env.observation_space` are plain per-env *shapes* (a `torch.Size`, and a nested dict of them that mirrors the nested observation;
+not Gymnasium `Space` objects); the batched shape is `env.batch_size + env.action_space`. The episode is truncated after `max_episode_steps` (Gymnasium's
+name for the time limit), so `env.rollout(500)` stops at that many steps.
 
 The full script is `examples/robosuite_scene.py` (headless; `python examples/robosuite_scene.py`). A walkthrough notebook is
 `examples/scene_walkthrough.ipynb` (embodiment comparison, control modes, rendering). Recording, saving and showing

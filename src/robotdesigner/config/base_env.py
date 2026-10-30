@@ -24,18 +24,19 @@ from .providers import get_task_provider
 from .robot import ParametricArm, Pose, ToolSpec
 from .sim import SIMULATOR_OPTIONS, SimConfig
 from .specs import NOT_SET, Chain
-from .task import TaskConfig
+from .task import TaskConfig, migrate_task_dict
 
 __all__ = ["BaseEnvConfig"]
 
 _CONTROL_FIELDS = ("mode", "gains", "action_scale")
-_TASK_FIELDS = ("horizon", "success_tolerance", "target_region", "mount")
+_TASK_FIELDS = ("max_episode_steps", "success_tolerance", "target_region", "mount")
 _SIM_FIELDS = tuple(f.name for f in fields(SimConfig))
 _GOAL_FIELDS = ("success_tolerance", "target_region")
 
 
 def _unknown(section: str, key: str, allowed) -> ConfigError:
-    return ConfigError(f"{section}.{key}", f"unknown field; expected one of {sorted(allowed)}")
+    hint = " ('horizon' was renamed to 'max_episode_steps')" if (section, key) == ("task", "horizon") else ""
+    return ConfigError(f"{section}.{key}", f"unknown field{hint}; expected one of {sorted(allowed)}")
 
 
 def _check_keys(section: str, given: dict, allowed) -> None:
@@ -108,7 +109,7 @@ class BaseEnvConfig:
         self._robot: Chain | ParametricArm = Chain(**d["robot"])
         self._control = {"mode": d["control"]["mode"], "gains": FixedGains(d["control"]["kp"], d["control"]["kd"]),
                          "action_scale": d["control"]["action_scale"]}
-        self._task = {"params": params_cls(name=name), "horizon": d["task"]["horizon"], "success_tolerance": None,
+        self._task = {"params": params_cls(name=name), "max_episode_steps": d["task"]["max_episode_steps"], "success_tolerance": None,
                       "target_region": None, "mount": NOT_SET}
         self._sim = {k: d["sim"][k] for k in _SIM_FIELDS if k != "options"}
         self._sim["options"] = _default_options(d["sim"]["simulator"])
@@ -166,7 +167,7 @@ class BaseEnvConfig:
         return self._copy(control=values, written=self._written | {f"control.{k}" for k in changed})
 
     def task(self, params: Any = NOT_SET, **fields_: Any) -> "BaseEnvConfig":
-        """Refine the task: a provider's params object (it is the task), keywords ``horizon``, ``success_tolerance``,
+        """Refine the task: a provider's params object (it is the task), keywords ``max_episode_steps``, ``success_tolerance``,
         ``target_region``, ``mount``, or a whole ``TaskConfig``. A new params class resets ``success_tolerance`` and
         ``target_region`` (they belong to goal tasks) unless the call writes them. A written ``mount`` is pinned."""
         _check_keys("task", fields_, _TASK_FIELDS)
@@ -277,7 +278,7 @@ class BaseEnvConfig:
         robot = (self._robot.to_dict() if isinstance(self._robot, ParametricArm)
                  else {"kind": "chain", **{n: _jsonable(getattr(self._robot, n)) for n in self._robot.written()}})
         t = self._task
-        task = {"provider": t["params"].provider, "params": t["params"].to_dict(), "horizon": t["horizon"],
+        task = {"provider": t["params"].provider, "params": t["params"].to_dict(), "max_episode_steps": t["max_episode_steps"],
                 "success_tolerance": t["success_tolerance"], "target_region": _jsonable(t["target_region"])}
         if t["mount"] is not NOT_SET:
             task["mount"] = _jsonable(t["mount"])
@@ -306,6 +307,8 @@ class BaseEnvConfig:
                 given = d[section]
                 if not isinstance(given, Mapping):
                     raise ConfigError(section, f"expected a mapping, got {type(given).__name__}")
+                if section == "task":
+                    given = within("task", migrate_task_dict, given)
                 base = dict(pristine[section])
                 if section == "sim":
                     base.pop("options")  # the options of the simulator written, or its defaults
@@ -344,9 +347,9 @@ class BaseEnvConfig:
             c = within("control", ControlConfig.from_dict, d)
             return self._copy(control={k: getattr(c, k) for k in _CONTROL_FIELDS})
         if section == "task":
-            check_keys(d, {"provider", "params", "horizon", "success_tolerance", "target_region"}, "task", {"mount"})
+            check_keys(d, {"provider", "params", "max_episode_steps", "success_tolerance", "target_region"}, "task", {"mount"})
             probe = within("task", TaskConfig.from_dict, {**d, "mount": d.get("mount", Pose.identity().to_dict())})
-            task = {"params": probe.params, "horizon": probe.horizon, "success_tolerance": probe.success_tolerance,
+            task = {"params": probe.params, "max_episode_steps": probe.max_episode_steps, "success_tolerance": probe.success_tolerance,
                     "target_region": probe.target_region,
                     "mount": probe.mount if "mount" in d else NOT_SET}
             return self._copy(task=task)

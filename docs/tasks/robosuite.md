@@ -39,7 +39,7 @@ replace (add an objective, see [writing a task provider](writing-a-provider.md))
 lift = TaskConfig(
     params=RobosuiteParams(name="Lift", env_kwargs={"table_full_size": [0.8, 0.8, 0.05]},
                            objective=LiftObject("cube", 0.84), reset_noise=0.0, terminate_on_success=False),
-    horizon=200,
+    max_episode_steps=200,
     success_tolerance=None,
     target_region=None,
     mount=Pose((-0.56, 0.0, 0.912), (1.0, 0.0, 0.0, 0.0)),   # where robosuite mounts a stock arm in Lift
@@ -82,7 +82,7 @@ cfg = EnvConfig(
     robot=arm,
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
     task=TaskConfig(RobosuiteParams("Lift", {}, LiftObject("cube", 0.84), reset_noise=0.0, terminate_on_success=False),
-                    horizon=200, success_tolerance=None, target_region=None,
+                    max_episode_steps=200, success_tolerance=None, target_region=None,
                     mount=default_mount("Lift")),               # where robosuite mounts a stock arm in this scene
     sim=SimConfig("mujoco", num_envs=4, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
                   scene="empty", options=MujocoOptions(self_collision=False)),

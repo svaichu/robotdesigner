@@ -19,12 +19,12 @@ from robotdesigner.envs import make_env  # noqa: E402
 COMMON = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0)
 
 
-def make_cfg(n=2, num_envs=3, seed=0, horizon=20, region=None, mode="joint_pos_abs", noise=0.0, terminate=False):
+def make_cfg(n=2, num_envs=3, seed=0, max_episode_steps=20, region=None, mode="joint_pos_abs", noise=0.0, terminate=False):
     arm = chain(n, "zy" * (n // 2), total_length=0.9, total_mass=2.0, range=(-2.0, 2.0), **COMMON)
     return EnvConfig(
         robot=arm,
         control=ControlConfig(mode, FixedGains(60.0, 6.0), None),
-        task=TaskConfig(ReachParams("reach", noise, terminate), horizon, 0.02,
+        task=TaskConfig(ReachParams("reach", noise, terminate), max_episode_steps, 0.02,
                         region or FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)), mount=Pose.identity()),
         sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, seed, "plain_floor", options=MujocoOptions(False)),
     )
@@ -115,7 +115,7 @@ def test_injected_state():
 
 
 def test_reward_success_truncation():
-    env = make_env(make_cfg(num_envs=2, horizon=3, terminate=True))
+    env = make_env(make_cfg(num_envs=2, max_episode_steps=3, terminate=True))
     td = env.reset()
     ee = td["task", "ee_pos"]
     # target at the current ee position: success immediately
@@ -156,3 +156,38 @@ def test_make_env_rejects_unsupported():
     with pytest.raises(ConfigError) as e:
         make_env(bad)
     assert "control.mode" in str(e.value) and "sim.device" in str(e.value)
+
+
+@pytest.mark.parametrize("n", [2, 4])
+def test_spaces_are_per_env_shapes_that_agree_with_the_specs(n):
+    env = make_env(make_cfg(n=n, num_envs=3))
+    assert env.action_space == torch.Size([n]) and isinstance(env.action_space, torch.Size)
+    assert env.batch_size + env.action_space == env.action_spec.shape
+    space = env.observation_space
+    assert space["proprio"] == {"qpos": torch.Size([n]), "qvel": torch.Size([n]), "effort": torch.Size([n])}
+    assert space["success"] == torch.Size([1]) and space["episode_step"] == torch.Size([1])
+    assert set(space["task"]) == {"ee_pos", "target_pos"} and space["task"]["ee_pos"] == torch.Size([3])
+    td = env.reset()  # the shapes are those of what reset and step really produce
+    for key in ("qpos", "qvel", "effort"):
+        assert td["proprio", key].shape == env.batch_size + space["proprio"][key]
+    assert td["task", "ee_pos"].shape == env.batch_size + space["task"]["ee_pos"]
+
+    def check(shapes, spec):  # same keys and shapes as observation_spec, nested
+        assert set(shapes) == set(spec.keys())
+        for key, sub in shapes.items():
+            if isinstance(sub, dict):
+                check(sub, spec[key])
+            else:
+                assert env.batch_size + sub == spec[key].shape
+
+    check(space, env.observation_spec)
+    action = torch.zeros(env.batch_size + env.action_space)
+    td["action"] = action
+    assert env.step(td)["next", "reward"].shape == env.batch_size + (1,)
+
+
+def test_the_empty_task_has_an_empty_task_group():
+    from tests.test_empty_task import make_cfg as empty_cfg
+
+    env = make_env(empty_cfg())
+    assert env.observation_space["task"] == {} and env.action_space == torch.Size([1])

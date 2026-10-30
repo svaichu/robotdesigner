@@ -104,7 +104,7 @@ assert "mine" in list_task_providers()
 
 task = TaskConfig(
     params=ReachParams(name="reach", reset_noise=0.0, terminate_on_success=False),
-    horizon=200, success_tolerance=0.02,
+    max_episode_steps=200, success_tolerance=0.02,
     target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),
     mount=PROVIDER.default_mount("reach"),                        # the robot base in the world; the target region is relative to it
 )

@@ -17,12 +17,12 @@ Related pages: [TaskConfig](../configs/task.md), [simulators](../simulators.md).
 |---|---|---|
 | `name` | str | `"idle"`, the only task |
 
-`uses_goal` is false, so `TaskConfig` takes `success_tolerance=None` and `target_region=None`. `horizon` is the episode length; the mount
+`uses_goal` is false, so `TaskConfig` takes `success_tolerance=None` and `target_region=None`. `max_episode_steps` is the episode length; the mount
 defaults (provider side) to the origin with the identity quaternion.
 
 ```python
 task = TaskConfig(
-    params=EmptyParams(name="idle"), horizon=100, success_tolerance=None, target_region=None, mount=Pose.identity(),
+    params=EmptyParams(name="idle"), max_episode_steps=100, success_tolerance=None, target_region=None, mount=Pose.identity(),
 )
 assert task.id == "empty/idle"
 assert task.to_dict()["provider"] == "empty" and task.to_dict()["params"] == {"name": "idle"}
@@ -34,7 +34,7 @@ assert get_task_provider("empty").default_mount("idle") == Pose.identity()
 
 - **Scene:** adds nothing. Whatever `sim.scene` provides is all there is.
 - **Observations:** the `task` group is empty; the robot's own observations are unchanged.
-- **Reward** is 0, success is never set and `terminated` never fires; `truncated` fires at `horizon`.
+- **Reward** is 0, success is never set and `terminated` never fires; `truncated` fires at `max_episode_steps`.
 - **Randomness:** draws nothing from the task's random stream.
 - **Simulators:** `mujoco`.
 

@@ -77,7 +77,8 @@ Every simulator returns a TorchRL `EnvBase` with these properties, whatever the 
   `[num_envs, 1]` (absent: reset all), or use `env.step_and_maybe_reset(td)` to let the driver do it from the done keys.
 - **Step** reads `td["action"]`, shape `[num_envs, n]` in `[-1, 1]` (one value per joint), and returns the outputs under
   `("next", ...)`.
-- **Done keys:** `done`, `terminated`, `truncated`, each `[num_envs, 1]` bool. `truncated` is the time limit (`horizon`).
+- **Done keys:** `done`, `terminated`, `truncated`, each `[num_envs, 1]` bool. `truncated` is the time limit: it is set once `episode_step >= max_episode_steps`
+  (Gymnasium's name for it). `env.rollout(500)` therefore returns after `max_episode_steps` steps, because TorchRL stops at the first env that is done.
 - **Reward:** `[num_envs, 1]` float32, from the task.
 - **Always present** in the observation: `success` `[num_envs, 1]` bool and `episode_step` `[num_envs, 1]` int64, a
   `task` group (whatever the task observes) and a `proprio` group with `qpos`, `qvel` and `effort`, each `[num_envs, n]`.
@@ -87,6 +88,11 @@ Every simulator returns a TorchRL `EnvBase` with these properties, whatever the 
 - **Seeding:** `env.set_seed(seed)`. The same simulator, device and seed give the same episodes. The reset noise of the
   robot and the draws of the task come from two separate streams, both seeded from `sim.seed`: what a task draws (an
   object's placement, a goal) is the same for every embodiment run with the same seed and `num_envs`.
+- **Spaces:** `env.action_space` is the shape of one env's action, a `torch.Size([n])`; `env.observation_space` is a nested dict of `torch.Size` with the same
+  keys as `observation_spec` (`{"task": {...}, "proprio": {"qpos": torch.Size([n]), ...}, "success": torch.Size([1]), ...}`; nothing is flattened). They are
+  per env, without the batch dimension: the batched shape is `env.batch_size + env.action_space`. They are *shapes*, not Gymnasium `Space` objects (dtype and
+  bounds stay in `action_spec` / `observation_spec`), derived from the specs in one place (`robotdesigner.envs.spaces.SpacesMixin`), so every simulator's
+  environment has them. The MuJoCo simulator ignores `robot.tool`, so the action is `n` joint values also for robosuite tasks.
 - **Attributes:** `env.cfg` (the resolved config), `env.robot_hash`, `env.env_hash`, `env.task` (the task's engine side),
   `env.interface` (a `RobotInterface`, below), `env.q_target` (position targets in `joint_pos_delta` mode).
 - `env.render(...)` returns an RGB frame of the live state, with the overlays the task draws; see [viz](viz.md).

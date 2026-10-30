@@ -60,7 +60,7 @@ frame.
 | **embodiment** | a robot as data: a `ParametricArm` (joints and links in kinematic order, a base pose). A study varies the embodiment and holds the task fixed |
 | **simulator** | the physics engine named by `sim.simulator` (`mujoco`; later MuJoCo Warp), realized as code in `robotdesigner.simulators`. It steps the robot and whatever the task adds. It is never a source of tasks |
 | **options** | the settings of one simulator, `sim.options` (`MujocoOptions` for `mujoco`) |
-| **task** | what the robot is asked to do: a provider's params object (it names the provider and the task) with a horizon (`TaskConfig`); `task.id` is the derived `<namespace>/<name>`. It never mentions the number of joints |
+| **task** | what the robot is asked to do: a provider's params object (it names the provider and the task) with its time limit `max_episode_steps` (`TaskConfig`; Gymnasium's name); `task.id` is the derived `<namespace>/<name>`. It never mentions the number of joints |
 | **task provider** | the owner of a namespace: it names its tasks, checks a config against a simulator and builds the task. `robosuite` is the one in the package; yours register by namespace ([writing one](tasks/writing-a-provider.md)) |
 | **objective** | in the robosuite provider, the rule for success and reward on a scene object (`LiftObject`, `ReachObject`) |
 | **scene** | two things: `sim.scene` is a preset of the simulator (`empty`, `plain_floor`); a robosuite scene is the arena and objects a task adds to it |
@@ -93,7 +93,7 @@ base = EnvConfig(
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
     task=TaskConfig(params=RobosuiteParams("Lift", {}, LiftObject("cube", height=0.84), reset_noise=0.0,
                                            terminate_on_success=False),   # the same table and cube for every arm
-                    horizon=200, success_tolerance=None, target_region=None,
+                    max_episode_steps=200, success_tolerance=None, target_region=None,
                     mount=MOUNT),   # where the scene expects the arm: a property of the task, not of the robot
     sim=SimConfig("mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
                   scene="empty", options=MujocoOptions(self_collision=False)),

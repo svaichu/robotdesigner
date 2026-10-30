@@ -46,7 +46,7 @@ cfg = EnvConfig(
     task=TaskConfig(params=RobosuiteParams(name="Lift", env_kwargs={},                  # a task of the `robosuite` provider
                                            objective=LiftObject("cube", height=0.84),
                                            reset_noise=0.0, terminate_on_success=False),
-                    horizon=200, success_tolerance=None, target_region=None,
+                    max_episode_steps=200, success_tolerance=None, target_region=None,
                     mount=Pose((-0.56, 0.0, 0.912), (1.0, 0.0, 0.0, 0.0))),   # the mount of a stock arm in robosuite's Lift
     sim=SimConfig(simulator="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
                   control_freq=50.0, seed=0, scene="empty",                # the arena brings its own floor
