@@ -60,7 +60,7 @@ Five methods, no engine import at module level. `default_mount(name)` says where
 
 ```python
 class MyTasks:
-    SIMULATORS = frozenset({"mujoco"})
+    SIMULATORS = frozenset({"mujoco", "warp"})   # the simulators whose SimView the engine side was written for
 
     def task_names(self):                      # names or patterns: they are listed when an id is unknown
         return ("reach",)
@@ -172,7 +172,8 @@ class ReachTask(BaseTask):
   draw for the whole batch and then apply the mask, so the stream does not depend on which envs are reset.
 - **Scene assets.** `attach(spec)` adds bodies and geoms to the `MjSpec` before it is compiled (robosuite's provider attaches an arena and objects under a
   prefix); `bind(sim)` then resolves names to ids. Objects without a free joint are shared by every env of the batch.
-- **The simulation.** Hooks receive a `SimView` (`robotdesigner.tasks.base`), not a simulator's internals: `sim.num_envs`, `sim.device`,
+- **The simulation.** The engine side runs on any simulator that implements `SimView` (`mujoco` and `warp` today), so list in `SIMULATORS` every simulator you
+  tested it on. Hooks receive a `SimView` (`robotdesigner.tasks.base`), not a simulator's internals: `sim.num_envs`, `sim.device`,
   `sim.iface`, `sim.body_pose(body, frame)` and `sim.site_pos(site, frame)` (`frame` is `"world"` or `"base"`, float32 on `sim.device`),
   `sim.write_qpos(adr, values, mask)` to place a free body, `sim.base_frame()` and `sim.host_data(env_index)` for overlays.
   `bind` is the last point at which the host `sim.model` may be edited.

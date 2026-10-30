@@ -25,7 +25,7 @@ parameter, the robot config kept separate from the env. Do not overwrite the use
 - After a rename or removal, grep for leftovers in code, docs, images (`docs/architecture.png`), notebook outputs and this file.
 
 ## Terminology (the user's, 2026-10-30)
-- **simulator**: a physics engine realized as code, `robotdesigner.simulators.<name>`, named by `sim.simulator` (`mujoco`; later `warp`).
+- **simulator**: a physics engine realized as code, `robotdesigner.simulators.<name>`, named by `sim.simulator` (`mujoco`, `warp`).
   Git history, closed issues and old text say "backend": read it as "simulator". `build-backend` in `pyproject.toml` is packaging vocabulary.
 - **task provider**: owner of a task-id namespace (`robosuite`); **task**: `<namespace>/<name>`; **options**: the settings of one simulator,
   in `sim.options`. **config side / engine side**: numpy-only classes vs the code that needs torch and MuJoCo ("engine" = those libraries).
@@ -81,13 +81,19 @@ parameter, the robot config kept separate from the env. Do not overwrite the use
 - Pitfalls: `MjSpec` reads angles as degrees unless `compiler.degree = False` (the compile sets it; a test guards it); `xpos` is stale until the
   next forward; robosuite's own delta input settles at about 17 % of the commanded rate, so delta mode accumulates the target in our env.
 
-## MuJoCo Warp (next milestone; nothing built)
-mujoco-warp 3.17.0 and warp-lang 1.18.0 are installed. Source-read API: `put_model(mjm, batch_sizes)`, `make_data(mjm, nworld, ...)`, `put_data`,
-`get_data_into(result, mjm, d, world_id)` (copy one world to a host `MjData` to replay or view it), `reset_data(m, d, reset)` (a mask: confirm it is
-a masked partial reset), `step`, integrators euler / implicit / rk4. Per-world model fields can batch same-topology embodiments; different `n`
-needs one simulation per topology group (open). Warp is float32 and CPU MuJoCo float64: parity needs tolerances and short, contact-free
-horizons first. Warp on a CPU device is unverified; NVIDIA only, no autodiff. Position and torque actuators run in the physics, delta and
-end-effector modes are ours.
+## MuJoCo Warp (built; verified only on Warp's CPU device)
+mujoco-warp 3.17.0 and warp-lang 1.18.0. Built: `WarpOptions` (config/sim.py, capacities per world), `simulators/warp` (`WarpSimulator`, `WarpBatchedSim`
+in sim.py, `WarpEnv` in env.py, `check_model_supported`, `CapacityError`), `SimView` in `tasks/base.py` (tasks are written against it; `BatchedSim`
+implements it too), `task_seed` in `simulators/base.py`. Warp runs on its CPU device, so everything except CUDA specifics is testable here: tests build
+`WarpEnv` directly with `device="cpu"` (`make_env` refuses it: capabilities say `cuda`); the `gpu` marker covers the same tests on `cuda:0`.
+- Facts found: `naconmax = nconmax * nworld`; `overflow` is a per-world bitmask (`OverflowType`), counters are clipped, so `check_overflow` reads
+  `overflow`; after a step the derived state (`xpos`, `site_xpos`) is the pre-integration one, as on the CPU, so `mj_forward` on a host copy matches only
+  after a reset; `reset_data(m, d, reset=mask)` is a masked partial reset; the CPU-versus-Warp errors (float32) are in the docstring of
+  `tests/test_warp_parity.py` (all four control modes and integrators match); `NutAssembly*` need `WarpOptions(njmax=512, nconmax=128)`.
+- Not verified (no GPU in the dev container): CUDA graph capture, stream sharing with torch, solver determinism, the parity tolerances on CUDA, the
+  Warp render test (needs OpenGL too), the throughput and the final `WarpOptions.default()` numbers (provisional 64 / 16 / graph on).
+- Pitfall: a second `mujoco.Renderer` probe after a failed one aborts the process (glfw); import `needs_gl` from `tests/test_render.py` instead.
+- Open: per-world model fields (family batching, exploratory), a shared env base class for `MujocoEnv` and `WarpEnv`.
 
 ## TorchRL conventions
 Subclass `_reset`, `_step`, `_set_seed` and the specs; never override `reset` / `step`. `td["_reset"]` is bool `[B, 1]` (absent = reset all); the env

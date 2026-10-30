@@ -97,7 +97,18 @@ assert BaseEnvConfig().task(mount=pin).resolve().task.mount == pin
 
 `.sim(simulator="other")` replaces `sim.options` with that simulator's defaults, because the options of one simulator cannot be kept for another;
 pass `options=` to give them. The defaults come from an optional `default()` classmethod on the options class (`MujocoOptions` has one);
-without it, `options=` is required. Staying on the same simulator keeps the options.
+without it, `options=` is required. Staying on the same simulator keeps the options. `WarpOptions` has a `default()` too, so selecting the GPU simulator
+is three fields, and the same switch is a sweep axis together with `device`:
+
+```python
+base = BaseEnvConfig().robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0))
+gpu = base.sim(simulator="warp", device="cuda:0", num_envs=4096).resolve()
+assert gpu.sim.simulator == "warp" and type(gpu.sim.options).__name__ == "WarpOptions"
+pair = base.sweep(paired={"sim.simulator": ["mujoco", "warp"], "sim.device": ["cpu", "cuda:0"]})
+assert len(pair.configs()) == 2 and len({c.env_hash for c in pair.configs()}) == 2
+```
+
+Building the `warp` item (`make_env`, `.build()`) needs an NVIDIA GPU and the `warp` extra.
 
 ## Overrides by dotted path
 

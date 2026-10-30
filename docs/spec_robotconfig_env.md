@@ -4,7 +4,7 @@ Why the package is built the way it is, what is decided, what is done and what i
 ([docs/README.md](README.md)), which the tests check against the code. Working notes for agents: `.agent/memory.md`. Last revised 2026-10-30.
 
 **Status.** Built and tested: the config layer, the CPU MuJoCo simulator with one generic environment, and task providers (`robosuite`, arenas and
-objects as task assets, is the one real provider in the package, next to the `empty` placeholder). Not built: the `warp` GPU simulator, `ExternalRobot`, end-effector control modes, family-reachable
+objects as task assets, is the one real provider in the package, next to the `empty` placeholder). The `warp` GPU simulator is built (config, `SimView`, batched core, `WarpEnv`, robosuite tasks, CPU-versus-Warp parity tests) and verified only on the Warp library's CPU device: nothing has run on CUDA yet (section 8). Not built: `ExternalRobot`, end-effector control modes, family-reachable
 target regions (section 8).
 
 ## 1. Purpose and scope
@@ -39,7 +39,7 @@ robotdesigner.simulators           simulators: protocol, capabilities, lazy regi
 robotdesigner.simulators.mujoco    CPU reference simulator and its generic env; arm_spec.add_arm builds the chain
 robotdesigner.tasks                task contract (base.py); one subpackage per provider namespace, found by config.providers
 robotdesigner.tasks.robosuite      robosuite arenas and objects as a task; the compatibility layer
-(planned) simulators.warp          GPU training
+robotdesigner.simulators.warp      MuJoCo Warp (GPU): WarpBatchedSim, WarpEnv; imports its engine only in make_env
 ```
 
 `config` imports no engine, no torch and no robosuite (a test checks it); "engine" means those heavy libraries. Simulators are imported lazily by name
@@ -49,7 +49,7 @@ engine-independent oracle compiled models are tested against.
 ```
 base        numpy>=1.26                                     # robotdesigner.config
 [env]       torch>=2.7, tensordict>=0.14.3,<0.15, torchrl>=0.14.1,<0.15, mujoco>=3.13
-[warp]      [env] + mujoco-warp, warp-lang>=1.15            # declared; simulator not implemented
+[warp]      [env] + mujoco-warp, warp-lang>=1.15            # the GPU simulator (an NVIDIA GPU)
 [robosuite] [env] + robosuite>=1.5,<1.6
 [viz]       pillow, imageio, imageio-ffmpeg
 [dev]       pytest, ruff
@@ -92,17 +92,22 @@ EnvConfig(robot, control, task, sim)
 
 **Simulators.** A simulator is a physics engine realized as code: `capabilities()`, `validate(cfg)` (problems, before anything is built), `make_env(cfg)`.
 
-| | `mujoco` | `warp` (planned) |
+| | `mujoco` | `warp` |
 |---|---|---|
-| Role, device | reference and debugging, CPU | training, CUDA |
+| Role, device | reference and debugging, CPU | training, CUDA (`cuda:N`) |
 | Robot, control | ours, compiled to `MjSpec`; actuators and the env layer | ours, the same model |
 | Scene, task | a scene preset plus what the task's provider attaches | the same |
-| Stepping | N `MjData` stepped one after another | MuJoCo Warp, `nworld = num_envs` |
+| Stepping | N `MjData` stepped one after another | MuJoCo Warp, `nworld = num_envs`, float32 state |
+| Env class | `MujocoEnv` | `WarpEnv`, its own class (a shared base is deferred) |
 
 `ParametricArm` compiles, with the scene preset and the task's assets on one `MjSpec`, to one `MjModel` and a `RobotInterface`; the compile sets
-`compiler.degree = False` (`MjSpec` reads degrees otherwise). `arm_spec.add_arm` builds the chain for every MuJoCo-based simulator. For Warp the plan is
-the same `MjModel` through `put_model` and `make_data(nworld)`, torch views, parity against the CPU simulator from injected state, and per-world model
-fields to let same-topology embodiments share one simulation (a different `n` needs another simulation per topology group).
+`compiler.degree = False` (`MjSpec` reads degrees otherwise). `arm_spec.add_arm` builds the chain for every MuJoCo-based simulator. Warp uses
+the same `MjModel` through `put_model` and `make_data(nworld)`, uploaded in `finalize()` after `task.bind` (the host model is editable until then), with
+torch views of the Warp arrays. Tasks are written against the engine-neutral, torch-valued `SimView` protocol (`tasks/base.py`), so one task engine side
+runs on both. Both random streams stay CPU generators seeded exactly as in `MujocoEnv` and the draws are copied to the device, so the same seed and
+`num_envs` give the same draws on both simulators. Capacities (`WarpOptions.njmax`, `nconmax`) are per world so `num_envs` can change without re-tuning;
+overflow is never silent (`CapacityError`). Nothing is approximated: unsupported features are reported as problems before anything is built. Per-world model
+fields, to let same-topology embodiments share one simulation (a different `n` needs another simulation per topology group), are not built.
 
 **Providers.** A task provider owns a namespace. Config side: params classes (numpy only), each with `provider` and a `name` field; providers read the task name from `cfg.task.params.name`. Engine side: a `TaskImpl` that adds scene assets to the model
 spec, places things at reset, observes and scores. `validate(cfg, simulator)` collects the provider's problems with the simulator's into one `ConfigError`.
@@ -151,9 +156,9 @@ Subclasses implement `_reset`, `_step` and `_set_seed` and declare the specs; th
 
 At the last revision 163 tests without the `render` marker and 12 render tests pass, 12 of the 15 single-arm robosuite environments build and step with a
 generated arm, and both example notebooks run every cell. Done: config layer and CPU simulator, the CPU TorchRL env, robosuite as a source of assets.
-Not started: the `warp` simulator. Shelved: Playground and JAX.
+Warp: built and tested on the Warp library's CPU device (parity with the CPU simulator within float32 tolerances in all four control modes, all four integrators, inertia-scaled gains and floor contact; `robosuite/Lift` and the other single-arm environments of the robosuite table). Shelved: Playground and JAX.
 
-Not done or not verified: Warp (masked reset, per-world fields, CPU parity); policy performance on any task; the throughput of the CPU simulator with many
+Not done or not verified: Warp on CUDA (CUDA graph capture, stream sharing, solver determinism, parity tolerances re-measured on a GPU, the pixel tolerance of the Warp render test, the `gpu`-marked tests), the throughput benchmark and the final `WarpOptions.default()` numbers, per-world model fields; policy performance on any task; the throughput of the CPU simulator with many
 envs; the robosuite 1.5.2 placement path (written, never run) and the `robosuite` CI job (added, not checked); an `ExternalRobot` baseline; a gripper (the
 MuJoCo simulator does not build `robot.tool`, so grasping tasks cannot be solved); lazy stacking of heterogeneous families.
 
@@ -168,6 +173,7 @@ such as `Lift`, with infeasibility separable from failures of learning; whether 
 | 2026-10-27 | `config` is numpy-only; frozen dataclasses with hand-written validation; no inherited defaults (`dt`, `integrator`, gains, masses explicit) | configs and hashes must work in any analysis environment; every behaviour-changing value must be in `env_hash` |
 | 2026-10-27 | env contract = TorchRL `EnvBase`, never autoreset, nested observations primary (user) | TorchRL collectors and `rollout` read the done keys and the `_reset` mask; a flat view is a transform |
 | 2026-10-27 | GPU simulator = MuJoCo Warp driven from torch; JAX shelved (user) | no JAX-to-torch bridge to maintain; it consumes the same `MjSpec` |
+| 2026-10-30 | the `warp` simulator is its own env class, tasks are written against a `SimView`, random streams stay on the CPU, capacities are per world, nothing is approximated (user, roadmap) | each simulator has its own env; a GPU simulation has no `MjData` per env; CPU and Warp resets draw identical numbers; `num_envs` can change in a sweep without re-tuning; an unsupported feature is a `Problem`, not a silent change |
 | 2026-10-28 | robosuite's MuJoCo incompatibility is patched at run time, only where a probe fails | capping MuJoCo would conflict with the Warp floor |
 | 2026-10-29 | `env = make_env(cfg)` is the only construction path; `EnvConfig` has no `make()` (user) | one step from config to environment; the config layer imports no engine |
 | 2026-10-29 | robosuite is a source of task assets, `robosuite/<EnvName>`, never a simulator; success and reward are ours (user) | as a simulator it brought its own controller and physics, so one robot was not controlled the same way across tasks |

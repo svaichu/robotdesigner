@@ -1,7 +1,7 @@
 This package provides robot embodiments as validated, hashable data and batched TorchRL environments:
 
 1. `robotdesigner.config`: numpy-only configs (`ParametricArm`, `ControlConfig`, `TaskConfig`, `SimConfig`, `EnvConfig`, ...), the `chain()` generator and a kinematics oracle.
-2. `robotdesigner.simulators` / `robotdesigner.envs`: simulator registry and `make_env(cfg)`, the one way from an `EnvConfig` to an environment. The CPU MuJoCo simulator (`simulators/mujoco`) has one generic env (`MujocoEnv`) that runs any task.
+2. `robotdesigner.simulators` / `robotdesigner.envs`: simulator registry and `make_env(cfg)`, the one way from an `EnvConfig` to an environment. The CPU MuJoCo simulator (`simulators/mujoco`) has one generic env (`MujocoEnv`) that runs any task; the GPU simulator (`simulators/warp`: `WarpBatchedSim`, `WarpEnv`) is its twin on MuJoCo Warp. Tasks are written against the engine-neutral `SimView` (`tasks/base.py`), so one task runs on both.
 3. `robotdesigner.tasks`: task providers, one subpackage per namespace (`<namespace>/<name>` ids), each with a numpy-only config side (params classes) and an engine side (a `TaskImpl`, contract in `tasks/base.py`). The core names no task: providers are discovered from the registry (`config/providers.py`), and `tests/test_no_hardcoded_tasks.py` enforces it. robosuite is a provider that supplies assets (arena, objects); it is never a simulator.
 4. `robotdesigner.viz`: clips, frame recorder and camera framing for rendered rollouts (guide: `docs/viz.md`).
 

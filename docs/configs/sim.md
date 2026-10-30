@@ -35,18 +35,18 @@ Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [TaskConfig
 integrator, time step and scene is checked by the simulator when the environment is built, and every problem is reported
 at once (see [simulators](../simulators.md#capabilities)).
 
-| field | `mujoco` |
-|---|---|
-| `device` | `cpu` |
-| `dt` | any |
-| `integrator` | all four |
-| `scene` | `empty` or `plain_floor`; a task that brings its own floor (an arena) asks for `empty` |
-| `num_envs` | N simulations stepped one after another in one process |
-| `seed` | two streams: the robot's reset noise, and separately the task's own draws (placements, targets), so the task's draws do not depend on the robot |
+| field | `mujoco` | `warp` |
+|---|---|---|
+| `device` | `cpu` | `cuda:N` |
+| `dt` | any | any |
+| `integrator` | all four | all four |
+| `scene` | `empty` or `plain_floor`; a task that brings its own floor (an arena) asks for `empty` | the same |
+| `num_envs` | N simulations stepped one after another in one process | N worlds in one device allocation |
+| `seed` | two streams: the robot's reset noise, and separately the task's own draws (placements, targets), so the task's draws do not depend on the robot | the same two streams, drawn on the CPU and copied to the device, so a reset draws the same numbers as `mujoco` |
 
-Scene presets of the MuJoCo simulator: `empty` has nothing but the robot; `plain_floor` adds a floor plane at `z = 0` that
-robot geoms collide with, and a light. Same simulator, device and seed reproduce the same results; random draws can differ
-between simulators.
+Scene presets (both simulators): `empty` has nothing but the robot; `plain_floor` adds a floor plane at `z = 0` that
+robot geoms collide with, and a light. Same simulator, device and seed reproduce the same results. Across simulators the draws
+are equal and the state agrees to float32 rounding (`warp` stores float32), but a long contact-rich rollout can diverge.
 
 ```python
 sim = SimConfig(simulator="mujoco", num_envs=4, device="cpu", dt=0.002, integrator="euler",
@@ -96,8 +96,21 @@ assert SIMULATOR_OPTIONS["warp"] is WarpOptions
 assert WarpOptions.default().njmax >= 1     # provisional numbers, to be set from measurements
 ```
 
-The config side needs no GPU, torch or MuJoCo; building the environment (`make_env`) reports a missing CUDA device or
-library together with every other problem. The warp simulator does not run tasks yet.
+`WarpOptions.default()` is `WarpOptions(njmax=64, nconmax=16, cuda_graph=True)`: provisional numbers, to be replaced by measurements.
+Scenes with many contacts need more (see [capacity overflow](../simulators.md#capacity-overflow)). The config side needs no GPU,
+torch or MuJoCo; building the environment (`make_env`) reports a missing CUDA device or library together with every other problem.
+
+```python
+warp = SimConfig(simulator="warp", num_envs=4096, device="cuda:0", dt=0.002, integrator="euler", control_freq=50.0,
+                 seed=0, scene="empty", options=WarpOptions(njmax=128, nconmax=32, cuda_graph=True))
+assert SimConfig.from_dict(warp.to_dict()) == warp
+try:
+    SimConfig(**{**{k: v for k, v in warp.to_dict().items() if k != "options"}, "options": MujocoOptions(self_collision=False)})
+except ConfigError as e:
+    assert e.path == "options"
+else:
+    raise AssertionError("no error")
+```
 
 A simulator defined outside this package registers its options with `register_simulator_options("name", OptionsClass)`.
 The class needs `to_dict()` and a `from_dict()` classmethod, like every config class here.

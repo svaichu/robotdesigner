@@ -36,7 +36,7 @@ assert get_task_provider("empty").default_mount("idle") == Pose.identity()
 - **Observations:** the `task` group is empty; the robot's own observations are unchanged.
 - **Reward** is 0, success is never set and `terminated` never fires; `truncated` fires at `max_episode_steps`.
 - **Randomness:** draws nothing from the task's random stream.
-- **Simulators:** `mujoco`.
+- **Simulators:** `mujoco` and `warp`.
 
 ## Not the `empty` scene
 

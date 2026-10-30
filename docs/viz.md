@@ -124,7 +124,7 @@ env.cfg.sim.control_freq                            # or pass fps= to record_rol
 
 ## Not included
 
-- Only the CPU MuJoCo simulator renders so far.
+- Both simulators render through the same renderer; a Warp env copies one world to the host first, which makes rendering a debugging path, not a per-step one.
 - Frames are rendered while the rollout runs; replaying recorded states afterwards is not implemented.
 - TorchRL's own `torchrl.render` stack is not wired in (see `.agent/future_ideas.md`).
 - No depth or segmentation output.

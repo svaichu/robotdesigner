@@ -58,7 +58,7 @@ frame.
 | word | meaning |
 |---|---|
 | **embodiment** | a robot as data: a `ParametricArm` (joints and links in kinematic order, a base pose). A study varies the embodiment and holds the task fixed |
-| **simulator** | the physics engine named by `sim.simulator` (`mujoco`; later MuJoCo Warp), realized as code in `robotdesigner.simulators`. It steps the robot and whatever the task adds. It is never a source of tasks |
+| **simulator** | the physics engine named by `sim.simulator` (`mujoco`, or `warp` for MuJoCo Warp on a GPU), realized as code in `robotdesigner.simulators`. It steps the robot and whatever the task adds. It is never a source of tasks |
 | **options** | the settings of one simulator, `sim.options` (`MujocoOptions` for `mujoco`) |
 | **task** | what the robot is asked to do: a provider's params object (it names the provider and the task) with its time limit `max_episode_steps` (`TaskConfig`; Gymnasium's name); `task.id` is the derived `<namespace>/<name>`. It never mentions the number of joints |
 | **task provider** | the owner of a namespace: it names its tasks, checks a config against a simulator and builds the task. `robosuite` is the one in the package; yours register by namespace ([writing one](tasks/writing-a-provider.md)) |
