@@ -13,6 +13,7 @@ Start with the [README](../README.md) for installation and a first environment.
 | [ControlConfig](configs/control.md) | control modes, `FixedGains`, `InertiaScaledGains`, the action scale |
 | [TaskConfig](configs/task.md) | the params object that is the task, its providers, target regions, how to add a provider |
 | [SimConfig and simulator options](configs/sim.md) | simulator, batch size, time step, seed, scene, `MujocoOptions` |
+| [BaseEnvConfig](configs/base-env.md) | a complete default environment refined with chained calls, `Chain`, `resolve()`, `explain()`, `diff()` |
 | [EnvConfig](configs/env.md) | how the sections combine, serialization, hashing, errors |
 | [Simulators](simulators.md) | simulators, capabilities, the environment contract, how an environment is put together, adding a simulator |
 | [The `empty` placeholder task](tasks/empty.md) | `empty/idle`, the one task the package ships: nothing to do, reward 0 |

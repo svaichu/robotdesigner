@@ -1,0 +1,151 @@
+# BaseEnvConfig
+
+A complete, runnable environment description that you refine with section calls, in the ergonomics of RLlib's
+`AlgorithmConfig` (nothing else is borrowed: no `ray`, no trainer). `BaseEnvConfig()` is a one-link arm in the `empty`
+scene doing the [`empty/idle`](../tasks/empty.md) task on the CPU MuJoCo simulator. `.robot()`, `.control()`, `.task()` and `.sim()` each
+return a **new** config that changes what the call writes; `resolve()` returns the frozen, validated
+[`EnvConfig`](env.md) with its `env_hash`. Importing it needs numpy only; `build()` imports the engine.
+
+```python
+from robotdesigner.config import (
+    NOT_SET, BaseEnvConfig, Chain, ConfigError, EnvConfig, FixedGains, Pose,
+)
+from robotdesigner.config.defaults import DEFAULTS, DEFAULTS_VERSION
+```
+
+Related pages: [EnvConfig](env.md), [RobotConfig](robot.md), [TaskConfig](task.md), [SimConfig](sim.md), [simulators](../simulators.md).
+
+## The rules
+
+1. **`BaseEnvConfig()` is complete and runnable.** Its defaults are explicit values in one table (`config/defaults.py`, `DEFAULTS` and
+   `DEFAULTS_VERSION`), shown by `explain()`. Defaults live in this builder layer only: `EnvConfig`, `SimConfig`, `ControlConfig`, `TaskConfig`
+   and `ParametricArm` still require every field.
+2. **Every call returns a new config**; the receiver is never changed, so one base serves a whole sweep. Sections not called keep the base's value.
+3. **Calls accumulate.** A call changes only what it writes: a second `.sim(dt=...)` keeps the first call's `num_envs`.
+4. **`NOT_SET`** means "argument not passed". `None` is a meaningful value in the configs (`action_scale=None`, `target_region=None`).
+5. **`resolve()`** applies the deferred default (the mount), validates every section and raises **one** `ConfigError` that lists every problem
+   with its dotted path (`.problems` holds them). `validate()` returns the same problems without raising.
+6. **Store `resolve().to_dict()` with every run, checkpoint and dataset.** `env_hash` is computed on the resolved `EnvConfig`, so changing a
+   default changes the hash of configs that relied on it; the stored dict holds every value and reproduces after the defaults change.
+
+```python
+base = BaseEnvConfig()
+cfg = base.resolve()
+assert isinstance(cfg, EnvConfig) and cfg.robot.n == 1 and cfg.task.id == "empty/idle" and cfg.sim.scene == "empty"
+assert DEFAULTS_VERSION == 1 and DEFAULTS["sim"]["control_freq"] == 50.0
+assert EnvConfig.from_dict(cfg.to_dict()).env_hash == cfg.env_hash      # the stored resolved dict reproduces
+```
+
+## The section calls
+
+| call | what it takes | what it does |
+|---|---|---|
+| `.robot(robot=, **fields)` | a `Chain`, a ready `ParametricArm`, or `Chain` fields as keywords | a `Chain` is partial: written fields change, the rest carries. A `ParametricArm` is a fixed robot and replaces the section |
+| `.control(control=, **fields)` | `mode`, `gains`, `action_scale`, or a `ControlConfig` | assigns the fields written |
+| `.task(params=, **fields)` | a provider's params object, `horizon`, `success_tolerance`, `target_region`, `mount`, or a `TaskConfig` | the params object is the task. A *new params class* resets `success_tolerance` and `target_region` (they belong to goal tasks) unless the call writes them |
+| `.sim(sim=, **fields)` | the fields of `SimConfig` (including `options`), or a `SimConfig` | assigns the fields written; `simulator=` replaces `options` with that simulator's defaults (below) |
+
+An unknown field is a `ConfigError` at the call, with the dotted path (`sim.num_env`). Values are validated by `resolve()`.
+
+```python
+cfg = (
+    BaseEnvConfig()
+    .robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0))
+    .control(gains=FixedGains(kp=60.0, kd=6.0))
+    .task(horizon=100)
+    .sim(num_envs=8)
+)
+fine = cfg.sim(dt=0.001)                 # a new config; cfg is unchanged; num_envs stays 8
+assert cfg.resolve().sim.dt == 0.002 and fine.resolve().sim.dt == 0.001 and fine.resolve().sim.num_envs == 8
+assert cfg.resolve().task.horizon == 100
+```
+
+### `Chain`
+
+`Chain` is a frozen spec that mirrors `chain()` without `base_pose` (the mount belongs to the task): `n`, `axes`, `link_length` or
+`total_length`, `mass` or `total_mass`, `radius`, `damping`, `armature`, `frictionloss`, `effort_limit`, `range`, `home_qpos`, `end_effector`, `tool`,
+`label`. Every field is optional at the call; the base holds a complete `Chain`; `Chain.arm()` returns the `ParametricArm`; `chain()` stays the function.
+
+- Writing one member of an exclusive pair (`link_length` / `total_length`, `mass` / `total_mass`) **clears the other**.
+- `n` and `axes` change together: one letter per joint, no cycling. A per-joint sequence must have `n` entries after the merge; otherwise `resolve()` reports
+  its path (`robot.axes`, `robot.radius`, ...).
+
+```python
+three = cfg.robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0, damping=1.5))
+five = three.robot(Chain(n=5, axes="zyyyy"))          # lengths, masses and damping carry
+arm = five.resolve().robot
+assert arm.n == 5 and arm.segments[0].joint.damping == 1.5
+assert abs(sum(s.link.tip_offset[0] for s in arm.segments) - 0.9) < 1e-12
+
+short_links = three.robot(link_length=0.2)            # clears total_length
+assert short_links.resolve().robot.segments[0].link.tip_offset[0] == 0.2
+assert Chain(link_length=0.3).merge(Chain(total_length=1.0)).link_length is NOT_SET
+```
+
+### The mount
+
+`mount` is "the task's default" until written: `resolve()` fills it from `TaskProvider.default_mount(name)` and the resolved value is what is
+hashed. `.task(mount=Pose(...))` pins it, and a pinned mount survives later task changes.
+
+```python
+pin = Pose((0.3, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0))
+assert BaseEnvConfig().resolve().task.mount == Pose.identity()              # the empty task: the origin
+assert BaseEnvConfig().task(mount=pin).resolve().task.mount == pin
+```
+
+### The simulator and its options
+
+`.sim(simulator="other")` replaces `sim.options` with that simulator's defaults, because the options of one simulator cannot be kept for another;
+pass `options=` to give them. The defaults come from an optional `default()` classmethod on the options class (`MujocoOptions` has one);
+without it, `options=` is required. Staying on the same simulator keeps the options.
+
+## Errors
+
+```python
+def error_of(build):
+    try:
+        build()
+    except ConfigError as e:
+        return e
+    raise AssertionError("no error")
+
+assert error_of(lambda: BaseEnvConfig().sim(num_env=2)).path == "sim.num_env"          # unknown field
+assert error_of(lambda: BaseEnvConfig().robot(3)).path == "robot"                       # not a Chain or an arm
+assert error_of(lambda: BaseEnvConfig().robot(n=3).resolve()).path == "robot.axes"      # three joints, one axis letter
+
+bad = BaseEnvConfig().robot(n=3).sim(num_envs=0).control(mode="warp")
+assert {p.path for p in bad.validate()} == {"robot.axes", "sim.num_envs", "control.mode"}   # all at once
+err = error_of(bad.resolve)
+assert err.path == "" and len(err.problems) == 3
+```
+
+## Looking at a config
+
+```python
+cfg = BaseEnvConfig().robot(n=2, axes="zy").sim(num_envs=8)
+assert cfg.diff() == {"robot.n": (1, 2), "robot.axes": ("z", "zy"), "sim.num_envs": (1, 8)}   # against the pristine base
+text = cfg.explain()
+assert "robot.n" in text and "2  [set]" in text and "[default (task)]" in text
+```
+
+- `explain()` lists every field with its value and its source: `set`, `default` or `default (task)` (the mount).
+- `diff()` returns `{path: (default, value)}` against the pristine `BaseEnvConfig()` of this defaults version; a field only one side has is `NOT_SET` on the other.
+
+## Building
+
+`build()` is a one-line delegate to `make_env(self.resolve())`; `make_env(cfg)` stays the one construction path and `EnvConfig` has no `make()`.
+
+```python no-run
+env = BaseEnvConfig().robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0)).sim(num_envs=8).build()
+```
+
+## The defaults of version 1
+
+The numbers are plain choices, not recommendations (the control and simulator numbers are the README quick start's):
+
+| section | value |
+|---|---|
+| robot | one `z` joint, 0.5 m, 1 kg, radius 0.03, damping 0.5, armature 0.01, friction loss 0, effort limit 50, range ±2.5 |
+| control | `joint_pos_abs`, `FixedGains(kp=60, kd=6)`, `action_scale=None` |
+| task | `empty/idle`, horizon 200, no tolerance or region, the provider's default mount |
+| sim | `mujoco` with `MujocoOptions.default()`, 1 env, `cpu`, `dt` 0.002, `euler`, 50 Hz control, seed 0, scene `empty` |

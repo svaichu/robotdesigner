@@ -1,6 +1,7 @@
 """Configuration layer: numpy only. Imports no simulation engine and no torch."""
 
 from . import kinematics
+from .base_env import BaseEnvConfig
 from .control import CONTROL_MODES, ControlConfig, FixedGains, InertiaScaledGains
 from .env import EnvConfig
 from .errors import ConfigError, Problem
@@ -12,6 +13,7 @@ from .providers import (
     register_task_provider,
     unregister_task_provider,
 )
+from .specs import NOT_SET, Chain
 from .sim import INTEGRATORS, MujocoOptions, SimConfig, register_simulator_options
 from .task import FixedBox, OwnReachable, TaskConfig
 from .robot import (
@@ -25,6 +27,9 @@ from .robot import (
 )
 
 __all__ = [
+    "BaseEnvConfig",
+    "Chain",
+    "NOT_SET",
     "CONTROL_MODES",
     "ControlConfig",
     "EnvConfig",

@@ -34,7 +34,7 @@ Python >= 3.10. Other extras: `robosuite` (the task provider: robosuite arenas a
 ## Documentation
 
 Reference pages in [`docs/`](docs/README.md): [RobotConfig](docs/configs/robot.md), [ControlConfig](docs/configs/control.md),
-[TaskConfig](docs/configs/task.md), [SimConfig and simulator options](docs/configs/sim.md), [EnvConfig](docs/configs/env.md),
+[TaskConfig](docs/configs/task.md), [SimConfig and simulator options](docs/configs/sim.md), [EnvConfig](docs/configs/env.md), [BaseEnvConfig](docs/configs/base-env.md),
 [simulators and the environment contract](docs/simulators.md), [robosuite scenes](docs/tasks/robosuite.md),
 [writing a task provider](docs/tasks/writing-a-provider.md), [recording videos](docs/viz.md) and the
 [design record](docs/spec_robotconfig_env.md). The words the docs use (embodiment, simulator, task provider, scene, ...) are
@@ -76,6 +76,22 @@ print(traj.shape)               # torch.Size([8, 50])
 The full script is `examples/robosuite_scene.py` (headless; `python examples/robosuite_scene.py`). A walkthrough notebook is
 `examples/scene_walkthrough.ipynb` (embodiment comparison, control modes, rendering). Recording, saving and showing
 videos: `examples/scene_viz.ipynb`.
+
+The same environment, written as chained refinements of a complete default (`BaseEnvConfig`, see [its page](docs/configs/base-env.md); the
+result is the frozen `EnvConfig` above, `.resolve()`, and `.build()` is `make_env(self.resolve())`):
+
+```python no-run
+from robotdesigner.config import BaseEnvConfig, Chain, FixedGains
+
+cfg = (
+    BaseEnvConfig()
+    .robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0))   # written fields change, the rest carries from the base
+    .control(gains=FixedGains(kp=60.0, kd=6.0))
+    .sim(num_envs=8)
+)
+env = cfg.build()
+five = cfg.robot(Chain(n=5, axes="zyyyy"))    # a new config; cfg is unchanged
+```
 
 Step by hand:
 

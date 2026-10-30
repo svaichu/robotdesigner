@@ -25,6 +25,11 @@ class MujocoOptions:
     def __post_init__(self):
         as_bool(self.self_collision, "self_collision")
 
+    @classmethod
+    def default(cls) -> "MujocoOptions":
+        """The options ``BaseEnvConfig`` uses (an optional hook of every options class)."""
+        return cls(self_collision=False)
+
     def to_dict(self) -> dict[str, Any]:
         return {f.name: getattr(self, f.name) for f in fields(self)}
 
@@ -39,7 +44,8 @@ SIMULATOR_OPTIONS: dict[str, type] = {"mujoco": MujocoOptions}
 
 
 def register_simulator_options(simulator: str, cls: type) -> None:
-    """Declare the options class of a simulator. It needs ``to_dict`` and ``from_dict``."""
+    """Declare the options class of a simulator. It needs ``to_dict`` and ``from_dict``, and may have a ``default()``
+    classmethod: ``BaseEnvConfig.sim(simulator=...)`` uses it to reset the options when the simulator changes."""
     SIMULATOR_OPTIONS[simulator] = cls
 
 
