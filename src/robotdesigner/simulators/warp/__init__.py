@@ -20,12 +20,12 @@ class WarpSimulator:
     name = "warp"
 
     def capabilities(self) -> Capabilities:
-        # The subsets the CPU-versus-Warp parity tests have shown to match; more are added one by one.
+        # What the CPU-versus-Warp parity tests (tests/test_warp_parity.py) have shown to match.
         return Capabilities(
             control_modes=frozenset({"joint_pos_abs", "joint_pos_delta", "joint_torque", "joint_vel"}),
             devices=frozenset({"cuda"}),
             robot_kinds=frozenset({"parametric"}),
-            integrators=frozenset({"euler"}),
+            integrators=frozenset({"euler", "implicit", "implicitfast", "rk4"}),
         )
 
     def validate(self, cfg: Any) -> list[Problem]:
