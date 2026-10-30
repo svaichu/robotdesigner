@@ -12,6 +12,14 @@ from typing import Any, Protocol, runtime_checkable
 from ..config.errors import Problem
 
 
+_TASK_STREAM = 0x5DEECE66D  # offset of the task's random stream from ``sim.seed``, so the two streams differ
+
+
+def task_seed(seed: int) -> int:
+    """Seed of the task's random stream, shared by every simulator so the same seed gives the same task draws."""
+    return (int(seed) + _TASK_STREAM) % (2**63)
+
+
 @dataclass(frozen=True)
 class Capabilities:
     control_modes: frozenset[str]

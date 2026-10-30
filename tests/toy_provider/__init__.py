@@ -26,7 +26,7 @@ class ToyTasks:
     TASKS: dict[str, tuple[type, str]] = {
         "reach": (ReachParams, "tests.toy_provider.reach:ReachTask"),
     }
-    SIMULATORS = frozenset({"mujoco"})
+    SIMULATORS = frozenset({"mujoco", "warp"})
 
     def task_names(self) -> tuple[str, ...]:
         return tuple(self.TASKS)

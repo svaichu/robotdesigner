@@ -16,15 +16,9 @@ from torchrl.envs import EnvBase
 
 from ...config import EnvConfig
 from ...envs.spaces import SpacesMixin
+from ..base import task_seed
 from .compile import compile_robot
 from .sim import BatchedSim
-
-_TASK_STREAM = 0x5DEECE66D  # offset of the task's random stream from ``sim.seed``, so the two streams differ
-
-
-def _task_seed(seed: int) -> int:
-    return (int(seed) + _TASK_STREAM) % (2**63)
-
 
 class MujocoEnv(SpacesMixin, EnvBase):
     """Batched TorchRL environment: ``cfg.robot`` under ``cfg.control`` doing ``task`` in MuJoCo."""
@@ -76,7 +70,7 @@ class MujocoEnv(SpacesMixin, EnvBase):
         self._gen = torch.Generator(device="cpu")
         self._gen.manual_seed(cfg.sim.seed)
         self._task_gen = torch.Generator(device="cpu")
-        self._task_gen.manual_seed(_task_seed(cfg.sim.seed))
+        self._task_gen.manual_seed(task_seed(cfg.sim.seed))
         self._episode_step = torch.zeros(N, 1, dtype=torch.int64)
 
         f32 = torch.float32
@@ -209,7 +203,7 @@ class MujocoEnv(SpacesMixin, EnvBase):
     def _set_seed(self, seed: int | None):
         if seed is not None:
             self._gen.manual_seed(int(seed))
-            self._task_gen.manual_seed(_task_seed(int(seed)))
+            self._task_gen.manual_seed(task_seed(int(seed)))
         return seed
 
     # --- rendering (needs an OpenGL context: MUJOCO_GL=egl on headless machines) ----------------------------

@@ -68,4 +68,8 @@ class WarpSimulator:
         return []
 
     def make_env(self, cfg: Any):
-        raise NotImplementedError("WarpEnv is not implemented yet")
+        from ...config.providers import get_task_provider
+        from .env import WarpEnv
+
+        provider = get_task_provider(cfg.task.params.provider)
+        return WarpEnv(cfg, provider.build(cfg, self.name))

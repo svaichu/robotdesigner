@@ -1,4 +1,4 @@
-"""Rendering for the CPU MuJoCo simulator. Nothing but ``MujocoEnv.render`` imports this module.
+"""Rendering for the MuJoCo-based environments (CPU and Warp). Nothing but their ``render`` imports this module.
 
 Needs an OpenGL context. On headless machines set ``MUJOCO_GL=egl`` before the first import of mujoco.
 
@@ -116,7 +116,7 @@ class EnvRenderer:
         if height < 1 or width < 1:
             raise ValueError(f"size must be positive (height, width), got {size}")
         renderer = self._ensure(height, width)
-        self._sync(self._env._sim.data[env_index])
+        self._sync(self._env._sim.host_data(env_index))
         renderer.update_scene(self._data, camera=self._camera(camera, height, width))
         if overlays:
             self._overlays(renderer.scene, env_index)
@@ -149,6 +149,8 @@ def launch_viewer(env, env_index: int = 0) -> None:
     import mujoco.viewer
 
     sim = env._sim
+    if not hasattr(sim, "data"):
+        raise NotImplementedError("the live viewer needs the live state of a CPU simulation")
     if not 0 <= env_index < sim.num_envs:
         raise IndexError(f"env_index {env_index} out of range for {sim.num_envs} envs")
     with mujoco.viewer.launch_passive(sim.model, sim.data[env_index]) as viewer:

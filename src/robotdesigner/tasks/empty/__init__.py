@@ -17,7 +17,7 @@ __all__ = ["PROVIDER", "EmptyParams", "EmptyTasks"]
 
 
 class EmptyTasks:
-    SIMULATORS = frozenset({"mujoco"})
+    SIMULATORS = frozenset({"mujoco", "warp"})
 
     def task_names(self) -> tuple[str, ...]:
         return TASKS
