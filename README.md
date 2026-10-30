@@ -75,7 +75,7 @@ print(traj.shape)               # torch.Size([8, 50])
 
 The full script is `examples/robosuite_scene.py` (headless; `python examples/robosuite_scene.py`). A walkthrough notebook is
 `examples/scene_walkthrough.ipynb` (embodiment comparison, control modes, rendering). Recording, saving and showing
-videos: `examples/scene_viz.ipynb`.
+videos: `examples/scene_viz.ipynb`. Comparing embodiments with `sweep`: `examples/embodiment_sweep.ipynb`.
 
 The same environment, written as chained refinements of a complete default (`BaseEnvConfig`, see [its page](docs/configs/base-env.md); the
 result is the frozen `EnvConfig` above, `.resolve()`, and `.build()` is `make_env(self.resolve())`):
@@ -91,6 +91,7 @@ cfg = (
 )
 env = cfg.build()
 five = cfg.robot(Chain(n=5, axes="zyyyy"))    # a new config; cfg is unchanged
+family = cfg.sweep(paired={"robot.n": [2, 3, 4, 5], "robot.axes": ["zy", "zyy", "zyyy", "zyyyy"]}, grid={"sim.seed": range(3)})   # 12 configs
 big = cfg.with_overrides(["sim.num_envs=64", "sim.options.self_collision=true"])   # dotted paths, also CLI strings
 cfg.dump("run.json")                          # and BaseEnvConfig.load("run.json")
 ```

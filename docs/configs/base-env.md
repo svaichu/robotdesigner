@@ -123,6 +123,45 @@ assert five.resolve().robot.n == 5 and five.resolve().sim.integrator == "rk4"
 assert five.with_overrides({"sim.num_envs": 64}) == five.with_overrides(["sim.num_envs=64"])
 ```
 
+## Sweeps
+
+`sweep(paired=, grid=)` expands a config into a family, one config (and one `env_hash`) per embodiment or setting. Keys are dotted paths with the semantics
+of `with_overrides`. `grid` axes form a Cartesian product; `paired` axes are zipped (equal lengths, otherwise an error) and the paired group multiplies
+with the grid. The order is deterministic: the paired group first, then the grid axes in the order given, the last one fastest.
+
+- Items whose resolved `env_hash` repeats are dropped, with a warning and an entry in `family.notes`, so a sweep never runs the same config twice.
+- An invalid item raises at expansion, with the path of the problem and the item index and overrides (for example `n` changed without `axes`, or a per-joint
+  `kp` of the wrong length).
+- Sweeping `sim.simulator` alone is fine: `sim.options` becomes that simulator's defaults; add `sim.options.*` axes to vary them.
+- `Family` is iterable (each item a `BaseEnvConfig`); `configs()` gives the `EnvConfig`s, `table()` one row per item (`index`, the override values, `env_hash`),
+  `overrides()` the overrides.
+- Jobs and workers should receive the resolved dict (`config.resolve().to_dict()`) and rebuild with `EnvConfig.from_dict`: the task and robot registries are
+  process-global. Launching the jobs is up to the project that uses the family; `examples/embodiment_sweep.ipynb` compares arms with 2 to 5 joints.
+
+```python
+def error_of_sweep(build):
+    try:
+        build()
+    except ConfigError as e:
+        return e.path
+    raise AssertionError("no error")
+```
+
+```python
+family = cfg.sweep(                       # 4 embodiments x 3 seeds = 12 configs
+    paired={"robot.n": [2, 3, 4, 5], "robot.axes": ["zy", "zyy", "zyyy", "zyyyy"]},
+    grid={"sim.seed": range(3)},
+)
+assert len(family) == 12 and len(family.configs()) == 12
+rows = family.table()
+assert [(r["robot.n"], r["sim.seed"]) for r in rows][:4] == [(2, 0), (2, 1), (2, 2), (3, 0)]    # the last axis is fastest
+assert len({r["env_hash"] for r in rows}) == 12                                                  # distinct
+assert all(isinstance(c, EnvConfig) for c in family.configs()) and family[0].resolve().robot.n == 2
+
+assert error_of_sweep(lambda: cfg.sweep(paired={"robot.n": [2, 3], "robot.axes": ["zy"]})) == "sweep.paired"   # unequal lengths
+assert error_of_sweep(lambda: cfg.sweep(paired={"robot.n": [2]})) == "robot.axes"                             # n without axes
+```
+
 ## Dict, JSON and YAML
 
 `to_dict()` holds every builder field and `defaults_version`; a mount that was not pinned is omitted (it is the task's default, applied by `resolve()`).

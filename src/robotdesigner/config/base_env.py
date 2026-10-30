@@ -440,6 +440,18 @@ class BaseEnvConfig:
                     if key == x and y not in written_now:
                         node.pop(y, None)
 
+    # --- sweeps ------------------------------------------------------------------------
+
+    def sweep(self, *, paired: Mapping[str, Any] | None = None, grid: Mapping[str, Any] | None = None):
+        """A :class:`Family` of configs: ``paired`` axes are zipped (equal lengths), ``grid`` axes form a Cartesian
+        product, and the paired group multiplies with the grid. Keys are dotted paths with the semantics of
+        ``with_overrides``. Order: the paired group first, then the grid axes in the order given, the last one fastest.
+        Items whose resolved ``env_hash`` repeats are dropped (see ``Family.notes``); an invalid item raises at
+        expansion, naming its index and overrides."""
+        from .sweep import expand
+
+        return expand(self, paired, grid)
+
     # --- files -------------------------------------------------------------------------
 
     def dump(self, path: str | Path, format: str | None = None) -> None:

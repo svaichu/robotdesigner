@@ -13,6 +13,7 @@ from .providers import (
     register_task_provider,
     unregister_task_provider,
 )
+from .sweep import Family
 from .specs import NOT_SET, Chain
 from .sim import INTEGRATORS, MujocoOptions, SimConfig, register_simulator_options
 from .task import FixedBox, OwnReachable, TaskConfig
@@ -33,6 +34,7 @@ __all__ = [
     "CONTROL_MODES",
     "ControlConfig",
     "EnvConfig",
+    "Family",
     "FixedBox",
     "FixedGains",
     "INTEGRATORS",

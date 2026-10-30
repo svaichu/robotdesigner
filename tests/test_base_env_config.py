@@ -390,3 +390,92 @@ def test_the_config_layer_imports_with_numpy_only():
             "c = BaseEnvConfig().with_overrides(['sim.num_envs=2']); assert c.resolve().sim.num_envs == 2\n"
             "import json; BaseEnvConfig.from_dict(json.loads(json.dumps(c.to_dict())))\n")
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+# --- sweep ----------------------------------------------------------------------------------------------------
+
+PAIRED = {"robot.n": [2, 3, 4, 5], "robot.axes": ["zy", "zyy", "zyyy", "zyyyy"]}
+
+
+def test_sweep_size_order_and_stable_distinct_hashes():
+    cfg = BaseEnvConfig().robot(total_length=0.9, total_mass=3.0)
+    family = cfg.sweep(paired=PAIRED, grid={"sim.seed": range(3), "sim.num_envs": [1, 2]})
+    assert len(family) == 4 * 3 * 2 and family.notes == []
+    rows = family.table()
+    # the paired group first, then the grid axes in the order given, the last one fastest
+    assert [(r["robot.n"], r["sim.seed"], r["sim.num_envs"]) for r in rows][:7] == [
+        (2, 0, 1), (2, 0, 2), (2, 1, 1), (2, 1, 2), (2, 2, 1), (2, 2, 2), (3, 0, 1)]
+    assert [r["index"] for r in rows] == list(range(24))
+    hashes = [r["env_hash"] for r in rows]
+    assert len(set(hashes)) == 24
+    assert hashes == [r["env_hash"] for r in cfg.sweep(paired=PAIRED, grid={"sim.seed": range(3), "sim.num_envs": [1, 2]}).table()]
+    assert [e.env_hash for e in family.configs()] == hashes and all(isinstance(e, EnvConfig) for e in family.configs())
+    assert [c.resolve().robot.n for c in family][:1] == [2] and family[6].resolve().robot.n == 3
+    assert family.overrides()[0] == {"robot.n": 2, "robot.axes": "zy", "sim.seed": 0, "sim.num_envs": 1}
+    for env in family.configs():  # a worker rebuilds from the resolved dict
+        assert EnvConfig.from_dict(env.to_dict()).env_hash == env.env_hash
+    assert cfg.resolve() == BaseEnvConfig().robot(total_length=0.9, total_mass=3.0).resolve()  # the base is unchanged
+
+
+def test_sweep_with_only_one_kind_of_axis():
+    assert len(BaseEnvConfig().sweep(grid={"sim.seed": [0, 1]})) == 2
+    assert len(BaseEnvConfig().sweep(paired=PAIRED)) == 4
+    assert len(BaseEnvConfig().sweep()) == 1  # the base itself
+
+
+def test_sweep_drops_repeated_configs_with_a_note():
+    with pytest.warns(UserWarning, match="repeats item 0"):
+        family = BaseEnvConfig().sweep(grid={"sim.seed": [0, 1, 0], "sim.num_envs": [1]})
+    assert len(family) == 2 and len(family.notes) == 1 and "item 2" in family.notes[0]
+    assert [r["sim.seed"] for r in family.table()] == [0, 1]
+
+
+def test_sweep_errors_name_the_item_and_the_override():
+    base = BaseEnvConfig()
+    with pytest.raises(ConfigError, match="equal lengths") as e:
+        base.sweep(paired={"robot.n": [2, 3], "robot.axes": ["zy"]})
+    assert e.value.path == "sweep.paired"
+    with pytest.raises(ConfigError, match="^robot.axes.*sweep item 1.*'robot.n': 3") as e:  # n without axes
+        base.sweep(paired={"robot.n": [1, 3]})
+    assert e.value.path == "robot.axes"
+    with pytest.raises(ConfigError) as e:  # per-joint kp of the wrong length
+        base.robot(n=2, axes="zy").sweep(grid={"control.gains.kp": [[1.0, 2.0], [1.0, 2.0, 3.0]]})
+    assert e.value.path == "control.gains.kp" and "sweep item 1" in str(e.value)
+    with pytest.raises(ConfigError, match="^sim.nope.*sweep item 0"):
+        base.sweep(grid={"sim.nope": [1]})
+    with pytest.raises(ConfigError, match="both paired and grid"):
+        base.sweep(paired={"sim.seed": [1]}, grid={"sim.seed": [2]})
+    with pytest.raises(ConfigError, match="^sweep.grid.sim.seed: expected a sequence"):
+        base.sweep(grid={"sim.seed": 3})
+    with pytest.raises(ConfigError, match="has no values"):
+        base.sweep(grid={"sim.seed": []})
+
+
+def test_sweeping_the_simulator_resets_the_options():
+    saved = dict(SIMULATOR_OPTIONS)
+
+    class DOpts:
+        def __init__(self, k=1):
+            self.k = k
+
+        @classmethod
+        def default(cls):
+            return cls(7)
+
+        def to_dict(self):
+            return {"k": self.k}
+
+        @classmethod
+        def from_dict(cls, d):
+            return cls(**d)
+
+    try:
+        register_simulator_options("dummy", DOpts)
+        base = BaseEnvConfig().sim(options=MujocoOptions(True))
+        family = base.sweep(grid={"sim.simulator": ["mujoco", "dummy"]})
+        assert [c._sim["options"] for c in family][0] == MujocoOptions(True) and family[1]._sim["options"].k == 7
+        varied = base.sweep(grid={"sim.simulator": ["dummy"], "sim.options.k": [1, 2]})
+        assert [c._sim["options"].k for c in varied] == [1, 2]
+    finally:
+        SIMULATOR_OPTIONS.clear()
+        SIMULATOR_OPTIONS.update(saved)
