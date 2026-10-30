@@ -15,8 +15,8 @@ from robotdesigner.config import (
 ```
 
 Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [SimConfig](sim.md), [EnvConfig](env.md),
-[simulators](../simulators.md), and the page of the task provider that ships with the package:
-[robosuite scenes](../tasks/robosuite.md).
+[simulators](../simulators.md), and the pages of the task providers that ship with the package:
+[robosuite scenes](../tasks/robosuite.md) and [the `empty` placeholder](../tasks/empty.md).
 
 ## `TaskConfig(params, horizon, success_tolerance, target_region, mount)`
 
@@ -46,8 +46,8 @@ never here.
 
 ## Where tasks come from
 
-The package itself knows no task by name, and the one provider that ships with it is `robosuite` (arenas and objects of
-robosuite environments). A **task provider** owns a namespace: it names its tasks, gives each a typed params
+The package names exactly one task, the placeholder [`empty/idle`](../tasks/empty.md) (so that a default environment can run), and the
+only real provider that ships with it is `robosuite` (arenas and objects of robosuite environments). A **task provider** owns a namespace: it names its tasks, gives each a typed params
 class, checks a config against a simulator, and builds the task for it. Providers are registered, not listed:
 
 - every subpackage of `robotdesigner.tasks` is a provider, named like the subpackage (`PROVIDER` is its entry point);

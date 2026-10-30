@@ -15,6 +15,7 @@ Start with the [README](../README.md) for installation and a first environment.
 | [SimConfig and simulator options](configs/sim.md) | simulator, batch size, time step, seed, scene, `MujocoOptions` |
 | [EnvConfig](configs/env.md) | how the sections combine, serialization, hashing, errors |
 | [Simulators](simulators.md) | simulators, capabilities, the environment contract, how an environment is put together, adding a simulator |
+| [The `empty` placeholder task](tasks/empty.md) | `empty/idle`, the one task the package ships: nothing to do, reward 0 |
 | [robosuite scenes](tasks/robosuite.md) | robosuite arenas and objects as a task, objectives, which environments work |
 | [Writing a task provider](tasks/writing-a-provider.md) | a new task source end to end: params class, provider object, registration, engine side, tests |
 | [Recording and showing videos](viz.md) | `env.render()`, `robotdesigner.viz` clips, the frame recorder and camera framing |

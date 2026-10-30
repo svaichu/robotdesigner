@@ -10,6 +10,11 @@ import re
 
 from robotdesigner.config import get_task_provider, list_task_providers
 
+# The one placeholder task the package ships and the core may name (``robotdesigner/tasks/empty``): a runnable default
+# needs a task. Decision log of docs/spec_robotconfig_env.md: "the package ships one placeholder task". Everything else
+# stays enforced.
+EXEMPT_NAMESPACES = frozenset({"empty"})
+
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "robotdesigner"
 CORE = [
     *sorted((SRC / "config").rglob("*.py")),
@@ -25,6 +30,8 @@ CORE = [
 def needles():
     out = []
     for ns in list_task_providers():
+        if ns in EXEMPT_NAMESPACES:
+            continue
         out.append((f"task id prefix {ns}/", re.compile(rf"(?<![\w.]){re.escape(ns)}/")))
         out.append((f"namespace literal {ns!r}", re.compile(rf"""["']{re.escape(ns)}["']""")))
         provider = get_task_provider(ns)
@@ -37,6 +44,14 @@ def needles():
 
 def test_registry_is_not_empty_so_the_check_means_something():
     assert len(needles()) >= 4 and len(CORE) > 10
+
+
+def test_only_the_placeholder_is_exempt_and_every_other_namespace_is_enforced():
+    namespaces = set(list_task_providers())
+    assert EXEMPT_NAMESPACES == {"empty"} and EXEMPT_NAMESPACES <= namespaces
+    labels = " ".join(what for what, _ in needles())
+    assert "empty" not in labels and "EmptyParams" not in labels
+    assert all(f"namespace literal {ns!r}" in labels for ns in namespaces - EXEMPT_NAMESPACES)
 
 
 def test_core_code_names_no_task():

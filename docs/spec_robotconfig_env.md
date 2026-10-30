@@ -4,7 +4,7 @@ Why the package is built the way it is, what is decided, what is done and what i
 ([docs/README.md](README.md)), which the tests check against the code. Working notes for agents: `.agent/memory.md`. Last revised 2026-10-30.
 
 **Status.** Built and tested: the config layer, the CPU MuJoCo simulator with one generic environment, and task providers (`robosuite`, arenas and
-objects as task assets, is the one in the package). Not built: the `warp` GPU simulator, `ExternalRobot`, end-effector control modes, family-reachable
+objects as task assets, is the one real provider in the package, next to the `empty` placeholder). Not built: the `warp` GPU simulator, `ExternalRobot`, end-effector control modes, family-reachable
 target regions (section 8).
 
 ## 1. Purpose and scope
@@ -26,7 +26,7 @@ simulator; (3) task descriptions that do not depend on the embodiment; (4) trace
 5. **Everything that changes behaviour is in `EnvConfig` and its hash.** No hidden defaults. One deliberate exception: robosuite's own defaults for
    task arguments you do not set are recorded on the environment (`resolved_env_kwargs`) but not hashed.
 6. **A simulator refuses what it cannot run**, with every problem listed at once; it never approximates.
-7. **The core names no task.** A provider owns a namespace and its task ids; a test enforces it.
+7. **The core names no task, except the placeholder.** A provider owns a namespace and its task ids; a test enforces it, exempting the `empty` namespace only.
 8. **A task draws from its own seeded stream:** the same seed gives every embodiment the same scene.
 
 ## 3. Architecture and packaging
@@ -106,7 +106,7 @@ fields to let same-topology embodiments share one simulation (a different `n` ne
 spec, places things at reset, observes and scores. `validate(cfg, simulator)` collects the provider's problems with the simulator's into one `ConfigError`.
 Providers are the subpackages of `robotdesigner.tasks`, the entry-point group `robotdesigner.task_providers`, or `register_task_provider` ([how to write one](tasks/writing-a-provider.md)).
 `env = make_env(cfg)` is the only construction path, and `MujocoEnv` is the one generic environment: it owns the robot, control law, batching, masked
-reset, episode counters and rendering, and a task states only what it adds. The package ships no task of its own: the engine tests run on a test-only
+reset, episode counters and rendering, and a task states only what it adds. The package ships one placeholder task (`empty/idle`, nothing to do) and no real one of its own: the engine tests run on a test-only
 provider, `tests/toy_provider` (namespace `toy`), the smallest example of a provider. The goal machinery (`FixedBox`, `OwnReachable`, `uses_goal`,
 `success_tolerance`, `target_region`) stays in the config layer for goal tasks of any provider.
 
@@ -175,6 +175,7 @@ such as `Lift`, with infeasibility separable from failures of learning; whether 
 | 2026-10-30 | the `native` provider and its reach task are removed; tests keep `tests/toy_provider` (user) | the package loads embodiments into an RL env, tasks are what providers bring, more will come |
 | 2026-10-30 | the task draws from its own random stream | with one stream the joint count changed the cube placement, which defeats comparing embodiments |
 | 2026-10-30 | the params object is the task: `TaskConfig.id` is removed (derived, read-only), params classes declare `provider` and have `name`, no `provider=` argument, no string id (user, roadmap #32, issue #33) | one place says which task runs, and a second argument could contradict the class. The `task` part of `to_dict()` changes shape, so **every `env_hash` changes once**: hashes recorded earlier no longer match |
+| 2026-10-30 | the package ships one placeholder task, `empty/idle` (user, roadmap #32, issue #35); `tests/test_no_hardcoded_tasks.py` exempts the `empty` namespace | supersedes "the core names no task" (2026-10-29) and "the package ships no task of its own" (2026-10-30) for this one task: a default environment must run, so it needs a task. Every other namespace, task id and params class stays enforced; the `empty` scene preset of the simulator is unrelated |
 | 2026-10-30 | the robot mount moves from `ParametricArm.base_pose` to `TaskConfig.mount` (user, roadmap #32, issue #34); `TaskProvider.default_mount(name)`; the kinematics oracle takes the base as an argument | where an arm stands is a property of the scene: the same arm had a different `robot_hash` in every scene. **Every `robot_hash` and `env_hash` changes again** (the robot loses `base_pose`, the task gains `mount`); hashes from before this entry no longer match |
 | 2026-10-30 | "backend" becomes "simulator" everywhere, no aliases; options move into `SimConfig`, so `EnvConfig` has four fields (user) | "backend" is dependency vocabulary and `SimConfig` names a physics engine; two fields that must agree need a cross-check. Every `env_hash` changed, `robot_hash` did not |
 

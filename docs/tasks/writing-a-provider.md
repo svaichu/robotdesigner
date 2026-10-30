@@ -1,7 +1,7 @@
 # Writing a task provider
 
 A **task provider** brings tasks to the framework: it owns a namespace (`robosuite/...`, `mine/...`), names its tasks, gives each a typed params class, and builds
-the task for a simulator. The package names no task itself, so a new task source is a provider. This page builds one end to end, a goal task `mine/reach`
+the task for a simulator. The package names only the placeholder task `empty/idle`, so a new task source is a provider. This page builds one end to end, a goal task `mine/reach`
 that moves the end effector to a target point. `tests/toy_provider/` is the same thing in full; the engine tests use it.
 
 Related pages: [TaskConfig](../configs/task.md), [simulators](../simulators.md), [robosuite scenes](robosuite.md) (a provider that brings assets).

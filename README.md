@@ -24,8 +24,8 @@ Python >= 3.10. Other extras: `robosuite` (the task provider: robosuite arenas a
   are no hidden defaults. `env_hash` identifies a run.
 - **`env = make_env(cfg)`** is the one step from config to environment, for every task.
 - **Simulators and tasks are separate.** `sim.simulator = "mujoco"` names the simulator (the CPU reference simulator). A
-  task id is `"<namespace>/<name>"` and comes from a **task provider**: the package knows no task by name, the one
-  provider it ships is `robosuite`, others register themselves (see [TaskConfig](docs/configs/task.md#where-tasks-come-from)). An unsupported combination
+  task id is `"<namespace>/<name>"` and comes from a **task provider**: the package names one placeholder task
+  (`empty/idle`, [docs](docs/tasks/empty.md)) and ships one real provider, `robosuite`; others register themselves (see [TaskConfig](docs/configs/task.md#where-tasks-come-from)). An unsupported combination
   (control mode, device, task on this simulator, ...) is rejected up front with every problem listed, never
   approximated.
 - **One env contract.** Every environment is a TorchRL `EnvBase` with `batch_size = [num_envs]`. The env never
