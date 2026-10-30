@@ -29,7 +29,7 @@ SCENE = "empty"  # the arena brings its own floor, so the simulator adds none
 
 
 class RobosuiteTasks:
-    SIMULATORS = frozenset({"mujoco"})
+    SIMULATORS = frozenset({"mujoco", "warp"})
 
     def task_names(self) -> tuple[str, ...]:
         return ("<EnvName>",)

@@ -114,20 +114,24 @@ env = make_env(cfg)
 
 ## Which environments work
 
-Tried on robosuite 1.5.1 with a three-link arm, a `ReachObject` objective on the first physical object, 10 random steps
+Tried with a three-link arm, a `ReachObject` objective on the first physical object, 10 random steps
 and `check_env_specs`:
 
-| environment | physical objects | result |
-|---|---|---|
-| `Lift` | `cube` | works |
-| `Stack` | `cubeA`, `cubeB` | works |
-| `NutAssembly`, `NutAssemblySquare`, `NutAssemblyRound` | `SquareNut`, `RoundNut` | work |
-| `PickPlace` (with `single_object_mode=2, object_type="can"`), `PickPlaceBread`, `PickPlaceCan`, `PickPlaceCereal`, `PickPlaceMilk` | `Milk`, `Bread`, `Cereal`, `Can` | work |
-| `Door` | `Door` | works; the door is a fixture |
-| `ToolHang` | `stand`, `frame`, `tool` | works |
-| `NutAssemblySingle`, `PickPlaceSingle` | | refused: the object changes every episode, so the observation keys would; fix it with `single_object_mode=2` and `object_type`, or use `NutAssemblySquare` / `NutAssemblyRound` |
-| `Wipe` | none | no object for either objective; needs an objective of its own |
-| two-arm environments | | refused: the robot is one arm |
+| environment | physical objects | `mujoco` | `warp` |
+|---|---|---|---|
+| `Lift` | `cube` | works | works |
+| `Stack` | `cubeA`, `cubeB` | works | works |
+| `NutAssembly`, `NutAssemblySquare`, `NutAssemblyRound` | `SquareNut`, `RoundNut` | work | work with `WarpOptions(njmax=512, nconmax=128)`; the default capacities overflow and the env raises a `CapacityError` naming them |
+| `PickPlace` (with `single_object_mode=2, object_type="can"`), `PickPlaceBread`, `PickPlaceCan`, `PickPlaceCereal`, `PickPlaceMilk` | `Milk`, `Bread`, `Cereal`, `Can` | work | work |
+| `Door` | `Door` | works; the door is a fixture | works; the door is a fixture |
+| `ToolHang` | `stand`, `frame`, `tool` | works | works |
+| `NutAssemblySingle`, `PickPlaceSingle` | | refused: the object changes every episode, so the observation keys would; fix it with `single_object_mode=2` and `object_type`, or use `NutAssemblySquare` / `NutAssemblyRound` | same |
+| `Wipe` | none | no object for either objective; needs an objective of its own | same |
+| two-arm environments | | refused: the robot is one arm | same |
+
+The `mujoco` column was tried on robosuite 1.5.1. The `warp` column was tried on robosuite 1.5.2 on the Warp library's CPU device
+(2 envs, 10 steps and `check_env_specs`); a CUDA device was not available, so the same run on a GPU is still to be done.
+Nothing is claimed for an environment that is not in the table.
 
 ## Errors
 
