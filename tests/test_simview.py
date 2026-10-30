@@ -16,8 +16,9 @@ from tests.test_mujoco_env import make_cfg as env_cfg  # noqa: E402
 
 
 def make_sim(num_envs=3):
-    arm = chain(2, "zy", link_length=0.5, mass=1.0, range=(-2.0, 2.0), base_pose=Pose((0.1, 0.2, 0.3), (0.9, 0.1, 0.3, 0.3)), **COMMON)
-    cfg = make_cfg(arm, mode="joint_torque", num_envs=num_envs)
+    arm = chain(2, "zy", link_length=0.5, mass=1.0, range=(-2.0, 2.0), **COMMON)
+    mount = Pose((0.1, 0.2, 0.3), (0.9, 0.1, 0.3, 0.3))
+    cfg = make_cfg(arm, mode="joint_torque", mount=mount, num_envs=num_envs)
     sim = BatchedSim(compile_robot(cfg), num_envs, cfg.sim.n_substeps)
     sim.set_ctrl(np.random.default_rng(0).normal(size=(num_envs, sim.model.nu)))
     sim.step()
