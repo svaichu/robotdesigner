@@ -30,7 +30,7 @@ Related pages: [TaskConfig](../configs/task.md), [SimConfig](../configs/sim.md),
 | `ReachObject(object, tolerance)` | the end effector is closer than `tolerance` metres to the object's centre | `-‖ee − object‖` |
 
 Reward shaping is deliberately basic and the same for both objectives; it is the part you will most likely want to
-replace (add an objective, see [adding a task provider](../configs/task.md#adding-a-task-provider)).
+replace (add an objective, see [writing a task provider](writing-a-provider.md)).
 
 ```python
 lift = TaskConfig(

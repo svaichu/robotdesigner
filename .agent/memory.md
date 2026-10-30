@@ -1,224 +1,109 @@
 # robotdesigner: agent memory
 
-Branch in focus: `feat/quotient` (user decision: stay on this branch; ignore `devel` and `feat/graph-doc` for now).
-Phase: PLANNING ONLY. Do not write code, refactor or commit until the user says so.
-Last updated: 2026-10-27.
+Start with `AGENTS.md` (what the package is), `docs/README.md` (reference index) and `docs/spec_robotconfig_env.md` (design record and dated
+decision log, with the reasons); `docs/tasks/writing-a-provider.md` shows how to add a task source. This file keeps what those do not: working rules, environment facts, pitfalls, open decisions.
+Last updated: 2026-10-30. Work happens on `devel` (merged locally; the user pushes). The older history of this file is in git.
 
-## Goal (from the user)
-Framework to load different robot configs into an RL env, to be reused in other projects to study relationships between embodiments in control.
-`docs/quotient_space.md` is the user's own 2-sentence note: n-DoF arm in an RL env (e.g. robosuite) with `n` as a parameter; `robotconfig` (dof, link lengths, joint types, axes, ...) kept separate from the env; the env instantiates the robot from a robotconfig. Do not overwrite it without asking.
+## Goal
+A framework to load different robot configs into an RL env, reused in other projects to study relationships between embodiments in
+control (downstream project: "Quotient"). The user's own note is `.agent/quotient_space.md`: an n-DoF arm in an RL env with `n` as a
+parameter, the robot config kept separate from the env. Do not overwrite the user's notes (`quotient_space.md`, `future_ideas.md`).
 
-## Ground rules
-- `AGENTS.md` says: do not look into `robotdesigner/archive/` (deprecated URDF code).
-- USER (2026-10-27): ALL existing code and setup (pyproject, lockfile, CI, examples, utils, constants) are placeholders or suggestions; do what is right for the new architecture. Still do not delete repo files without asking when implementing.
-- Untracked `MUJOCO_LOG.TXT` in the repo root was created by a baseline pytest run on 2026-10-27 (not ignored by git). User has not said whether to delete it.
-- Design must be framework-neutral and Gymnasium-first. The user does not want RLlib (or any trainer) to shape the design (2026-10-27). Do not copy the README / EnvContext conventions.
+## Working rules
+- Commit and merge only when the user asks. Never push. Cut work on a branch in its own worktree (`<repo>-wt/<name>`) and leave the user's
+  checkout alone. Fast-forward `devel` only when it has not moved and the user's checkout has no uncommitted changes; if it has, ask what
+  to do with them (stash is reversible, discarding needs an explicit yes, and a yes covers that one case only).
+- The repo is public: no cluster paths, user names, job ids, host names or tool / model names in tracked files, issues, notebook outputs
+  or commit messages (stored notebook output has the venv path replaced by `<site-packages>`).
+- Do not delete repo files without asking. No trainer (RLlib or other) shapes the design.
+- Do not hardcode a task or env in the core unless the user says so: `tests/test_no_hardcoded_tasks.py` enforces it.
+- Docs are tested (`tests/test_docs.py`): every ```python block in `docs/configs`, `docs/tasks` and `docs/README.md` is executed (numpy only,
+  no simulator; fence a block as ```python no-run to skip it) and every relative link and anchor must resolve. Change a config's fields,
+  rules or hashing and you change its page.
+- The user works in the repo concurrently: check `git status` before editing shared files. Tell the user what a long step is doing before
+  it starts; they ask "is it done?" when a run is silent.
+- After a rename or removal, grep for leftovers in code, docs, images (`docs/architecture.png`), notebook outputs and this file.
 
-## Files written by the agent (all untracked, nothing committed)
-- `.agent/memory.md` (this file).
-- `docs/spec_robotconfig_env.md` (2026-10-27): the streamlined spec v4 (source of truth); keep it in sync with this file. The user approved the proposal; leans 1, 2, 4, 5, 7 of the former open list are adopted as defaults (see spec section 9). No code has been written. Spikes: user said no for now.
+## Terminology (the user's, 2026-10-30)
+- **simulator**: a physics engine realized as code, `robotdesigner.simulators.<name>`, named by `sim.simulator` (`mujoco`; later `warp`).
+  Git history, closed issues and old text say "backend": read it as "simulator". `build-backend` in `pyproject.toml` is packaging vocabulary.
+- **task provider**: owner of a task-id namespace (`robosuite`); **task**: `<namespace>/<name>`; **options**: the settings of one simulator,
+  in `sim.options`. **config side / engine side**: numpy-only classes vs the code that needs torch and MuJoCo ("engine" = those libraries).
+- **embodiment**: a robot config (`ParametricArm`). **scene**: `sim.scene` is a preset of the simulator (`empty`, `plain_floor`); a
+  robosuite scene is an arena plus objects brought by a task.
 
-## OLD code (read 2026-10-27, commit a1bef72; HISTORICAL, NOT an input to the design)
-- `robotdesigner/mujoco/composer.py`: `build_arm(ndof, control, joint_orientation) -> MjSpec`; base + N link fragments via `spec.attach`; last tip site renamed `ee_frame`. `save_arm` writes XML into `mujoco/assets/`.
-- `robotdesigner/envs/abstract_mujoco_env.py`: Gymnasium `AbstractMujocoEnv(MujocoEnv, EzPickle)`, `make_env(spec, **kw)`. Obs `[ee(3), target(3), qpos, qvel, qfrc_actuator]`, reward = -dist, never terminates.
-- `robotdesigner/envs/abstract_mujoco_env_mjx.py` + `envs/__init__.py`: MJX env (mujoco_playground `MjxEnv`) and a small registry (`load_mjx_environment`, `list_mjx_environments`).
-- `utils/`: `load_xml.py` (refers to a nonexistent `assets` package), `critical_mass_tuning.py` (relative path only works from one dir), `clear_logs.py`, `myColumns.py`.
-- `example/`: marimo `*_mo.py` and notebooks; `example_try_robosuite.ipynb` only runs stock Panda on `Lift` (no integration with the package).
-- `docs/env_arch.md` (4 bullets: robosuite or vanilla_mj; gymnasium API; no torch / viz / vec / no GPU), `docs/register_env.md`, `docs/Generate_MjSpec.md`.
+## Why the project looks like this
+- Same control task, varying embodiment: the task is a first-class object that does not mention `n` or link lengths. A fixed target is
+  unreachable for small `n` and trivial for large `n`, so targets are drawn per arm (`OwnReachable`) or from a box in the base frame.
+- `n` confounds reach, mass and inertia: hold total length and mass fixed and split them over `n` (`chain(total_length=, total_mass=)`).
+- Equal gains on every joint make control differences partly gain mismatch: gains are an explicit recorded choice, `InertiaScaledGains`.
+- Every rollout must trace to an embodiment: configs are frozen, validated, hashable (`robot_hash`, `env_hash`); a task draws from its own
+  seeded stream, so the same seed gives every embodiment the same scene.
+- Observation and action dimensions vary with `n`; a cross-embodiment view (padding, masks, per-embodiment heads) is not built.
 
-## Verified facts (job <job> on the HPC target c23ms, 2026-10-27; the parts about the old composer / env are HISTORICAL, not design inputs)
-- Baseline: 36 tests passed in 85.5 s (MJX tests dominate, JAX compile).
-- Venv: `<work>/venv/robotdesigner` (user-built; py 3.13.5, mujoco 3.17.0, mujoco-mjx 3.17.0, jax 0.12.0.1, gymnasium 1.4.0, robosuite 1.5.1, numpy 2.5.4, pytest 9.1.1). Editable install of this repo. Run CPU jobs with `JAX_PLATFORMS=cpu`, `unset PYTHONPATH`, partition `c23ms`.
-- Defaults baked into the composer (all candidates for RobotConfig fields): link 1 m capsule, 1 kg; base 0.785 kg; hinge armature 1, damping 3; no joint limits; pos actuator kp 403.74, kv 37.37, ctrlrange +-pi; torque gear 200, ctrlrange +-1; RK4, dt 0.002; ee at q=0 for 3 links = (3, 0, 0.15).
-- Axis `"x"` is accepted by the code though docs say z/y only; an unknown letter raises a bare `KeyError`.
-- Every `compile()` warns: attaching a spec with an empty prefix may prevent saving (base fragment attached with `prefix=""`). Save round-trip test still passes.
-- README RLlib snippet is wrong: it passes `{"xml": ...}` but `load_config` requires `"spec"`.
-- `pickle` / `deepcopy` of the Gymnasium env fail: `EzPickle.__init__` is given (tmp xml path, frame_skip, camera, ...) but the constructor takes `env_config`. Fixable without changing the representation. `MjSpec` itself is not picklable.
-- One temp XML file leaks per env instance.
-- `reset(seed=0)` is reproducible across two envs.
-- robosuite 1.5.1: 19 built-in robots; `register_robot` / `register_robot_class`; `RobotModel(fname, idn)` takes an XML FILE PATH; per-robot controller JSON in `controllers/config/robots/`; Panda uses `OSC_POSE` (delta inputs) and its asset defines plain torque motors (+-80 / +-12), so position control lives in the controller layer.
-- Not probed, from background knowledge only: `OSC_POSE` is a 6D end-effector controller and is ill-posed for arms with fewer than 6 DoF, so generic n-DoF arms would need joint-space controllers in robosuite.
+## Decisions (dated; reasons in the spec decision log)
+- 2026-10-27 user: JAX shelved, GPU = MuJoCo Warp driven from torch; env contract = TorchRL `EnvBase`. Agent, under "do what is right": python
+  >= 3.10, extras `env`, `warp`, `robosuite`, `viz`, `dev`, nested observations.
+- 2026-10-28 agent, accepted: robosuite's MuJoCo incompatibility is patched at run time (`apply_compat`), not by capping MuJoCo.
+- 2026-10-29 user: `env = make_env(cfg)`; robosuite is a source of assets, never a simulator (success and reward are ours); no hardcoded tasks.
+- 2026-10-30 user: the `native` provider and its reach task are purged (the tests keep a test-only provider, `tests/toy_provider`, namespace
+  `toy`); "backend" becomes "simulator" everywhere and the options move into `SimConfig`. Agent: the task gets its own random stream.
+- GitHub issues: roadmap #10; M1 #11 to #14 and #16; M2 #15 and #17 to #20 (all closed, implemented).
 
-## Design direction (EARLY, superseded by Proposal v4 below; kept for history)
-- User likes `MjSpec` as the arm object (standard MuJoCo sim object). Agreed it is the right compile target and the right carrier for imported MJCF robots.
-- Proposal: `RobotConfig` (frozen, validated, serializable, canonical + hashable parameters) compiles to `MjSpec`; env takes `MjSpec` + a small interface descriptor (ee site, joint names, actuator names) instead of the hardcoded `ee_frame`; imported robots (e.g. Panda MJCF) enter through the same `MjSpec` + descriptor path.
-- Reason for a config layer: embodiment comparison / equivalence / sampling needs a parameter space, which `MjSpec` does not expose.
-- `control="pos"|"torque"` means different things per backend (MuJoCo actuator vs robosuite controller); separate actuator hardware limits from the control interface in the config.
+## Environment and workflow
+- HPC: CPU jobs on partition `c23ms` (8 CPUs), GPU on `c23g`; not the `devel` partition. The user's venv is the one to use (do not build another):
+  Python 3.13, mujoco 3.17.0, robosuite 1.5.1, torch 2.14.1, torchrl 0.14.1, tensordict 0.14.3, numpy 2.5.4, pytest 9.1.1, imageio and ffmpeg, Pillow,
+  ipykernel and jupyter_client (no nbclient / nbformat). It is an editable install of the main checkout; to run a worktree: `unset PYTHONPATH`,
+  then `PYTHONPATH=<worktree>/src`.
+- Tests: `pytest -m "not render"` (163 tests, about 1 min on c23ms); `-m render` (12 tests) needs EGL: `MUJOCO_GL=egl`, and on a multi-GPU login
+  node pin an idle device with `MUJOCO_EGL_DEVICE_ID` (osmesa and glfw did not work). Run heavy work as jobs, not on the login node.
+- Slurm submission can fail with "Socket timed out" (nothing is queued): retry. SSH access once failed for hours: ask the user to restore it.
+- A pytest run from the repo root writes `MUJOCO_LOG.TXT` (git-ignored now). Read repo files with `git show` or `cat`.
+- Moving files to the cluster: one tar bundle of the changed files is far faster than file by file.
+- Notebooks (`examples/*.ipynb`) are stored with outputs, executed in a fresh kernel with `jupyter_client` on a login node; rerun them when an
+  API they use changes. Quiet robosuite's per-scene INFO line with `logging.getLogger("robosuite_logs").setLevel(logging.WARNING)`.
+- Only the tip of a branch is tested; intermediate commits are topic splits and may not pass alone.
 
-## Implications of "same control task, varying embodiment" (my analysis; numeric examples use the OLD defaults, which are not design inputs)
-- The task must be a first-class object independent of the embodiment. Today reward (-|ee - target|) is already task-space, but target handling, obs layout and termination live inside the env class.
-- Reachability: every added link adds 1 m, so workspace radius = n m with the current defaults (3 links: ee at x=3 at q=0, verified). A fixed target is unreachable for small n and trivial for large n. Needs a reachable-workspace notion (sample qpos -> FK, intersect across the family) or a target sampler defined relative to each arm.
-- n confounds reach, mass and inertia at once (each link 1 m, 1 kg). A study needs to be able to hold quantities fixed (e.g. equal total length / mass split over n links), so link length and mass belong in the config per link.
-- Gains are the same on every joint (kp 403.74, kv 37.37, verified) regardless of the inertia seen by that joint, so control differences across embodiments partly reflect gain mismatch. Gain policy should be an explicit, recorded config choice (critical_mass_tuning.py hints at per-joint tuning).
-- Obs/action dims vary with n. Cross-embodiment comparison needs either a documented canonical view (padding / masks / per-embodiment heads) or only native views. Open.
-- Every rollout / dataset / checkpoint in the downstream project should be traceable to an embodiment: serializable + hashable config is a requirement, not a nicety. Seeding is reproducible (verified for reset(seed=0)).
-- robosuite already separates the task env from the robot (`suite.make(env_name="Lift", robots="Panda")`) and offers `register_robot`, which fits "same task, swap robot".
-- Read, not executed: `_get_obs` falls back to target = ones(3) while `_get_info` falls back to zeros(3) when no target was set.
+## robosuite facts and pitfalls (1.5.1 unless stated)
+- 1.5.x as released fails on MuJoCo >= 3.10 (joint-address enum comparison; mass-matrix call). `apply_compat()` probes and patches only what fails;
+  tested on MuJoCo 3.3.1 to 3.17. Absolute dynamics differ across MuJoCo versions (a 60-step trajectory differs by up to 4e-3 rad between 3.9 and
+  3.17): fix the version per study.
+- The provider builds the environment once with a stock Panda, keeps `ManipulationTask(arena, [], objects).get_xml()`, strips `<option>`, `<size>`,
+  `<visual>` and the IK mocap bodies `*_eef_target`, and attaches it with `MjSpec.attach` under the prefix `rs_` (must be non-empty). `sim.scene`
+  must be `empty`: the arena brings its floor.
+- Object sizes (the `Lift` cube) and the placement samplers draw from the GLOBAL numpy stream: seed and restore it. 1.5.2 uses sampler generators
+  (path written, unrun). 1.5.1 `Lift` has no `seed` argument. Do not hand robosuite the env's own generator; derive an integer seed.
+- Objects without a free joint (the `Door` door, the `PickPlace` bins) are fixtures: baked once, since the envs of a batch share one model.
+  `obj_type == "visual"` objects are not observed. 12 of 15 single-arm environments build; `*Single` refused (observation keys change per
+  episode); `Wipe` has no object; two-arm refused. Introspecting a constructor must follow `**kwargs` forwarding.
+- `Lift`: table top z = 0.8; stock Panda mount `(-0.56, 0, 0.912)`; cube half-size about 0.021, placed within +-3 cm of the table centre.
+- Pitfalls: `MjSpec` reads angles as degrees unless `compiler.degree = False` (the compile sets it; a test guards it); `xpos` is stale until the
+  next forward; robosuite's own delta input settles at about 17 % of the commanded rate, so delta mode accumulates the target in our env.
 
-## robosuite 1.5.1 integration facts (source read 2026-10-27, not executed)
-- Any `RobotModel` subclass auto-registers by class name (metaclass). `ROBOT_CLASS_MAPPING` (name -> FixedBaseRobot etc.) is manual: use the `register_robot_class("FixedBaseRobot")` decorator. Registries are process-global, so register inside the env constructor from a pure-data config (subprocess workers), with a unique name per config (e.g. hash).
-- Robot model classes take only `idn` in `__init__` and pass an XML FILE PATH to `super().__init__` -> use a class factory closing over the config.
-- `ManipulatorModel` needs: XML file with body `base` and eef body `right_hand` (`_eef_name`; grippers are merged into it), plus `default_base`, `default_gripper`, `default_controller_config`, `init_qpos`, `base_xpos_offset` (keys bins/empty/table), `top_offset`, `_horizontal_radius`, `arm_type`. Panda's robot.xml has only torque motors and no floor/lights; control lives in the controllers.
-- Part controllers: JOINT_POSITION (DELTA relative to current qpos, default output scale +-0.05, kp 50), JOINT_VELOCITY, JOINT_TORQUE, OSC_POSE (control_dim 6), OSC_POSITION (control_dim 3), IK_POSE. Composite form: see default_panda.json.
-- Tasks: Lift, Stack, PickPlace, NutAssembly, Door, Wipe, ToolHang, TwoArm{Lift,Handover,PegInHole,Transport}. No Reach task. Lift reads `robots[0].gripper` in its reward / grasp check and places the base via `base_xpos_offset["table"]`. `GymWrapper` (gymnasium) exists and flattens the obs dict.
+## MuJoCo Warp (next milestone; nothing built)
+mujoco-warp 3.17.0 and warp-lang 1.18.0 are installed. Source-read API: `put_model(mjm, batch_sizes)`, `make_data(mjm, nworld, ...)`, `put_data`,
+`get_data_into(result, mjm, d, world_id)` (copy one world to a host `MjData` to replay or view it), `reset_data(m, d, reset)` (a mask: confirm it is
+a masked partial reset), `step`, integrators euler / implicit / rk4. Per-world model fields can batch same-topology embodiments; different `n`
+needs one simulation per topology group (open). Warp is float32 and CPU MuJoCo float64: parity needs tolerances and short, contact-free
+horizons first. Warp on a CPU device is unverified; NVIDIA only, no autodiff. Position and torque actuators run in the physics, delta and
+end-effector modes are ours.
 
-## robosuite feasibility reading (source only, nothing generated or run yet; 2026-10-27)
-- `Robot.__init__` takes an explicit `composite_controller_config` dict as is; if None it loads `default_<robot>.json`, else falls back to generic `basic.json`.
-- No gripper is supported at robot level: `gripper_factory(None)` returns `NullGripper` (provides the grip site the eef lookup needs). Grasp tasks (Lift) still need a real gripper.
-- `RobotModel.__init__` fills MISSING joint attributes with robosuite defaults (frictionloss 0.1, damping 0.1, armature 5/(i+1)); the generated XML must state them explicitly or dynamics differ from the native backend.
-- Generated robot class needs `arms = ["right"]`, `__init__(self, idn=0)`, and must be added to `ROBOT_CLASS_MAPPING` (`register_robot_class("FixedBaseRobot")`).
-- Eef-based controllers use the gripper's `grip_site` as reference; action dim = arm controller dims + gripper dims.
-- Risks not yet tested: Panda-scale task layouts vs our 1 m links; default controller gains tuned for Panda inertias; robosuite 1.5.x API coupling (pin 1.5.*); process-global registry growth; headless render on the cluster (`MUJOCO_GL=egl`); stock `suite.make` has not been run in this venv either.
-- Proposed spike (only with user approval; throwaway, scratch dir, one c23ms job): emit robot-only XML for chain(3) with explicit joint attributes -> generated ManipulatorModel subclass -> `suite.make("Lift", robots=<name>, gripper_types=None | stock gripper, controller_configs=<JOINT_POSITION dict>)` -> reset + step, check obs keys / action dim, compare dynamics with the native backend.
+## TorchRL conventions
+Subclass `_reset`, `_step`, `_set_seed` and the specs; never override `reset` / `step`. `td["_reset"]` is bool `[B, 1]` (absent = reset all); the env
+never autoresets; done, terminated, truncated and reward carry a trailing dim of 1; `check_env_specs` is the conformance check. torchrl 0.14.1 pins
+tensordict < 0.15, tensordict 0.15.3 needs torch >= 2.11: widen the pins only after CI passes on the newer line.
 
-## Proposal v4 (CURRENT, streamlined 2026-10-27; docs/spec_robotconfig_env.md is the source of truth)
-Audit done: removed everything that came from the old code. No inherited defaults (links, masses, damping, gains, dt, integrator all explicit; dt / integrator defaults chosen at milestone 1); axes explicit (no z/y cycling); `proprio` requires only qpos, qvel (effort optional); flat view = concatenation in declared order (no fixed 6+3n); geometry is a field (capsule is just the v1 option); base = pose only; gains policy `inertia_scaled(bandwidth, damping_ratio)`; test oracle = pure-numpy forward kinematics in `config.kinematics` (no anchors taken from old code); old-code mapping / defect appendices and baseline-test claims dropped from the spec (kept here only as history).
-Summary: RobotConfig (ParametricArm | ExternalRobot for baselines) + ControlConfig + TaskConfig + SimConfig + typed backend_options -> EnvConfig, resolve(), hashes. Backends mujoco (CPU reference), warp (torch-native GPU), robosuite (library tasks, Lift first, stock Panda baseline first). Env contract = TorchRL EnvBase, no autoreset in the env, `_reset` mask, injected state, nested obs. Packaging: python >= 3.10, base numpy, extras env / warp / robosuite / viz / dev. Milestones 1 to 5 in the spec.
+## Open decisions
+1. Family batching on the GPU: one simulation per topology group, lazy stacking, or padding.
+2. The smallest `n` that can physically solve `Lift`; infeasibility must be separable from failures of learning. The MuJoCo simulator builds no
+   gripper (`robot.tool` is ignored), so grasping tasks are out of reach.
+3. Reward shaping of the robosuite objectives is basic (negative distance); `Wipe` needs an objective of its own.
+4. An `ExternalRobot` baseline (the stock Panda) through the same contract.
+5. robosuite 1.5.2 placement path, robosuite throughput with many envs, and the `robosuite` CI job are unchecked.
+6. The user's idea list item "molvospaces": with the terms above that is a task provider (assets) or a simulator (physics): decide which.
 
-## TorchRL integration notes (searched + source-read 2026-10-27; adapter items are inference, untested)
-- TorchRL ships `BraxWrapper` (Brax envs, vmap on one device, MJX inside) but no Playground adapter found in searches; Playground's own notebook says its envs are NOT compatible with vanilla brax wrappers and ships `wrapper_torch.py` (`RSLRLBraxWrapper`, rsl_rl VecEnv) instead -> a TorchRL adapter would be a custom `EnvBase`.
-- Playground envs are functional (State pytree in/out); `EnvBase` is stateful and reads/writes TensorDicts: adapter must own the JAX State (or carry it opaquely), partial reset needs `data.where`, autoreset convention must be chosen in ONE place (Playground `BraxAutoResetWrapper` vs TorchRL `done` keys / `maybe_reset`).
-- JAX<->torch on one GPU: DLPack is zero-copy only on the same device; JAX preallocates ~75% of GPU memory on first use (older readmes say 90%) -> set `XLA_PYTHON_CLIENT_PREALLOCATE=false` BEFORE importing jax; each jax worker process would also jit + preallocate. Shape changes (different n per embodiment) recompile; our own MJX tests spent 34 s / 19 s / 15 s on the first calls (compile-dominated).
-- playground 0.2.0 (installed) makes MuJoCo Warp the DEFAULT impl for registry envs (needs NVIDIA GPU, no autodiff); our `AbstractMjxEnv` uses plain `mjx.put_model` (JAX impl): two code paths.
-- Torch-native alternative: MuJoCo Warp used directly from torch, as mjlab does (Warp arrays exposed as torch tensors via zero-copy `TorchArray`/`WarpBridge`; model compiled MjSpec -> MjModel -> `put_model/put_data`). No JAX bridge, and it consumes the MjSpec our RobotConfig compiles to. Gotcha: `.numpy()` on a CUDA Warp array syncs and copies; use framework adapters / DLPack.
-- Plain CPU MuJoCo + TorchRL (`GymEnv`, `ParallelEnv` processes): works but gives no GPU parallelism; need declared specs/info keys (our free-form `info` dict), and worker processes must rebuild robots from pure-data config (robosuite registry is process-global).
-- Implication for backends: possibly separate engine drivers: `mjx` (JAX, Playground-style) and a torch-native `warp` driver, both fed by the same MjSpec; Playground library envs stay a later, separate backend.
-
-## DECISION (user, 2026-10-27): use MuJoCo Warp for GPU-parallel simulation
-CONFIRMED by user (2026-10-27): JAX is shelved; torch-native `warp` driver (mujoco_warp directly, mjlab-style). JAX `mjx` backend and Playground-via-JAX are deferred.
-Installed (venv): mujoco-warp 3.17.0, warp-lang 1.18.0, torch 2.14.1, mujoco 3.17.0. Source-read API: `put_model(mjm, batch_sizes: dict[str,int] | None)`, `make_data(mjm, nworld, nconmax, nccdmax, njmax, njmax_nnz, naconmax, naccdmax, nvmax)`, `put_data`, `get_data_into`, `reset_data(m, d, reset: wp.array | None)` (signature suggests MASKED partial reset; confirm), `reset_data_keyframe`, `override_model`, `step`/`forward`/`step1`/`step2`, `rungekutta4` and `implicit`/`euler` integrators exported, modules `render.py` and `viewer.py` present. Did not find warp<->torch helpers under top-level `warp/` (probably under `warp/_src`; verify).
-Consequences (proposed):
-- Backends v1: `mujoco` (CPU, scalar, REFERENCE/parity oracle + viewer), `warp` (batched, torch tensors on CUDA, primary training backend), `robosuite` (CPU, library). Later: `playground`, `mjx` (JAX).
-- `WarpOptions` (backend_options): nworld (= num_envs), nconmax / njmax (or naconmax), device, CUDA graph capture on/off.
-- Native task logic must run on batched torch tensors: OPEN whether core stays torch-free (Array-API-generic code via array-api-compat) or torch becomes a required dependency of the warp extra only.
-- Per-world model variation via `put_model(batch_sizes=...)` can batch embodiments sharing topology (same n / axes, different lengths, masses, damping). Different n = different topology = separate sim per topology group (or padding). OPEN: family batching policy.
-- Controls: pos / torque actuators run inside Warp physics; delta and ee-space modes are ours (torch). Gains from critically-damped policy computed from the CPU MjModel.
-- Tests: parity of one Warp world against CPU MuJoCo (same RobotConfig, same action sequence, tolerance), using the probe values as anchors (ee at q=0 for chain(3) = (3, 0, 0.15)); Warp tests need a GPU, so mark them and skip on CPU-only CI.
-- Known limits: NVIDIA-only, no autodiff.
-- Proposed spike (needs user approval; scratch only): chain(3) -> MjSpec -> put_model/make_data(nworld=N) -> torch view -> step; masked reset; per-world batch_sizes for lengths/masses; parity vs CPU; run on c23g.
-
-## Debugging on CPU (source-read 2026-10-27; nothing run)
-- Tier 1: CPU `mujoco` backend (same RobotConfig -> MjSpec -> MjModel, viewer, mj_forward). Proposal: give it the SAME batched interface (leading num_envs, device='cpu', stepping N MjData in a loop) so task code and tests are identical across backends. Works on laptop and c23ms.
-- Tier 2: bridge. `mujoco_warp.get_data_into(result: MjData, mjm, d, world_id)` copies one world from the device into a host MjData (inspect / viewer / mj_forward); `put_data(mjm, mjd, nworld, ...)` moves a host MjData to the device. Use to replay a failing Warp world on CPU, or seed Warp from CPU.
-- Tier 3: Warp on a CPU device is UNVERIFIED. mujoco_warp's own conftest has a `--cpu` option (`wp.set_device("cpu")`) and solver code has `is_cpu` branches, but a third-party install guide says an NVIDIA GPU with CUDA 12 is needed. Differences: CUDA-graph conditionals only when `is_cuda`. CPU Warp would test logic, not GPU behaviour or speed.
-- Parity caveat: NVIDIA's example builds Warp arrays as float32; CPU MuJoCo is float64 -> use tolerances and short horizons (contact-free reach is the easy case).
-- Cluster tiers: laptop / c23ms (CPU) -> short CUDA smoke test on the GPU login node (not for real work; shared, mixed compute modes) -> c23g.
-
-## DECISION (user, 2026-10-27): env contract = TorchRL `EnvBase` ("let's use TorchRL for that")
-- Supersedes: Gymnasium VectorEnv-style signatures, declared `array_namespace`, Array-API-generic task logic, torch-free CPU backend, our own rollout helper, the `reset_mask` option.
-- Conventions (TorchRL docs, searched; nothing run): subclasses implement `_reset`, `_step`, `_set_seed` and the specs and never override `reset` / `step`. Partial reset uses the private "_reset" key (bool, shape [B, 1] in the IsaacLab guide; absent key = reset everything); implementing it correctly is the env developer's job. The env does not autoreset: `step_and_maybe_reset`, `rollout` and collectors read the done keys and write "_reset". done / terminated / truncated and reward specs carry a trailing dim of 1. Envs are batch-locked when sims have fixed size. `check_env_specs(env)` is the conformance check. Different envs can be combined with lazy stacking (`AsyncEnvPool(..., stack="lazy")`, `rollout(return_contiguous=False)`): verify with our shapes. API churn between releases (`CompositeSpec` -> `Composite`, `UnboundedContinuousTensorSpec` -> `Unbounded`): pin torchrl and tensordict.
-- Versions seen: TorchRL docs at 0.14; cluster notes say torchrl 0.14.1 + tensordict 0.14.3 resolved onto the openpi venv (torch 2.7.1) in a dry run without changing pins. robotdesigner venv has torch 2.14.1. Other cluster envs: finetune-groot py3.10 / torch 2.7.1, openpi py3.11 / torch 2.7.1, newt py3.10 / torch 2.8.0, fdca py3.13 / torch 2.14.0. robotdesigner `requires-python >= 3.13`: relax if other projects must import it (wheel availability of mujoco-warp / torchrl on older Pythons not checked).
-- Spec updated to match (docs/spec_robotconfig_env.md, 300 lines).
-
-## PACKAGING DECISION (agent, under the user's "do what is right for the new arch", 2026-10-27; now spec section 3)
-- requires-python >= 3.10 (every key dependency declares >= 3.10; torch / torchrl / mujoco have cp310 to cp314 Linux x86_64 wheels; tensordict and mujoco-warp are pure Python; warp-lang has a py3 wheel). CI: 3.10, 3.12, 3.13; dev default 3.12.
-- Layout: base numpy>=1.26 (config only); [env] torch>=2.7, tensordict>=0.14.3,<0.15, torchrl>=0.14.1,<0.15, mujoco>=3.13; [warp] mujoco-warp + warp-lang>=1.15 (same release as mujoco); [robosuite] robosuite>=1.5,<1.6; [viz] imageio; [dev] pytest, ruff.
-- Reasons: torchrl 0.14.1 pins tensordict<0.15; tensordict 0.15.3 needs torch>=2.11; cluster envs run torch 2.7 to 2.8 and one pins numpy 1.26.4 on py3.10; mujoco-warp requires mujoco>=3.13.
-- Dropped: jax, mujoco-mjx, mjinx, playground, chex, pytorch-kinematics, pandas, marimo, ipykernel, gymnasium (adapter later); robosuite becomes an extra. uv + committed lock regenerated; old lock, .python-version, CI and publish workflows are placeholders.
-- Also decided: nested observations primary (flat view = transform). Deferred to milestone 4: robosuite wrapper approach (custom EnvBase vs parallel-env machinery).
-- Unverified: torchrl 0.14.1 / tensordict 0.14.3 running with torch 2.7 and 2.14 on our envs.
-
-## robosuite `Lift` worked example (source read of robosuite 1.5.1, 2026-10-27; nothing run; now spec Appendix A)
-- Lift: single single-arm robot; table 0.8 x 0.8 x 0.05, top at z 0.8; cube half-size 0.020 to 0.022 placed within +-3 cm of table center; success = cube z > table + 0.04; reward sparse 2.25 (scaled to reward_scale) or shaped (1 - tanh(10 d) reach + 0.25 grasp); control_freq 20, horizon 1000; `step` returns (obs, reward, done, info) and done = horizon only (success does not end the episode).
-- Constructor defaults that matter: use_camera_obs=True and has_offscreen_renderer=True (turn off for state-only runs), hard_reset=True (rebuilds the model each reset; set False, semantics to verify), initialization_noise="default".
-- Robot needs: base_xpos_offset with bins / empty / table entries (stock Panda table rule: x = -0.16 - table_length/2, i.e. 0.56 m from table center); gripper mounted on `right_hand` (need flange pointing down at home); controller dict arm JOINT_POSITION (delta) + GRIP; action = [arm n, gripper 1]; obs prefixed robot0_ (joint_pos, joint_vel, eef_pos, eef_quat, gripper_qpos, gripper_qvel) + cube_pos, cube_quat, gripper_to_cube_pos. No qfrc_actuator -> observation keys are backend-declared, common subset = joint pos / vel / ee pos.
-- Mapping to TorchRL contract: truncated = done, terminated = False unless terminate_on_success, success entry from _check_success, reward [N,1]; seeds = base seed + index; robosuite owns dt / integrator (backend must reject overrides; verify where set).
-- Consequences: chain must use total_length (Panda-scale), gains policy matters, min DoF unknown (research result), robosuite Lift runs on CPU. A GPU Lift is possible as a separate native task (native/lift): Warp takes an ordinary MjModel, robosuite ships table arena + gripper models as plain XML (cube = a box built in Python), so only the Python task logic (placement, reward / success, observations, per-substep controller loop step1 -> controller torques -> step2) must be re-implemented in torch; out of v1 for effort + parity validation (agent's earlier wording blamed missing 'native objects', which was wrong).
-- Milestone 4 plan: stock Panda through our env first, then a generated chain(n).
-
-## Repo state noticed 2026-10-27 (the user works in the repo concurrently)
-- The user staged `.gitignore` (+ MUJOCO_LOG.TXT) and `docs/spec_robotconfig_env.md` (the 327-line version). HEAD still a1bef72, nothing committed. I never run git add / commit.
-- My later edit (Appendix C, Lift; 364 lines) lives only in the working tree, so the staged copy is one version behind: tell the user to re-stage. Before editing the spec again, re-check `git status` and ask if it has been committed or is staged; compare the host file hash before overwriting (done each time so far).
-
-## GitHub issues created 2026-10-27 (repo svaichu/robotdesigner, public; user asked for them)
-- Roadmap #10; M1: #11 packaging, #12 RobotConfig model + hash, #13 chain() + numpy kinematics oracle, #14 Control/Task/Sim/EnvConfig + resolve + env_hash, #16 mujoco compile + RobotInterface; M2: #15 Backend protocol + lazy registry, #17 batched sim core + masked reset, #18 native/reach TorchRL env, #19 delta / velocity modes + inertia-scaled gains, #20 docs / example / rendering.
-- Decisions made while writing them (flag to the user if they object): FamilyReachable deferred (not in any issue); OwnReachable = FK of uniformly sampled q; typed ReachParams with no defaults; dt / integrator / control_freq explicit; capsule links only; self-collision off by default (proposal in #16); `effort` kept in proprio on native backends.
-- State at that time: user committed the v6 spec at 50b343a (pushed to origin/feat/quotient) together with .agent/future_ideas.md (the user's note: ideas only, NOT a roadmap: FreeCAD link, MJX-Jax and differentiability, standardise on Mujoco-Warp via Newton). .agent/memory.md still untracked.
-- Public repo: never put cluster paths, usernames, job ids or tool / model names into issues.
-
-## Fetch + review of origin/feat/quotient (2026-10-27, after the GitHub issues; nothing pulled, working tree untouched)
-- Facts: issues #11 to #20 are CLOSED; commits authored by an automated agent run implement them (b816f6a ... 13c4947, plus a walkthrough notebook); PR #21 (feat/quotient -> devel) merged by the user at f1b42cc, containing only the commits up to #15; feat/quotient is 7 commits ahead of devel; main is untouched (2026-06-01). CI green on 3.10 / 3.12 / 3.13 for 13c4947. Local checkout was 8 commits behind (807619a); .agent/memory.md and docs/quotient_space.md still untracked.
-- Verdict: implementation follows the issues closely (config API incl. no-default physical params, kinematics oracle, compile with RobotInterface incl. kp/kd, BatchedSim, TorchRL MujocoReachEnv with `_reset` mask / injected state / no autoreset, delta + velocity modes, inertia-scaled gains two-pass compile, lazy backend registry, README, example, render helpers). pyproject matches the packaging decision (hatchling, extras, markers). No old-code markers in src / tests / examples / README. Reviewed statically; tests were NOT run by me (CI only).
-- Deviations / notes: 54 test functions vs ~27 specified in the issues (user asked for limited tests); extras not in issues (reach_cpu.ipynb, chain() base_pose / end_effector / tool / label, RobotInterface.kp / kd, BatchedSim.time, test_packaging); `pizza_robot/` (from devel) still tracked and unrelated to the new design; CORRECTION: the mj_fullM try/except in inertia_scaled_gains is a version shim, not a bug: first branch = new signature mj_fullM(m, d, dst) (MuJoCo >= 3.10), fallback = old signature (<= 3.7); with the core pin mujoco>=3.13 the fallback is unreachable; roadmap #10 still open with unticked boxes.
-- Spec (v6) is now OUT OF SYNC with the issues / code: spec has own_reachable(margin) and family_reachable (code: OwnReachable() without margin; family deferred); spec SimConfig has `render` (code: none); spec says dt / integrator defaults chosen at M1 (code: explicit, no defaults); spec lacks MujocoOptions(self_collision), scene presets empty / plain_floor, action mapping, `effort` proprio. Also issue #13 wording said forward_ee_batch returns base-frame positions, but the code (correctly) returns world-frame positions including base_pose and the env converts.
-
-## robosuite loading trace + compatibility finding (2026-10-28)
-- robosuite load chain (1.5.1 source, read): import registers env classes via metaclass in REGISTERED_ENVS (environments/base.py) and robot models in REGISTERED_ROBOTS (models/robots/robot_model.py); ROBOT_CLASS_MAPPING (robots/__init__.py) maps robot name -> wrapper class (FixedBaseRobot for Panda), extended by @register_robot_class. make(name, ...) = REGISTERED_ENVS[name](...). Env __init__ -> _load_robots -> _load_model (Lift: TableArena, BoxObject cube, ManipulationTask merges arena+robot+object into one XML) -> _initialize_sim (MjSim.from_xml_string(self.model.get_xml())) -> _reset_internal. Assets: robosuite/models/assets/{robots,grippers,arenas,objects}; controller presets robosuite/controllers/config/. SIMULATION_TIMESTEP = 0.002 in macros.py; control_timestep = 1/control_freq.
-- robotdesigner has NO robosuite code yet: only the extra, the marker and the CI exclusion; the backend registry has only "mujoco".
-- FINDING (run on login node, one process, nothing in repo changed): in the HPC venv (robosuite 1.5.1 + mujoco 3.17.0) robosuite.make("Lift", robots="Panda") raises AssertionError in binding_utils.get_joint_qpos_addr (np.int32 `in (mjtJoint.HINGE, SLIDE)` is False from mujoco 3.12). With an in-process shim for that, the next failure is `MjData.qM` missing (gone in mujoco 3.11; mj_fullM signature changed in 3.10). Upstream: issue ARISE-Initiative/robosuite#831 (open) and PR #832 (open); upstream master pins mujoco>=3.3.0,<3.10 but 1.5.2 on PyPI declares only mujoco>=3.3.0 (no cap). So robosuite 1.5.x works only with mujoco < 3.10 (3.9.0 reported working upstream; not tested by me).
-- CONSEQUENCE: pyproject core pin mujoco>=3.13 (needed by mujoco-warp) cannot coexist with a working robosuite in one environment. Options: (A) separate env/pin for the robosuite extra (core mujoco lower bound relaxed; warp extra carries >=3.13), (B) compat shim in our backend (fragile), (C) wait for a robosuite release, (D) subprocess isolation. NOT decided; ask the user.
-
-## Spike: stock robosuite Lift + generated arm (2026-10-28, sandbox only, nothing in the repo)
-- Isolated venv: robosuite 1.5.2 + mujoco 3.9.0 + numpy 1.26.4 (python 3.11). Stock Panda Lift works there (action_dim 7, model dt 0.002, 25 substeps at 20 Hz).
-- A generated n-joint arm (hand-written MJCF generator, ~80 lines, NOT our compile output) runs inside the stock Lift env for n = 3, 4, 5, 7: action_dim = n + 1, reset / step / second reset (hard_reset rebuilds the model) all fine. Mechanism: ManipulatorModel subclass created per robot via type(ManipulatorModel)(name, ...) (the metaclass registers it in REGISTERED_ROBOTS), register_robot_class("FixedBaseRobot")(cls), XML written to a cache file (ctor takes a file path), controller config built with load_composite_controller_config(controller="BASIC") then body_parts["right"] = joint_position part + GRIP gripper (unknown robot names otherwise fall back to OSC_POSE basic.json). XML must have root body `base`, a `right_hand` body, site `right_center`, torque motors.
-- NOT verified: grasping / solving Lift, our RobotConfig -> robosuite XML adapter (our compile uses names base/link_i/joint_i/ee/act_i), seeding, action scaling vs our control modes, batching (robosuite = one env per object, CPU).
-- Still blocked for the shared env: robosuite needs mujoco < 3.10, repo core pins mujoco >= 3.13 (option A: separate env/extra).
-
-## Local merge into devel (2026-10-28, on the user's request, HPC checkout only)
-- No local `devel` existed. Created `devel` tracking origin/devel (f1b42cc) and fast-forwarded it to feat/quotient (13c4947) with `git fetch . feat/quotient:devel` (ff-only, no checkout, working tree untouched). Result: devel == feat/quotient (identical tree), 6 commits ahead of origin/devel. NOT pushed. Current branch is still feat/quotient.
-- Afterwards committed on the user's request (then devel fast-forwarded again): the notebook edits (reach_cpu.ipynb), .agent/quotient_space.md (user's note, was docs/quotient_space.md) and this file. Before committing, cluster paths, the account name, job ids and tool names were redacted from this file and from two stderr lines in the notebook; this repo is public. Keep it that way: no machine-specific strings in tracked files.
-- Reminder: GitHub origin/devel is still f1b42cc until the user pushes.
-
-## robosuite compat layer (branch feat/robosuite-compat, from devel; not pushed)
-- Decision: option B (patch robosuite at runtime) instead of a separate env. `robotdesigner.backends.robosuite.apply_compat()` (in `_compat.py`) is idempotent, thread-safe, process-local (call it in spawn / forkserver workers). It probes each problem and patches only what fails: `joint-address-enum` (MjModel.get_joint_qpos_addr / qvel_addr: np.int32 in enum tuple, False from MuJoCo 3.12) and `mass-matrix` (Controller.update reads data.qM with the old mj_fullM signature; signature changed in 3.10, qM removed in 3.11). The mass-matrix probe parses robosuite's source (AST attribute lookup) so the patch switches itself off once robosuite is fixed.
-- Evidence (all run, not assumed): stock Panda Lift, Stack, PickPlace, Door, Wipe, NutAssembly, ToolHang and TwoArmLift build, reset and step on MuJoCo 3.17 with the layer (Lift also with UR5e, IIWA, Kinova3, Jaco; Sawyer fails on an unrelated mesh-volume error). Tests (`tests/test_robosuite_compat.py`, marker robosuite, 5 tests) pass on MuJoCo 3.3.1, 3.9.0, 3.10.0, 3.11.0, 3.12.0, 3.16.0 and 3.17.0 with robosuite 1.5.1, and 3.17.0 with 1.5.2; the full suite passes (66 passed). The patched mass matrix equals an independent mj_mulM computation to 1e-9, and the shim equals a different route (mj_mulM unit vectors) exactly.
-- Dynamics caveat: a scripted 60-step OSC trajectory on the stock Panda differs between MuJoCo 3.9 and 3.17 by up to 4e-3 rad in joint position (3.4e-4 m at the end effector); 3.9 vs 3.10 agree to 1e-13 and 3.11 to 1e-6, so the 3.12+ difference comes from MuJoCo itself, not from the patch. Do not compare absolute numbers across MuJoCo versions; fix the version per study.
-- robosuite 1.5.1 `Lift` has no `seed` argument (1.5.2 and later may differ): the backend must seed through numpy / its own RNG handling. uv.lock pins robosuite 1.5.1 with mujoco 3.17.0, the combination that needs this layer.
-- Not done: the backend itself (RobotConfig -> generated ManipulatorModel -> suite.make), CI job for the robosuite marker (CI excludes it today; drift detection only works if these tests run somewhere).
-
-## Our arm inside robosuite Lift (scratch spike, 2026-10-29; adapter not committed)
-- Result: `chain(4, "zyyy", ...)` -> robot-only MJCF built from the ParametricArm (MjSpec, same body / joint / capsule rules as the native compile; root body `base`, mount body `link0` carrying base_pose, `right_hand` body at the end effector pose, torque motors with ctrlrange = effort_limit) -> ManipulatorModel subclass named from config_hash -> `suite.make("Lift", robots=<name>)` with the stock Panda gripper (ToolSpec.gripper / mount offsets honoured) and a JOINT_POSITION part controller. Works on MuJoCo 3.17 with apply_compat(). Verified on the live simulation: robosuite's `right_hand` pose equals root position + our numpy FK to 1e-15 over 200 random configurations (position and rotation); the arm holds its home pose with zero action (0.0000 rad drift in 60 steps) and tracks a +0.25 rad joint move to 1e-3 rad; action dim = n + 1; second reset (hard reset rebuilds the model) works. Home pose was solved with our kinematics so the gripper axis points down (hand z = -0.999 in world) with the grip site 8 cm above the cube.
-- Not verified: solving Lift (no policy was run), any control mode other than robosuite's joint-position delta controller (our ControlConfig gains / modes are not mapped; kp 50 and output_max 0.05 were hard-coded), n other than 4, robots with explicit link inertia, seeding (robosuite 1.5.1 `Lift` takes no seed argument), batching, and the placement rule (the Panda table rule, base 0.56 m from the table centre, was copied).
-- Pitfalls found while doing it (keep): (1) `env.reset()` with robosuite's default hard_reset=True rebuilds the whole simulation: never cache `env.sim.model/data` or `env.robots[0]` across a reset. (2) `mujoco.MjSpec()` defaults to `compiler.degree = True`, so `range=[-2.9, 2.9]` is read as degrees (+-0.0506 rad). It silently clamped the first spike run's joints to +-2.9 degrees and made the arm collapse. The same defect was in the native compile (`_build_spec`); fixed on branch fix/mjspec-radians with a regression test (not pushed). (3) robosuite splits stepping into sim.step1 / step2.
-- Native backend bug (found by this spike): before the fix every compiled joint limit was in degrees (config +-2.5 rad -> model +-0.0436 rad) while RobotInterface.joint_range still reported radians. The kinematics tests could not see it because they set qpos directly. Any native reach study with ranged joints run on the pushed devel (4b79cb5) used limits 57 times too small.
-
-## robosuite backend (branch feat/robosuite-backend, 2026-10-29) — SUPERSEDED 2026-10-29 by the task-provider refactor below; kept for its pitfalls
-- Scope: ANY single-arm robosuite env, not a hardcoded task. Task id `robosuite/<EnvName>` (prefix match in `config.task.params_class`; `Capabilities.task_ids` accepts the wildcard `robosuite/*`). `RobosuiteParams(env_kwargs, reset_noise, terminate_on_success)` passes validated kwargs to `robosuite.make`; reserved kwargs (robots, controller, gripper, control_freq, horizon, rendering, seed, ...) come from our config (`RESERVED_ENV_KWARGS`). Library defaults not listed are recorded in `env.resolved_env_kwargs`, not hashed. `TaskConfig.target_region` and `success_tolerance` are None for tasks that define their own goal (robosuite); native/reach unchanged (its env_hash is identical to devel's).
-- Code: `backends/robosuite/{arm,env,_introspect,_compat,__init__}.py`; the chain construction is shared with the native compile via `backends/mujoco/arm_spec.add_arm` (one source of truth for the robot). The robot class is registered per process, named from `config_hash` plus the placement letter; XML is written to a temp cache file because robosuite reads robot XML from a path.
-- Contract: TorchRL env, N robosuite envs stepped serially in one process, `hard_reset=False` (the simulation survives reset), masked `_reset`, injected `qpos`/`qvel` (via `robot.init_qpos`, robosuite's own noise is zeroed; our `reset_noise` is applied from the torch generator), per-sub-env random streams (global numpy state swapped in around construction / reset / step; `seed + i`; robosuite 1.5.2 additionally gets `seed=` at construction and its Generator reseeded IN PLACE because the placement sampler holds the object). Obs: `task` = non-robot obs, `proprio` = robot obs (`qpos`, `qvel`, rest minus the `robot0_` prefix), `*-state` aggregates dropped. Action = n joint increments + gripper dims (Wipe's WipingGripper has none).
-- Control: only `joint_pos_delta` + `InertiaScaledGains`. robosuite's controller runs in ABSOLUTE mode and the env keeps `q_target += action * action_scale` (clipped to range), same as native. Do not use robosuite's own delta input: it adds the increment to the current position and the arm settles at ~17% of the commanded rate at bandwidth 7. Differences left: gravity compensation, inertia re-evaluated each step, joint damping not subtracted from kd.
-- Fixed by robosuite: dt 0.002 (macros), integrator = MuJoCo default (euler), scene name "env". `RobosuiteOptions.base_placement`: "env_default" (stock mount rule read from robosuite's Panda; base_pose relative to it) or "explicit" (root at the arena origin; base_pose is the world pose).
-- Coverage run (robosuite 1.5.1, MuJoCo 3.17, a 4-joint generated arm): 13 of 15 single-arm envs build, reset, step and pass check_env_specs. Refused on purpose: PickPlaceSingle and NutAssemblySingle (random object per episode changes the observation keys; use PickPlace single_object_mode=2 + object_type, or NutAssemblySquare / Round). Two-arm envs refused. Wipe needs `WipingGripper`.
-- Verified: robosuite hand pose = root + our numpy FK (1e-9 over 20 random configurations on the live simulation); hold drift < 1e-3 rad; target tracking; same seed reproduces, different seed differs, sub-env streams independent of other sub-envs' resets; backend tests (10) + compat tests (5) pass on robosuite 1.5.1 and 1.5.2 (MuJoCo 3.17). Not verified: policy performance on any task, GPU, more than 2-4 sub-envs for speed, robots other than one 4-joint arm family, ExternalRobot (stock Panda baseline) is not implemented, CI job `robosuite` (added to .github/workflows/ci.yml, not run).
-- Pitfalls kept: see the notes above on hard_reset, MjSpec degrees, `right_center` site (robosuite's composite controller reads `<prefix>right_center` for the arm base frame), constructor introspection must follow **kwargs forwarding (Lift lists its arguments; NutAssemblyRound forwards), robosuite 1.5.1 Lift has no `seed` argument.
-
-## Documentation (branch docs/configs, 2026-10-29)
-- Layout: `docs/README.md` (index, how the pieces fit, recipe: one task, a family of arms), `docs/configs/{robot,control,task,sim,env}.md` (one page per config: field tables, rules, serialized form, hash behaviour, errors), `docs/backends.md` (protocol, capability table, env contract, adding a backend), `docs/spec_robotconfig_env.md` (rewritten as the as-built design record, v7). README shortened where it duplicated the pages; AGENTS.md points at the docs.
-- The docs are tested: `tests/test_docs.py` executes every ```python block in `docs/configs/*.md` and `docs/README.md` (numpy only, no simulator; a block fenced as ```python no-run is skipped) and checks that every relative link and heading anchor in README and docs resolves (GitHub-style slugs). When a config's fields, rules or hashing change, update its page or the test fails.
-- Found while documenting: ToolSpec's docstring said the CPU backend ignores it and ParametricArm's docstring promised canonical names for every backend (robosuite's differ): both corrected. The old spec was wrong on the quaternion sign rule (first non-zero component positive, not w >= 0) and listed own_reachable(margin), a SimConfig.render field and later-chosen dt/integrator defaults, none of which exist.
-- Facts worth keeping: seed and num_envs are part of env_hash; the label is not; robosuite's own defaults are recorded on the env (`resolved_env_kwargs`) but not hashed; proprio/effort exists on the native backend only.
-
-## Task providers refactor (branch refactor/task-providers, 2026-10-29)
-User directives (verbatim intent): (1) `env = make_env(envcfg)`: an EnvConfig becomes an env in one step. (2) robosuite must not be a `sim.backend`; it only provides a TaskConfig, i.e. its assets are loaded through the task, and the simulator named in SimConfig (only mujoco today) steps everything. (3) Do not hardcode envs/tasks (no `native/reach` in core code) unless the user says so. Chosen with the user: robosuite brings ASSETS ONLY (arena, objects, placement rule); success and reward are ours.
-- Structure: `config/providers.py` (registry: in-tree scan of `robotdesigner.tasks` subpackages + entry-point group `robotdesigner.task_providers` + `register_task_provider`), `tasks/base.py` (`TaskImpl` contract, `BaseTask`), `tasks/native/` (reach: `params.py` config side, `reach.py` engine side), `tasks/robosuite/` (`params.py`, `scene.py`, `task.py`, `_compat.py`, `_introspect.py`), `backends/mujoco/env.py` (generic `MujocoEnv(cfg, task)`). `Capabilities.task_ids` and `RobosuiteOptions` are gone; `Problem` moved to `config/errors.py`. `robotdesigner.make_env` is a lazy top-level export; EnvConfig has no `make()` on purpose (config must import no engine).
-- `tasks.native.reach_task(horizon, success_tolerance, target_region, reset_noise, terminate_on_success)` builds the reach TaskConfig so README, docs index, env page, example script and notebooks do not spell the id (the provider and its own docs page still do). A stored notebook output may still show a config repr with the id: it is data.
-- Guard: `tests/test_no_hardcoded_tasks.py` derives the names (namespaces, ids, params classes) from the registry and fails if config/backends/envs/viz/task contract mention one. Provider docs (docs/tasks/*.md), tests and examples may name their own task.
-- Parity: reach through the new path is bit-identical to the old `MujocoReachEnv` on 4 configs (104 tensors; env_hash unchanged because id and params serialization were kept). The golden script is `golden_reach.py` style: seeded actions, flattened keys, `torch.equal`.
-- robosuite facts found (1.5.1): `ManipulationTask(arena, [], objects).get_xml()` gives arena + objects without a robot and compiles; its `<option>`, `<size>`, `<visual>` conflict with ours on `MjSpec.attach` (parent wins, with warnings), so they are stripped; IK mocap bodies `*_eef_target` are dropped; attach needs a non-empty prefix (`rs_`). Object sizes (Lift cube) are drawn from the GLOBAL numpy stream while the env is built: seed it, or two builds of one config differ by ~1 mm in rest height. Samplers draw from the global stream too (1.5.2: sampler generators; not exercised). Objects without a free joint (the Door door, the PickPlace target bins; not the ToolHang stand, which has a free joint) are positioned by robosuite through `model.body_pos`; all envs of a batch share one MjModel, so they are baked once at bind. `obj_type == "visual"` objects are not observed. 12 of 15 single-arm envs build; refused on purpose: `*Single`; Wipe has no object.
-- Pitfalls: `xpos` is stale until the next forward (read it after a reset); a test that points the arm at the table must keep the tip over the tabletop (+-0.4 m) or it hits nothing; do not give the env's own generator to robosuite, derive an integer seed per env and reset.
-- Deliberately basic: reward shaping of the robosuite objectives (negative distance for both). Open: an objective for Wipe; grippers (MuJoCo backend ignores `robot.tool`); robosuite 1.5.2 path unrun.
-
-## Open decisions (waiting on the user)
-1. `Lift` details: base placement / mount for generic arms, which gripper, reward default (sparse or shaped), smallest n that can physically solve it.
-2. Family batching on the GPU: separate sim per topology group, lazy stacking, or padding.
-3. Ignore or commit `.agent/` (untracked, not ignored). MUJOCO_LOG.TXT is already ignored by the user's staged .gitignore line.
-Everything else in the former list is adopted (spec section 9).
-
-## Lessons learned (do not repeat)
-- A pytest run from the repo root writes `MUJOCO_LOG.TXT` into the repo. Run from a scratch cwd or set the log path before importing mujoco.
-- Read repo files with `git show` / `cat` over ssh; run anything heavy as a `c23ms` job, not on the login node.
-
-## Native provider purged (branch refactor/purge-native, 2026-10-30)
-User directive: purge `native` for now; more library backends (task providers) will be added later by the user. Done: `tasks/native/`, `reach_task`, `docs/tasks/native.md`, `examples/reach_cpu.py`, `reach_record.py` and the two reach notebooks are gone. The package ships one provider, `robosuite`.
-- The engine tests run on a test-only provider, `tests/toy_provider` (namespace `toy`, registered lazily in `tests/conftest.py`; it is the old reach task, `toy/reach`). It is also the smallest example of a provider. `test_reach_env.py` became `test_mujoco_env.py`; `test_example.py` is gone (the robosuite example has its smoke test in `test_robosuite_task.py`; `record_scene` has a render test in `test_render.py`).
-- Kept in the core on purpose: `FixedBox`, `OwnReachable`, `uses_goal`, `success_tolerance`, `target_region` (the contract goal tasks of any provider use). `ToolSpec`/`ParametricArm` docstrings no longer talk about a "native" backend (the MuJoCo backend ignores `tool`).
-- NEW behaviour: the env has two seeded streams, `_gen` (robot reset noise, shape depends on n) and `_task_gen` (what `TaskImpl.reset` draws via `rand`; seeded from `sim.seed` + a constant). Same seed and `num_envs` now give every embodiment the same task draws (cube placement). Before, the task's draws followed the robot's noise draw, so n changed the cube. For a given seed the reset-noise/placement values differ from the previous commit; configs and hashes do not. Tests: `test_task_draws_do_not_depend_on_the_robot`, `test_the_same_scene_is_placed_for_every_embodiment`.
-- Examples now: `examples/robosuite_scene.py`, `record_scene.py`, `scene_walkthrough.ipynb`, `scene_viz.ipynb` (the Lift scene; scripted Jacobian policy to a point 6 cm above the cube; the fixed arena camera `rs_sideview` for comparisons; `rs_agentview` is blocked by the arm). Notebooks are stored WITH outputs, executed with `jupyter_client` on the login node (EGL device 3); the cluster venv path was redacted from stderr output. Quiet robosuite's per-scene INFO line with `logging.getLogger("robosuite_logs").setLevel(logging.WARNING)` after its first import.
-- The reach `env_hash`es of the previous section no longer exist in the library; golden/parity scripts of that refactor are historical.
-
-## Simulator naming and `sim.options` (branch refactor/simulator-naming, 2026-10-30)
-TERMINOLOGY: everything above this section says "backend" for what is now called a **simulator**. Read "backend" as "simulator" there (`sim.backend` = `sim.simulator`, `robotdesigner.backends` = `robotdesigner.simulators`, `MujocoBackend` = `MujocoSimulator`, `backend_options` = `sim.options`). User's reasoning: "backend" is code/dependency-management vocabulary (a library that, once loaded, makes functions and classes available); what SimConfig names is the simulator (mujoco, later mujoco-warp). User chose `simulator` over `engine` and asked for the rename to go EVERYWHERE (package, registry, protocol, classes), not only the config field.
-- Renamed: `SimConfig.backend` -> `simulator`; package `backends/` -> `simulators/`; `register_backend/get_backend/list_backends` -> `register_simulator/get_simulator/list_simulators`; `Backend` protocol -> `Simulator`; `MujocoBackend` -> `MujocoSimulator`; `BACKEND_OPTIONS/register_backend_options` -> `SIMULATOR_OPTIONS/register_simulator_options`; the second argument of a task provider's `validate` / `build` is the simulator name; `tests/test_backends.py` -> `test_simulators.py`; `docs/backends.md` -> `docs/simulators.md`; error text "backend 'x' cannot run this config" -> "simulator 'x' ...". `build-backend` in pyproject.toml is packaging vocabulary and stays. No aliases.
-- User asked to fold the options into SimConfig: `SimConfig(simulator, num_envs, device, dt, integrator, control_freq, seed, scene, options)`; `options` must be an instance of the class registered for `simulator` (SimConfig raises with path `options`; an unregistered simulator name raises with path `simulator`). `EnvConfig` has FOUR fields (robot, control, task, sim). Serialization nests `sim.options`; every `env_hash` changed (old example config: 9aba759c6df7 -> 5f992d9db695 for the walkthrough notebook's arm); `robot_hash` did not; old config dicts do not load.
-- `docs/architecture.png` was stale (still said backend, listed `native`, showed options as a separate field): regenerated as one panel of the current design. `.agent/future_ideas.md` is the user's file and still uses the old word in item 5 ("another backend for another library"); with the new terms that is a task provider (assets) or a simulator (physics), not touched.
-- Notebooks re-executed on the login node (jupyter_client, EGL device 3), stored with outputs, venv path redacted.
+## Lessons
+- A number or claim in the docs goes stale silently (the spec said 13 of 15 environments after the design changed to 12): recheck claims
+  against code and tests whenever a design changes.
+- After the reach task was purged a diagram still listed it: images and notebook outputs need the same grep as code.
+- A user's uncommitted change in their checkout is theirs: ask, and prefer a reversible step.

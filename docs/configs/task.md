@@ -69,7 +69,7 @@ assert OwnReachable().to_dict() == {"kind": "own_reachable"}
 ## A task config, end to end
 
 The page registers a toy provider so that the example needs no engine. Real providers do the same with more behind
-`validate` and `build` ([adding a task provider](#adding-a-task-provider)).
+`validate` and `build` ([writing a task provider](../tasks/writing-a-provider.md)).
 
 ```python
 @dataclass(frozen=True)
@@ -141,29 +141,6 @@ assert "demo" not in list_task_providers()
 
 ## Adding a task provider
 
-A provider has two halves, kept apart so that the config layer never imports an engine.
-
-1. **Config side.** One params class per task: a frozen dataclass with `to_dict()` and `from_dict()`, validated in
-   `__post_init__`, with the class attribute `uses_goal` (`True` if the task is defined by a target region and a
-   tolerance). If the params have `reset_noise` (radians of uniform noise on the initial joint positions) or
-   `terminate_on_success`, the environment applies them. Use `robotdesigner.config._canon.freeze` / `thaw` for free-form
-   mappings.
-2. **Provider object.** `task_names()` (names or patterns, for error messages), `params_class(name)`,
-   `validate(cfg, simulator) -> list[Problem]` (every reason this task cannot run on that simulator, collected with the
-   simulator's own problems into one `ConfigError`) and `build(cfg, simulator)`, which imports the engine and returns the
-   task.
-3. **Engine side.** A `robotdesigner.tasks.base.TaskImpl` (subclass `BaseTask` to skip the optional hooks): `attach(spec)`
-   adds scene elements to the MuJoCo spec before it is compiled, `bind(sim)` resolves names to ids, `observation_spec`
-   and `observe` give the `task` observation group, `reset` places the task for the masked envs, `success` and `reward`
-   score a step. The robot, the control law, batching, masked resets, episode counters and rendering belong to the
-   environment, so a task states only what it adds.
-4. **Register.** A subpackage of `robotdesigner.tasks` exposing `PROVIDER`, or an entry point in the group
-   `robotdesigner.task_providers` in another package (`name = "your.package:PROVIDER"`), or `register_task_provider`.
-
-Keep the module that defines the provider free of engine imports (put them inside `validate` and `build`, or in the
-module that `build` imports). Test it with `check_env_specs`, a masked-reset test and a seeding test.
-
-`tests/toy_provider/` is a complete small provider, a goal task that moves the end effector to a target point
-(`params.py` is the config side, `reach.py` the engine side, `__init__.py` the provider object). The engine tests use it,
-registered under the namespace `toy` by `tests/conftest.py`; it is not part of the installed package. Copy it as a
-starting point.
+A provider has a config side (the params class of each task, numpy only) and an engine side (a `TaskImpl`), and it registers by namespace. The walk-through,
+with runnable code for the config side, is [writing a task provider](../tasks/writing-a-provider.md). `tests/toy_provider/` is the complete small provider the
+engine tests use, registered under the namespace `toy` by `tests/conftest.py`; it is not part of the installed package. Copy it as a starting point.

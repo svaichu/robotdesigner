@@ -2,7 +2,7 @@
 
 How the policy's action reaches the joints: the control **mode**, the controller **gains** and the **action scale**.
 Hardware limits (`effort_limit`) belong to the robot; this config only describes the control interface. Importing it
-needs numpy only.
+needs numpy only. The whole config, the gain kind included, is part of `env_hash` ([EnvConfig](env.md#hashing)).
 
 ```python
 from robotdesigner.config import ConfigError, ControlConfig, FixedGains, InertiaScaledGains
@@ -100,7 +100,3 @@ assert error_of(lambda: ControlConfig("teleport", FixedGains(1, 1), None)).path 
 assert error_of(lambda: FixedGains(-1.0, 1.0)).path == "kp"
 assert error_of(lambda: InertiaScaledGains(0.0, 1.0)).path == "bandwidth"
 ```
-
-## In the hash
-
-The whole config, the gain kind included, is part of `env_hash`. See [EnvConfig](env.md#hashing).

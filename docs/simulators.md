@@ -1,5 +1,7 @@
 # Simulators and the environment contract
 
+Related pages: [SimConfig](configs/sim.md), [TaskConfig](configs/task.md), [EnvConfig](configs/env.md), [writing a task provider](tasks/writing-a-provider.md), [viz](viz.md).
+
 A **simulator** is a physics engine realized as code: `robotdesigner.simulators.<name>`, loaded by name when `sim.simulator`
 names it. It turns an [`EnvConfig`](configs/env.md) into a batched TorchRL environment. The config says
 what to run; the simulator and the task's provider decide whether they can, and build it. Tasks are not part of a simulator:

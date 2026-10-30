@@ -24,7 +24,7 @@ Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [TaskConfig
 | `dt` | float | `> 0`; physics time step in seconds |
 | `integrator` | str | one of `INTEGRATORS`: `euler`, `implicit`, `implicitfast`, `rk4` |
 | `control_freq` | float | `> 0`; policy steps per second |
-| `seed` | int | seeds the environment's random draws |
+| `seed` | int | seeds the environment's random streams (see the table below) |
 | `scene` | str | non-empty; a scene preset known to the simulator |
 | `options` | the options class of `simulator` | settings that exist for that simulator only, [below](#simulator-options); `MujocoOptions` for `"mujoco"` |
 
@@ -42,7 +42,7 @@ at once (see [simulators](../simulators.md#capabilities)).
 | `integrator` | all four |
 | `scene` | `empty` or `plain_floor`; a task that brings its own floor (an arena) asks for `empty` |
 | `num_envs` | N simulations stepped one after another in one process |
-| `seed` | seeds the generator of the reset noise and, separately, the task's own stream (placements, targets) |
+| `seed` | two streams: the robot's reset noise, and separately the task's own draws (placements, targets), so the task's draws do not depend on the robot |
 
 Scene presets of the MuJoCo simulator: `empty` has nothing but the robot; `plain_floor` adds a floor plane at `z = 0` that
 robot geoms collide with, and a light. Same simulator, device and seed reproduce the same results; random draws can differ

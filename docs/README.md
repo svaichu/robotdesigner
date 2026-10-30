@@ -16,6 +16,7 @@ Start with the [README](../README.md) for installation and a first environment.
 | [EnvConfig](configs/env.md) | how the sections combine, serialization, hashing, errors |
 | [Simulators](simulators.md) | simulators, capabilities, the environment contract, how an environment is put together, adding a simulator |
 | [robosuite scenes](tasks/robosuite.md) | robosuite arenas and objects as a task, objectives, which environments work |
+| [Writing a task provider](tasks/writing-a-provider.md) | a new task source end to end: params class, provider object, registration, engine side, tests |
 | [Recording and showing videos](viz.md) | `env.render()`, `robotdesigner.viz` clips, the frame recorder and camera framing |
 | [Design spec](spec_robotconfig_env.md) | why it is built this way, status and decisions |
 
@@ -33,8 +34,8 @@ EnvConfig
 └── sim              SimConfig                     which simulator and its options, batch size, time step, seed, scene
 
 env = make_env(cfg)
-        simulator  = sim.simulator                    capabilities + validate
-        task       = provider of task.id            validate + build   (all problems reported at once)
+        simulator = sim.simulator                    capabilities + validate
+        task      = provider of task.id              validate + build   (all problems reported at once)
         -> TorchRL EnvBase
 ```
 
@@ -49,6 +50,20 @@ env = make_env(cfg)
 
 Conventions: SI units, angles in radians, quaternions `(w, x, y, z)`, task observations of positions in the robot's base
 frame.
+
+## Words used in these docs
+
+| word | meaning |
+|---|---|
+| **embodiment** | a robot as data: a `ParametricArm` (joints and links in kinematic order, a base pose). A study varies the embodiment and holds the task fixed |
+| **simulator** | the physics engine named by `sim.simulator` (`mujoco`; later MuJoCo Warp), realized as code in `robotdesigner.simulators`. It steps the robot and whatever the task adds. It is never a source of tasks |
+| **options** | the settings of one simulator, `sim.options` (`MujocoOptions` for `mujoco`) |
+| **task** | what the robot is asked to do: `<namespace>/<name>` with a horizon and its params (`TaskConfig`). It never mentions the number of joints |
+| **task provider** | the owner of a namespace: it names its tasks, checks a config against a simulator and builds the task. `robosuite` is the one in the package; yours register by namespace ([writing one](tasks/writing-a-provider.md)) |
+| **objective** | in the robosuite provider, the rule for success and reward on a scene object (`LiftObject`, `ReachObject`) |
+| **scene** | two things: `sim.scene` is a preset of the simulator (`empty`, `plain_floor`); a robosuite scene is the arena and objects a task adds to it |
+| **config side, engine side** | the numpy-only classes (configs, params classes, provider objects) and the code that needs torch and the simulator's library; "engine" means those libraries |
+| **`robot_hash`, `env_hash`** | 12-character identifiers of the robot and of the whole environment config; the robot's label is in neither |
 
 ## Recipe: one task, a family of arms
 

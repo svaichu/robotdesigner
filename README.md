@@ -35,8 +35,10 @@ Python >= 3.10. Other extras: `robosuite` (the task provider: robosuite arenas a
 
 Reference pages in [`docs/`](docs/README.md): [RobotConfig](docs/configs/robot.md), [ControlConfig](docs/configs/control.md),
 [TaskConfig](docs/configs/task.md), [SimConfig and simulator options](docs/configs/sim.md), [EnvConfig](docs/configs/env.md),
-[simulators and the environment contract](docs/simulators.md), the task provider [robosuite scenes](docs/tasks/robosuite.md), and the [design spec](docs/spec_robotconfig_env.md).
-The Python examples in them are executed by the tests.
+[simulators and the environment contract](docs/simulators.md), [robosuite scenes](docs/tasks/robosuite.md),
+[writing a task provider](docs/tasks/writing-a-provider.md), [recording videos](docs/viz.md) and the
+[design record](docs/spec_robotconfig_env.md). The words the docs use (embodiment, simulator, task provider, scene, ...) are
+defined in the [glossary](docs/README.md#words-used-in-these-docs). The Python examples in the pages are executed by the tests.
 
 ## Quick start
 
@@ -86,75 +88,41 @@ td = env.step(td)                              # outputs under ("next", ...)
 data, td = env.step_and_maybe_reset(td)
 ```
 
-## robosuite scenes as tasks
+## Tasks, control and rendering
 
-robosuite supplies the arena, the objects and their placement; our MuJoCo simulation steps everything, with your robot
-and your control law. The task id is `robosuite/<EnvName>` and the config says what counts as success (the quick start
-above is one). Full details: [robosuite scenes](docs/tasks/robosuite.md).
-
-- **Assets, not physics.** The arena, objects and their placement rule are robosuite's; the time step, integrator,
-  control modes and gains are yours. robosuite's controllers, robots, grippers and rewards are not used.
-- **Success and reward** are the `objective` in `RobosuiteParams` (`LiftObject`, `ReachObject`).
-- **Tried on:** `Lift`, `Stack`, `NutAssembly*`, `PickPlace*`, `Door`, `ToolHang`; the random-object `*Single` variants and
-  two-arm environments are refused. The table is in the [robosuite page](docs/tasks/robosuite.md#which-environments-work).
-- **Versions:** robosuite 1.5.x does not run on MuJoCo >= 3.10 as released; `apply_compat()` patches that in the running
-  process and is called automatically.
-
-## Control modes and targets
-
-Four joint-space modes (`joint_pos_abs`, `joint_pos_delta`, `joint_vel`, `joint_torque`) with `FixedGains` or
-`InertiaScaledGains`, and, for providers whose tasks are defined by a goal point, target regions `FixedBox` or `OwnReachable`. What each mode and
-region means, and which simulator supports what, is in [ControlConfig](docs/configs/control.md), [TaskConfig](docs/configs/task.md) and
-[simulators](docs/simulators.md). Reset can inject `qpos` and `qvel` through the reset TensorDict, and whatever the task
-accepts (a task documents its own keys).
-
-## Rendering and video (optional)
-
-Rendering needs an OpenGL context; on headless machines set `MUJOCO_GL=egl` before the first import of mujoco.
-Saving videos needs the `viz` extra (`pip install -e ".[env,viz]"`): Pillow writes GIFs, imageio-ffmpeg writes MP4s.
+- **Tasks come from providers.** The package ships one, [robosuite scenes](docs/tasks/robosuite.md) (`robosuite/<EnvName>`): robosuite supplies
+  the arena, the objects and their placement rule, our simulator steps everything with your robot and control law, and the task's `objective`
+  (`LiftObject`, `ReachObject`) says what success and reward are. 12 of the 15 single-arm environments work (the table is on the page). Your own
+  tasks: [writing a task provider](docs/tasks/writing-a-provider.md). robosuite 1.5.x does not run on MuJoCo >= 3.10 as released; `apply_compat()`
+  patches that in the running process and is called for you.
+- **Control.** Four joint-space modes (`joint_pos_abs`, `joint_pos_delta`, `joint_vel`, `joint_torque`) with `FixedGains` or `InertiaScaledGains`:
+  [ControlConfig](docs/configs/control.md). A reset can inject `qpos`, `qvel` and whatever the task documents.
+- **Rendering and video** need an OpenGL context (headless: set `MUJOCO_GL=egl` before the first import of mujoco) and, for files, the `viz` extra
+  (`pip install -e ".[env,viz]"`: Pillow writes GIFs, imageio-ffmpeg writes MP4s).
 
 ```python
 from robotdesigner.viz import record_rollout
 
-traj, clip = record_rollout(env, 150, env_index=0)   # renders the live state while the rollout runs
-clip                      # last expression of a notebook cell: plays inline (MP4, or a GIF if MP4 support is missing)
+traj, clip = record_rollout(env, 150, env_index=0, camera="rs_sideview")   # renders the live state while the rollout runs
+clip                      # last expression of a notebook cell: plays inline
 clip.save("run.mp4")      # the format follows the suffix: .mp4 or .gif
-clip.show("gif")          # show inline in a chosen format
 ```
 
-`env.render(env_index=0, camera=None, size=(240, 320), overlays=True)` returns one `uint8 (H, W, 3)` frame of the live
-state, like Gymnasium's `rgb_array`, so any step loop can collect its own frames. A frame shows the whole MuJoCo scene
-(floor, robot, arena and objects of the task) plus the overlays the task draws for state that is not in the model (a task that keeps everything in the model, like
-the robosuite scenes, draws none). Rendering works on a scratch copy of the state, so it never changes the simulation.
-Only the CPU MuJoCo simulator renders so far.
-
-- **Which envs.** `env_index` is an int, a list of ints or `"all"`. Several envs are tiled and labelled.
-- **Camera.** A view name (`"iso"` is the default, `"front"`, `"side"`, `"top"`; world frame, `+x` forward), a
-  `CameraSpec`, a `mujoco.MjvCamera`, or a camera name in the model. The named views are framed on the robot's
-  reachable workspace (and a box target region, if the task has one).
-- **Comparing embodiments.** Use one camera for all of them: `cam = auto_camera(cfg_a, cfg_b)`, then
-  `record_rollout(env_a, 150, camera=cam)`, the same for `env_b`, and `tile_clips([clip_a, clip_b], labels=[...])`.
-  With the same `sim.seed` and `num_envs` they get the same scene: the task draws from its own random stream, which does
-  not depend on the robot.
-- **Rate.** The clip plays at `control_freq / every` fps. A GIF stores delays in 10 ms steps, so use 50, 25, 20 or
-  10 fps for an exact rate (a warning says when it is not exact). MP4 files are much smaller than GIFs.
-- **Low level.** `FrameRecorder` is the rollout callback behind `record_rollout`; `render_rgb(env, ...)` is
-  `env.render` under its old name; `launch_viewer(env)` opens the interactive viewer (needs a display).
-
-`examples/record_scene.py` records a four-env rollout to `scene.mp4` and `scene.gif`. The full guide is `docs/viz.md`.
+`env.render(env_index, camera=..., size=...)` returns one `uint8 (H, W, 3)` frame of the live state, so any step loop can collect its own frames;
+rendering never changes the simulation, and only the CPU MuJoCo simulator renders so far. To compare embodiments give them one camera
+(`auto_camera(cfg_a, cfg_b)`, or a fixed arena camera such as `rs_sideview`): with the same seed they get the same scene. `examples/record_scene.py`
+records a four-env rollout to `scene.mp4` and `scene.gif`; the full guide is [docs/viz.md](docs/viz.md).
 
 ## Layout
 
 ```
 src/robotdesigner/
     config/      numpy only: configs, chain() generator, validation, hashing, kinematics oracle
-    simulators/    simulators: protocol, capabilities and lazy registry; mujoco/ is the CPU simulator and its generic env
+    simulators/  simulators: protocol, capabilities and lazy registry; mujoco/ is the CPU simulator and its generic env
     tasks/       task providers, one subpackage per namespace (robosuite/), and the task contract (base.py)
     envs/        make_env(cfg)
     viz/         Clip (save GIF / MP4, show inline), frame recorder, camera framing; numpy only
 ```
-
-Documentation is in `docs/` (start at `docs/README.md`); the design record is `docs/spec_robotconfig_env.md`.
 
 ## Tests
 

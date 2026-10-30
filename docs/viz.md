@@ -12,7 +12,7 @@ clip.save("run.mp4")       # the format follows the suffix: .mp4 or .gif
 clip.show("gif")           # show inline in a chosen format
 ```
 
-The walkthrough is `examples/scene_viz.ipynb`; `examples/record_scene.py` is the same thing as a headless script.
+Related pages: [simulators](simulators.md) (the env contract, `env.render`), [robosuite scenes](tasks/robosuite.md) (the arena cameras). The walkthrough is `examples/scene_viz.ipynb`; `examples/record_scene.py` is the same thing as a headless script.
 
 ## Install and headless machines
 
@@ -67,10 +67,9 @@ _, b = record_rollout(env_big, 60, policy_big, camera=shared, every=2, label=Fal
 tile_clips([a, b], labels=["n=2", "n=5"])
 ```
 
-A task draws from its own random stream, so with the same `sim.seed` and `num_envs` every embodiment gets the same scene
-(the same object placement) at every reset, whatever its number of joints. For a task that takes injected state, `reset_td`
-(a `TensorDict` of what the reset should use) pins it instead. A fixed camera of the scene, such as the robosuite
-arena's `"rs_agentview"`, also shares a scale across embodiments.
+With the same `sim.seed` and `num_envs` every embodiment gets the same scene at every reset, whatever its number of joints
+([seeding](simulators.md#the-environment-contract)); `reset_td` pins injected state instead. A fixed camera of the scene, such
+as the robosuite arena's `"rs_sideview"`, also shares a scale across embodiments.
 
 ## Reference
 
