@@ -21,7 +21,7 @@ class IdleTask(BaseTask):
         return {}
 
     def success(self, sim, obs) -> torch.Tensor:
-        return torch.zeros(sim.num_envs, 1, dtype=torch.bool)
+        return torch.zeros(sim.num_envs, 1, dtype=torch.bool, device=sim.device)
 
     def reward(self, sim, obs) -> torch.Tensor:
-        return torch.zeros(sim.num_envs, 1, dtype=torch.float32)
+        return torch.zeros(sim.num_envs, 1, dtype=torch.float32, device=sim.device)
