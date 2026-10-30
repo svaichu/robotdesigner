@@ -1,0 +1,3 @@
+In a RL env, for example a robosuite env. I want to have a n-dof arm in there, where n is a parameter that I can set. I want to be able to specify the number of degrees of freedom (n-dof) for the robotic arm in the environment. This will allow me to test different configurations and see how the arm performs with varying levels of complexity.
+
+I think robotconfig should be maintained separate from the env. in robotconfig, i can define dof, length of links, joint types, axes, etc. Then in the env, I can instantiate the robot using the configuration from robotconfig.
