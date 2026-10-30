@@ -11,7 +11,7 @@ Start with the [README](../README.md) for installation and a first environment.
 |---|---|
 | [RobotConfig](configs/robot.md) | `ParametricArm` and its parts, the `chain()` generator, the kinematics oracle, the robot hash |
 | [ControlConfig](configs/control.md) | control modes, `FixedGains`, `InertiaScaledGains`, the action scale |
-| [TaskConfig](configs/task.md) | task ids and their providers, target regions, how to add a provider |
+| [TaskConfig](configs/task.md) | the params object that is the task, its providers, target regions, how to add a provider |
 | [SimConfig and simulator options](configs/sim.md) | simulator, batch size, time step, seed, scene, `MujocoOptions` |
 | [EnvConfig](configs/env.md) | how the sections combine, serialization, hashing, errors |
 | [Simulators](simulators.md) | simulators, capabilities, the environment contract, how an environment is put together, adding a simulator |
@@ -30,12 +30,12 @@ Every Python example in the configuration and task pages is executed by the test
 EnvConfig
 ├── robot            RobotConfig (ParametricArm)   what the body is
 ├── control          ControlConfig                 how an action drives the joints
-├── task             TaskConfig                    what to do; "<namespace>/<name>", owned by a task provider
+├── task             TaskConfig                    what to do; the params object of a task provider is the task
 └── sim              SimConfig                     which simulator and its options, batch size, time step, seed, scene
 
 env = make_env(cfg)
         simulator = sim.simulator                    capabilities + validate
-        task      = provider of task.id              validate + build   (all problems reported at once)
+        task      = provider of task.params         validate + build   (all problems reported at once)
         -> TorchRL EnvBase
 ```
 
@@ -58,7 +58,7 @@ frame.
 | **embodiment** | a robot as data: a `ParametricArm` (joints and links in kinematic order, a base pose). A study varies the embodiment and holds the task fixed |
 | **simulator** | the physics engine named by `sim.simulator` (`mujoco`; later MuJoCo Warp), realized as code in `robotdesigner.simulators`. It steps the robot and whatever the task adds. It is never a source of tasks |
 | **options** | the settings of one simulator, `sim.options` (`MujocoOptions` for `mujoco`) |
-| **task** | what the robot is asked to do: `<namespace>/<name>` with a horizon and its params (`TaskConfig`). It never mentions the number of joints |
+| **task** | what the robot is asked to do: a provider's params object (it names the provider and the task) with a horizon (`TaskConfig`); `task.id` is the derived `<namespace>/<name>`. It never mentions the number of joints |
 | **task provider** | the owner of a namespace: it names its tasks, checks a config against a simulator and builds the task. `robosuite` is the one in the package; yours register by namespace ([writing one](tasks/writing-a-provider.md)) |
 | **objective** | in the robosuite provider, the rule for success and reward on a scene object (`LiftObject`, `ReachObject`) |
 | **scene** | two things: `sim.scene` is a preset of the simulator (`empty`, `plain_floor`); a robosuite scene is the arena and objects a task adds to it |
@@ -89,9 +89,9 @@ def arm_with(n):
 base = EnvConfig(
     robot=arm_with(3),
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-    task=TaskConfig("robosuite/Lift", horizon=200, success_tolerance=None, target_region=None,
-                    params=RobosuiteParams({}, LiftObject("cube", height=0.84), reset_noise=0.0,
-                                           terminate_on_success=False)),   # the same table and cube for every arm
+    task=TaskConfig(params=RobosuiteParams("Lift", {}, LiftObject("cube", height=0.84), reset_noise=0.0,
+                                           terminate_on_success=False),   # the same table and cube for every arm
+                    horizon=200, success_tolerance=None, target_region=None),
     sim=SimConfig("mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
                   scene="empty", options=MujocoOptions(self_collision=False)),
 )

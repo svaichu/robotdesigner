@@ -51,7 +51,7 @@ class RobosuiteTask(BaseTask):
         self.cfg = cfg
         params = cfg.task.params
         self._objective = params.objective
-        self._assets = load_scene(cfg.task.id.split("/", 1)[1], params.kwargs, cfg.sim.seed)
+        self._assets = load_scene(params.name, params.kwargs, cfg.sim.seed)
         self._items: list[tuple[str, int, int | None]] = []  # observed objects: (name, body id, free-joint qpos address)
         self._by_name: dict[str, tuple[str, int, int | None]] = {}
         self.fixtures: tuple[str, ...] = ()  # objects placed once at bind time (no free joint)

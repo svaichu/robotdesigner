@@ -84,7 +84,7 @@ def objective_from_dict(d: Mapping[str, Any]) -> Objective:
 
 @dataclass(frozen=True, slots=True)
 class RobosuiteParams:
-    """Parameters of the task ``robosuite/<EnvName>``.
+    """Parameters of the task ``robosuite/<EnvName>``; ``name`` is ``<EnvName>``.
 
     ``env_kwargs`` are passed to the robosuite environment when its assets are loaded (``table_full_size``,
     ``single_object_mode``, ...); everything not listed takes robosuite's own default. ``objective`` says what counts
@@ -92,14 +92,18 @@ class RobosuiteParams:
     the other config sections and cannot be given here.
     """
 
+    provider: ClassVar[str] = "robosuite"
     uses_goal: ClassVar[bool] = False  # the objective defines success; TaskConfig takes no target region
 
+    name: str
     env_kwargs: Any
     objective: Any
     reset_noise: float
     terminate_on_success: bool
 
     def __post_init__(self):
+        if not as_str(self.name, "name"):
+            raise ConfigError("name", "must name a robosuite environment, for example 'Lift'")
         raw = self.env_kwargs
         if isinstance(raw, tuple) and raw and raw[0] == "__map__":
             raw = thaw(raw)
@@ -129,6 +133,7 @@ class RobosuiteParams:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "name": self.name,
             "env_kwargs": canonicalize(self.kwargs),
             "objective": self.objective.to_dict(),
             "reset_noise": self.reset_noise,
@@ -139,6 +144,7 @@ class RobosuiteParams:
     def from_dict(cls, d: Mapping[str, Any]) -> "RobosuiteParams":
         check_keys(d, {f.name for f in fields(cls)}, "")
         return cls(
+            name=d["name"],
             env_kwargs=d["env_kwargs"],
             objective=within("objective", objective_from_dict, d["objective"]),
             reset_noise=d["reset_noise"],

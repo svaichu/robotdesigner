@@ -11,8 +11,10 @@ from robotdesigner.config.errors import ConfigError
 
 @dataclass(frozen=True, slots=True)
 class ReachParams:
+    provider: ClassVar[str] = "toy"
     uses_goal: ClassVar[bool] = True  # the task is defined by a target region and a success tolerance
 
+    name: str
     reset_noise: float
     terminate_on_success: bool
 

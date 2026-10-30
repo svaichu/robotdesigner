@@ -15,11 +15,15 @@ A provider has two halves, kept apart so that the config layer never imports an 
 
 ## 1. The params class (config side)
 
-One frozen dataclass per task, with `to_dict()` and `from_dict()`, validated in `__post_init__`. The class attribute `uses_goal` says whether the task is
-defined by a target region and a tolerance (`True`: `TaskConfig` then requires `success_tolerance` and `target_region`; `False`: it forbids them).
+One frozen dataclass per task, with `to_dict()` and `from_dict()`, validated in `__post_init__`. **The params object is the task**: the class attribute
+`provider` is the namespace and the field `name` says which task of the provider it is, so `TaskConfig(params=ReachParams(name="reach", ...))` needs no
+second place to name the provider (there is no `provider=` argument and no string id). Both are part of `to_dict()` (`provider` is written by `TaskConfig`,
+`name` by the params). The class attribute `uses_goal` says whether the task is defined by a target region and a tolerance (`True`: `TaskConfig` then
+requires `success_tolerance` and `target_region`; `False`: it forbids them).
 
 ```python
 from dataclasses import dataclass
+from typing import ClassVar
 
 from robotdesigner.config import (
     ConfigError, FixedBox, Problem, TaskConfig, list_task_providers, register_task_provider, unregister_task_provider,
@@ -28,8 +32,10 @@ from robotdesigner.config import (
 
 @dataclass(frozen=True)
 class ReachParams:
-    uses_goal = True                 # a goal task: the config carries a target region and a tolerance
+    provider: ClassVar[str] = "mine"  # the namespace: this class belongs to the provider registered as "mine"
+    uses_goal: ClassVar[bool] = True  # a goal task: the config carries a target region and a tolerance
 
+    name: str                        # which task of the provider: "reach"
     reset_noise: float               # radians of uniform noise on the initial joint positions (the environment applies it)
     terminate_on_success: bool       # `terminated` when the task is solved (the environment applies it)
 
@@ -38,7 +44,7 @@ class ReachParams:
             raise ConfigError("reset_noise", "must be >= 0")      # the path says which field is at fault
 
     def to_dict(self):
-        return {"reset_noise": self.reset_noise, "terminate_on_success": self.terminate_on_success}
+        return {"name": self.name, "reset_noise": self.reset_noise, "terminate_on_success": self.terminate_on_success}
 
     @classmethod
     def from_dict(cls, d):
@@ -94,19 +100,21 @@ register_task_provider("mine", PROVIDER, replace=True)       # a lazy "my_packag
 assert "mine" in list_task_providers()
 
 task = TaskConfig(
-    id="mine/reach", horizon=200, success_tolerance=0.02,
+    params=ReachParams(name="reach", reset_noise=0.0, terminate_on_success=False),
+    horizon=200, success_tolerance=0.02,
     target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),
-    params=ReachParams(reset_noise=0.0, terminate_on_success=False),
 )
-assert TaskConfig.from_dict(task.to_dict()) == task           # the id picks the params class on the way back in
+assert task.id == "mine/reach"                                # derived from the class and the name
+assert task.to_dict()["provider"] == "mine"
+assert TaskConfig.from_dict(task.to_dict()) == task           # provider and params.name pick the params class on the way back in
 
-for wrong in (lambda: TaskConfig("mine/lift", 200, None, None, ReachParams(0.0, False)),     # no such task
-              lambda: TaskConfig("mine/reach", 200, None, None, ReachParams(0.0, False)),    # a goal task needs its tolerance
-              lambda: ReachParams(-1.0, False)):                                              # the params validate themselves
+for wrong in (lambda: TaskConfig(ReachParams("lift", 0.0, False), 200, None, None),          # no such task
+              lambda: TaskConfig(ReachParams("reach", 0.0, False), 200, None, None),         # a goal task needs its tolerance
+              lambda: ReachParams("reach", -1.0, False)):                                     # the params validate themselves
     try:
         wrong()
     except ConfigError as e:
-        assert e.path in ("id", "success_tolerance", "reset_noise")
+        assert e.path in ("params.name", "success_tolerance", "reset_noise")
     else:
         raise AssertionError("no error")
 

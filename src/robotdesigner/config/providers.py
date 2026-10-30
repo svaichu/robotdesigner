@@ -1,6 +1,7 @@
 """Task providers: who owns which task ids. Imports no simulation engine, torch or robosuite.
 
-A task id has the form ``<namespace>/<name>``. The namespace selects a *provider*. A provider
+A task id has the form ``<namespace>/<name>``; it is derived: ``TaskConfig.params`` holds the namespace (the class
+attribute ``provider`` of the params class) and the name (its ``name`` field). The namespace selects a *provider*. A provider
 
 - names its tasks and gives the typed ``params`` class of each (the config side, numpy only),
 - checks a config against a simulator (``validate``), and
@@ -31,7 +32,6 @@ __all__ = [
     "known_task_ids",
     "list_task_providers",
     "params_class",
-    "provider_for",
     "register_task_provider",
     "split_task_id",
     "unregister_task_provider",
@@ -107,14 +107,14 @@ def _load(namespace: str) -> TaskProvider:
             obj = getattr(importlib.import_module(module), attr or "PROVIDER")
         except Exception as e:
             raise ConfigError(
-                "task.id", f"task provider {namespace!r} ({target}) could not be loaded: {type(e).__name__}: {e}"
+                "task.provider", f"task provider {namespace!r} ({target}) could not be loaded: {type(e).__name__}: {e}"
             ) from e
         target = obj() if isinstance(obj, type) else obj
         _REGISTRY[namespace] = target
     elif isinstance(target, type):
         target = _REGISTRY[namespace] = target()
     if not isinstance(target, TaskProvider):
-        raise ConfigError("task.id", f"task provider {namespace!r} does not implement the TaskProvider protocol")
+        raise ConfigError("task.provider", f"task provider {namespace!r} does not implement the TaskProvider protocol")
     return target
 
 
@@ -128,7 +128,7 @@ def get_task_provider(namespace: str) -> TaskProvider:
     _discover()
     if namespace not in _REGISTRY:
         raise ConfigError(
-            "task.id", f"unknown task provider {namespace!r}; registered: {list(list_task_providers())}"
+            "task.provider", f"unknown task provider {namespace!r}; registered: {list(list_task_providers())}"
         )
     return _load(namespace)
 
@@ -141,14 +141,6 @@ def split_task_id(task_id: Any) -> tuple[str, str] | None:
     if not sep or not name or not _NAMESPACE.fullmatch(namespace):
         return None
     return namespace, name
-
-
-def provider_for(task_id: str) -> tuple[TaskProvider, str]:
-    """The provider that owns ``task_id`` and the task's name within it."""
-    parts = split_task_id(task_id)
-    if parts is None:
-        raise ConfigError("task.id", f"{task_id!r} is not of the form '<namespace>/<name>'")
-    return get_task_provider(parts[0]), parts[1]
 
 
 def params_class(task_id: Any) -> type | None:

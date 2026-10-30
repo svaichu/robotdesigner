@@ -44,7 +44,7 @@ class RobosuiteTasks:
             apply_compat()
             import robosuite  # noqa: F401
         except ImportError:
-            return [Problem("task.id", "robosuite is not installed; install robotdesigner[robosuite]")]
+            return [Problem("task.params.name", "robosuite is not installed; install robotdesigner[robosuite]")]
 
         from . import _introspect as intro
 
@@ -53,18 +53,18 @@ class RobosuiteTasks:
             problems.append(
                 Problem("sim.scene", f"must be {SCENE!r} for robosuite tasks: the arena brings its own floor")
             )
-        name = cfg.task.id.split("/", 1)[1]
         params = cfg.task.params
+        name = params.name
         cls = intro.env_class(name)
         if cls is None:
             problems.append(
-                Problem("task.id", f"robosuite has no environment {name!r}; single-arm ones: {intro.single_arm_env_names()}")
+                Problem("task.params.name", f"robosuite has no environment {name!r}; single-arm ones: {intro.single_arm_env_names()}")
             )
             return problems
         if not intro.is_single_arm_manipulation(cls):
             problems.append(
                 Problem(
-                    "task.id",
+                    "task.params.name",
                     f"{name!r} needs more than one arm; single-arm environments: {intro.single_arm_env_names()}",
                 )
             )
@@ -72,7 +72,7 @@ class RobosuiteTasks:
         if name.endswith("Single") or params.kwargs.get("single_object_mode") == 1:
             problems.append(
                 Problem(
-                    "task.id",
+                    "task.params.name",
                     f"{name!r} picks a different object every episode, so its observation keys change; fix the "
                     "object instead: PickPlace with single_object_mode=2 and object_type, or NutAssemblySquare / "
                     "NutAssemblyRound",

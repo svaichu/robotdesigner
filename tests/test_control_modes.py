@@ -24,8 +24,8 @@ def make_cfg(mode, scale, n=2, axes="zy", num_envs=2, rng=(-1.0, 1.0), bandwidth
     return EnvConfig(
         robot=arm,
         control=ControlConfig(mode, InertiaScaledGains(bandwidth, 1.0), scale),
-        task=TaskConfig("toy/reach", 100, 0.02, FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)),
-                        ReachParams(0.0, False)),
+        task=TaskConfig(ReachParams("reach", 0.0, False), 100, 0.02,
+                        FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4))),
         sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, 0, "plain_floor", options=MujocoOptions(False)),
     )
 

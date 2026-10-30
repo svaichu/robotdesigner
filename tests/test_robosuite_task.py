@@ -28,7 +28,7 @@ def make_cfg(name="Lift", objective=None, kwargs=None, num_envs=2, seed=0, scene
     return EnvConfig(
         robot=arm,
         control=ControlConfig(mode, FixedGains(60.0, 6.0), None),
-        task=TaskConfig(f"robosuite/{name}", horizon, None, None, RobosuiteParams(kwargs or {}, objective, noise, False)),
+        task=TaskConfig(RobosuiteParams(name, kwargs or {}, objective, noise, False), horizon, None, None),
         sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, seed, scene, options=MujocoOptions(False)),
     )
 

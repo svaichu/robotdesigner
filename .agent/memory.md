@@ -48,6 +48,7 @@ parameter, the robot config kept separate from the env. Do not overwrite the use
 - 2026-10-29 user: `env = make_env(cfg)`; robosuite is a source of assets, never a simulator (success and reward are ours); no hardcoded tasks.
 - 2026-10-30 user: the `native` provider and its reach task are purged (the tests keep a test-only provider, `tests/toy_provider`, namespace
   `toy`); "backend" becomes "simulator" everywhere and the options move into `SimConfig`. Agent: the task gets its own random stream.
+- 2026-10-30 user (roadmap #32, issue #33 done): the params object is the task (`TaskConfig(params, horizon, success_tolerance, target_region)`; params classes have `provider` and `name`; `task.id` is derived); every `env_hash` changed once. `provider_for` is removed (`get_task_provider(cfg.task.params.provider)`). Next: #34, then #35 to #38 in order, one issue at a time, wait for the user between issues.
 - GitHub issues: roadmap #10; M1 #11 to #14 and #16; M2 #15 and #17 to #20 (all closed, implemented).
 
 ## Environment and workflow

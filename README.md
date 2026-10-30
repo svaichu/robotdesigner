@@ -25,7 +25,7 @@ Python >= 3.10. Other extras: `robosuite` (the task provider: robosuite arenas a
 - **`env = make_env(cfg)`** is the one step from config to environment, for every task.
 - **Simulators and tasks are separate.** `sim.simulator = "mujoco"` names the simulator (the CPU reference simulator). A
   task id is `"<namespace>/<name>"` and comes from a **task provider**: the package knows no task by name, the one
-  provider it ships is `robosuite`, others register themselves (see [TaskConfig](docs/configs/task.md#where-task-ids-come-from)). An unsupported combination
+  provider it ships is `robosuite`, others register themselves (see [TaskConfig](docs/configs/task.md#where-tasks-come-from)). An unsupported combination
   (control mode, device, task on this simulator, ...) is rejected up front with every problem listed, never
   approximated.
 - **One env contract.** Every environment is a TorchRL `EnvBase` with `batch_size = [num_envs]`. The env never
@@ -59,9 +59,9 @@ arm = chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0, radius=0.03,
 cfg = EnvConfig(
     robot=arm,
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-    task=TaskConfig("robosuite/Lift", horizon=200, success_tolerance=None, target_region=None,
-                    params=RobosuiteParams({}, LiftObject("cube", height=0.84),
-                                           reset_noise=0.0, terminate_on_success=False)),
+    task=TaskConfig(params=RobosuiteParams(name="Lift", env_kwargs={}, objective=LiftObject("cube", height=0.84),
+                                           reset_noise=0.0, terminate_on_success=False),
+                    horizon=200, success_tolerance=None, target_region=None),
     sim=SimConfig(simulator="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
                   control_freq=50, seed=0, scene="empty",      # the arena brings its own floor
                   options=MujocoOptions(self_collision=False)),

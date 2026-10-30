@@ -27,8 +27,8 @@ class MujocoSimulator:
         return problems
 
     def make_env(self, cfg: Any):
-        from ...config.providers import provider_for
+        from ...config.providers import get_task_provider
         from .env import MujocoEnv
 
-        provider, _ = provider_for(cfg.task.id)
+        provider = get_task_provider(cfg.task.params.provider)
         return MujocoEnv(cfg, provider.build(cfg, self.name))

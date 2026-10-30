@@ -28,7 +28,7 @@ def _cfg(n=3, length=0.9):
     return EnvConfig(
         robot=arm,
         control=ControlConfig("joint_pos_abs", FixedGains(60.0, 6.0), None),
-        task=TaskConfig("toy/reach", 20, 0.02, FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)), ReachParams(0.0, False)),
+        task=TaskConfig(ReachParams("reach", 0.0, False), 20, 0.02, FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4))),
         sim=SimConfig("mujoco", 2, "cpu", 0.002, "euler", 50, 0, "plain_floor", options=MujocoOptions(False)),
     )
 

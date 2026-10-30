@@ -1,10 +1,12 @@
 # TaskConfig
 
-What the robot is asked to do. A task never mentions the number of joints or the link lengths, so the same task config
+What the robot is asked to do. The **params object is the task**: its class names the provider and its `name` field names
+the task within it, so nothing is written twice and no string id is accepted anywhere. A task never mentions the number of joints or the link lengths, so the same task config
 can be given to different embodiments. Importing it needs numpy only.
 
 ```python
 from dataclasses import dataclass
+from typing import ClassVar
 
 from robotdesigner.config import (
     ConfigError, FixedBox, OwnReachable, TaskConfig, list_task_providers, register_task_provider,
@@ -16,25 +18,32 @@ Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [SimConfig]
 [simulators](../simulators.md), and the page of the task provider that ships with the package:
 [robosuite scenes](../tasks/robosuite.md).
 
-## `TaskConfig(id, horizon, success_tolerance, target_region, params)`
+## `TaskConfig(params, horizon, success_tolerance, target_region)`
 
 | field | type | rule |
 |---|---|---|
-| `id` | str | `"<namespace>/<name>"`. The namespace selects a **task provider**, which decides what names exist |
+| `params` | the provider's params class | the task: the class attribute `provider` is the namespace of a **task provider**, the field `name` is the task within it, and the provider decides which names exist. Validated and hashed with the config |
 | `horizon` | int | `>= 1`; the episode is truncated after this many steps |
 | `success_tolerance` | float or `None` | `> 0` when the task's params class sets `uses_goal = True`; must be `None` otherwise |
 | `target_region` | `FixedBox`, `OwnReachable` or `None` | required when `uses_goal` is true; must be `None` otherwise |
-| `params` | the provider's params class for this id | validated and hashed with the config |
+
+`TaskConfig.id` is a derived, read-only property, `"<provider>/<name>"`, for messages, logs and docs; it is not a field and
+not part of the dict. There is no `provider=` argument: a second argument could contradict the class.
+
+`to_dict()` writes `provider` (taken from the class) next to `params` (which holds `name`), `horizon`, `success_tolerance`
+and `target_region`; `from_dict()` reads `provider` and `params.name`, asks the registry for that params class and builds
+it. Hashes (`env_hash`) are over the canonical form of the dict, so key order never matters.
 
 `success_tolerance` and `target_region` exist only for tasks that are defined by a goal point. A task that defines its own
 success (an objective on a scene object, say) takes `None` for both; passing a value is an error rather than silently
 ignored.
 
-An unknown id is rejected with the list of every registered id. Which simulator can run a task is decided when the
+An unknown provider is rejected at `provider` (in `from_dict`) with the list of registered providers; an unknown name at
+`params.name` with the list of every registered id. Which simulator can run a task is decided when the
 environment is built, by the task's provider and the simulator together (see [simulators](../simulators.md#capabilities)),
 never here.
 
-## Where task ids come from
+## Where tasks come from
 
 The package itself knows no task by name, and the one provider that ships with it is `robosuite` (arenas and objects of
 robosuite environments). A **task provider** owns a namespace: it names its tasks, gives each a typed params
@@ -74,12 +83,14 @@ The page registers a toy provider so that the example needs no engine. Real prov
 ```python
 @dataclass(frozen=True)
 class DemoParams:
-    uses_goal = False                      # the task defines its own success: no tolerance, no region
+    provider: ClassVar[str] = "demo"       # the namespace this class belongs to
+    uses_goal: ClassVar[bool] = False      # the task defines its own success: no tolerance, no region
 
+    name: str                              # which task of the provider
     reset_noise: float
 
     def to_dict(self):
-        return {"reset_noise": self.reset_noise}
+        return {"name": self.name, "reset_noise": self.reset_noise}
 
     @classmethod
     def from_dict(cls, d):
@@ -103,13 +114,14 @@ class DemoTasks:
 register_task_provider("demo", DemoTasks(), replace=True)
 assert "demo" in list_task_providers()
 
-task = TaskConfig(id="demo/hold", horizon=200, success_tolerance=None, target_region=None, params=DemoParams(0.0))
+task = TaskConfig(params=DemoParams("hold", 0.0), horizon=200, success_tolerance=None, target_region=None)
+assert task.id == "demo/hold"              # derived and read-only
 assert task.to_dict() == {
-    "id": "demo/hold",
+    "provider": "demo",
+    "params": {"name": "hold", "reset_noise": 0.0},
     "horizon": 200,
     "success_tolerance": None,
     "target_region": None,
-    "params": {"reset_noise": 0.0},
 }
 assert TaskConfig.from_dict(task.to_dict()) == task
 ```
@@ -124,16 +136,18 @@ def error_of(build):
         return e
     raise AssertionError("no error")
 
-ok = DemoParams(0.0)
-assert error_of(lambda: TaskConfig("nope/hold", 10, None, None, ok)).path == "id"       # no such provider
-assert error_of(lambda: TaskConfig("demo/nope", 10, None, None, ok)).path == "id"       # the provider has no such task
-assert error_of(lambda: TaskConfig("demo", 10, None, None, ok)).path == "id"            # not <namespace>/<name>
-assert error_of(lambda: TaskConfig("demo/hold", 0, None, None, ok)).path == "horizon"
-assert error_of(lambda: TaskConfig("demo/hold", 10, 0.02, None, ok)).path == "success_tolerance"
-assert error_of(lambda: TaskConfig("demo/hold", 10, None, OwnReachable(), ok)).path == "target_region"
-assert error_of(lambda: TaskConfig("demo/hold", 10, None, None, box)).path == "params"   # the wrong params class
+ok = DemoParams("hold", 0.0)
+d = task.to_dict()
+assert error_of(lambda: TaskConfig.from_dict({**d, "provider": "nope"})).path == "provider"       # no such provider
+assert error_of(lambda: TaskConfig(DemoParams("nope", 0.0), 10, None, None)).path == "params.name"   # no such task
+assert error_of(lambda: TaskConfig.from_dict({**d, "params": {**d["params"], "name": "nope"}})).path == "params.name"
+assert error_of(lambda: TaskConfig.from_dict({**d, "id": "demo/hold"}))                                # `id` is not a field
+assert error_of(lambda: TaskConfig(ok, 0, None, None)).path == "horizon"
+assert error_of(lambda: TaskConfig(ok, 10, 0.02, None)).path == "success_tolerance"
+assert error_of(lambda: TaskConfig(ok, 10, None, OwnReachable())).path == "target_region"
+assert error_of(lambda: TaskConfig(box, 10, None, None)).path == "params"   # not a provider's params object
 assert error_of(lambda: FixedBox((1.0, 0.0, 0.0), (0.0, 1.0, 1.0))).path == "low[0]"
-assert "demo/hold" in str(error_of(lambda: TaskConfig("nope/hold", 10, None, None, ok)))   # the message lists the known ids
+assert "demo/hold" in str(error_of(lambda: TaskConfig.from_dict({**d, "params": {"name": "x"}})))  # the message lists the known ids
 
 unregister_task_provider("demo")
 assert "demo" not in list_task_providers()

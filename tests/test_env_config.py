@@ -26,11 +26,10 @@ def make_cfg(dt=0.002, num_envs=8, horizon=200, kp=60.0, mass=3.0, region=None):
         robot=arm,
         control=ControlConfig(mode="joint_pos_abs", gains=FixedGains(kp=kp, kd=6.0), action_scale=None),
         task=TaskConfig(
-            id="toy/reach",
+            params=ReachParams(name="reach", reset_noise=0.0, terminate_on_success=False),
             horizon=horizon,
             success_tolerance=0.02,
             target_region=region or FixedBox(low=(0.2, -0.3, 0.0), high=(0.6, 0.3, 0.4)),
-            params=ReachParams(reset_noise=0.0, terminate_on_success=False),
         ),
         sim=SimConfig(simulator="mujoco", num_envs=num_envs, device="cpu", dt=dt, integrator="euler",
                       control_freq=50, seed=0, scene="plain_floor", options=MujocoOptions(self_collision=False)),
@@ -104,7 +103,7 @@ def test_the_options_belong_to_the_simulator():
     assert cfg.to_dict()["sim"]["options"] == {"self_collision": False}
     assert "backend_options" not in cfg.to_dict() and list(cfg.to_dict()) == ["robot", "control", "task", "sim"]
     with pytest.raises(ConfigError, match="^options: simulator 'mujoco' requires MujocoOptions"):
-        replace(cfg.sim, options=ReachParams(0.0, False))
+        replace(cfg.sim, options=ReachParams("reach", 0.0, False))
     with pytest.raises(ConfigError, match="^simulator: no options registered for simulator 'nope'"):
         replace(cfg.sim, simulator="nope")
     d = copy.deepcopy(cfg.to_dict())
@@ -133,26 +132,45 @@ def test_inertia_scaled_gains_round_trip_and_validation():
 
 
 def test_task_config_rules_come_from_the_provider():
-    ok = ReachParams(0.0, False)
+    ok = ReachParams("reach", 0.0, False)
     with pytest.raises(ConfigError, match="success_tolerance"):
-        TaskConfig("toy/reach", 10, None, None, ok)  # a goal task needs its tolerance
+        TaskConfig(ok, 10, None, None)  # a goal task needs its tolerance
     with pytest.raises(ConfigError, match="target_region"):
-        TaskConfig("toy/reach", 10, 0.02, None, ok)  # and its target region
+        TaskConfig(ok, 10, 0.02, None)  # and its target region
     with pytest.raises(ConfigError, match="horizon"):
-        TaskConfig("toy/reach", 0, 0.02, OwnReachable(), ok)
-    with pytest.raises(ConfigError, match="params: task 'toy/reach' requires ReachParams"):
-        TaskConfig("toy/reach", 10, 0.02, OwnReachable(), MujocoOptions(False))
-    for bad in ("toy/", "toy/nope", "nope/reach", "reach", "", "Toy/reach", 3):
-        with pytest.raises(ConfigError, match="unknown task"):
-            TaskConfig(bad, 10, 0.02, OwnReachable(), ok)
-    with pytest.raises(ConfigError, match="unknown task"):
-        TaskConfig.from_dict({**make_cfg().task.to_dict(), "id": "nope/reach"})
+        TaskConfig(ok, 0, 0.02, OwnReachable())
+    with pytest.raises(ConfigError, match="^params: expected a task provider's params object"):
+        TaskConfig(MujocoOptions(False), 10, 0.02, OwnReachable())
+    for bad in ("", "nope", "Reach"):
+        with pytest.raises(ConfigError, match="^params.name: unknown task"):
+            TaskConfig(ReachParams(bad, 0.0, False), 10, 0.02, OwnReachable())
+    d = make_cfg().task.to_dict()
+    with pytest.raises(ConfigError, match="^provider: unknown task provider 'nope'"):
+        TaskConfig.from_dict({**d, "provider": "nope"})
+    with pytest.raises(ConfigError, match="^params.name: unknown task 'toy/nope'"):
+        TaskConfig.from_dict({**d, "params": {**d["params"], "name": "nope"}})
+    with pytest.raises(ConfigError, match="^params.reset_noise"):
+        TaskConfig.from_dict({**d, "params": {**d["params"], "reset_noise": -1.0}})
+    with pytest.raises(ConfigError, match="unknown keys: id"):
+        TaskConfig.from_dict({**d, "id": "toy/reach"})  # the id is derived, never stored
+
+
+def test_task_id_is_derived_and_the_dict_names_the_provider():
+    task = make_cfg().task
+    assert task.id == "toy/reach"
+    with pytest.raises((AttributeError, TypeError)):  # read-only
+        task.id = "toy/other"
+    d = task.to_dict()
+    assert d["provider"] == "toy" and d["params"]["name"] == "reach" and "id" not in d
+    assert TaskConfig.from_dict(d) == task
+    reordered = EnvConfig.from_dict({**make_cfg().to_dict(), "task": dict(reversed(list(d.items())))})
+    assert reordered.env_hash == make_cfg().env_hash
 
 
 def test_task_params_validate_themselves():
     with pytest.raises(ConfigError, match="^reset_noise"):
-        ReachParams(-1.0, False)
+        ReachParams("reach", -1.0, False)
     with pytest.raises(ConfigError, match="terminate_on_success"):
-        ReachParams(0.0, "yes")
-    spelled = TaskConfig("toy/reach", 200, 0.02, OwnReachable(), ReachParams(0.05, True))
+        ReachParams("reach", 0.0, "yes")
+    spelled = TaskConfig(ReachParams("reach", 0.05, True), 200, 0.02, OwnReachable())
     assert TaskConfig.from_dict(spelled.to_dict()) == spelled

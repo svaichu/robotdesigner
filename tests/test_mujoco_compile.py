@@ -22,8 +22,8 @@ def make_cfg(arm, mode="joint_pos_abs", **sim):
     return EnvConfig(
         robot=arm,
         control=ControlConfig(mode=mode, gains=FixedGains(60.0, 6.0), action_scale=None),
-        task=TaskConfig("toy/reach", 100, 0.02, FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)),
-                        ReachParams(0.0, False)),
+        task=TaskConfig(ReachParams("reach", 0.0, False), 100, 0.02,
+                        FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4))),
         sim=SimConfig(**sim_kw),
     )
 

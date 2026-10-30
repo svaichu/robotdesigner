@@ -23,9 +23,8 @@ def make_cfg(n=2, num_envs=3, seed=0, horizon=20, region=None, mode="joint_pos_a
     return EnvConfig(
         robot=arm,
         control=ControlConfig(mode, FixedGains(60.0, 6.0), None),
-        task=TaskConfig("toy/reach", horizon, 0.02,
-                        region or FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)),
-                        ReachParams(noise, terminate)),
+        task=TaskConfig(ReachParams("reach", noise, terminate), horizon, 0.02,
+                        region or FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4))),
         sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, seed, "plain_floor", options=MujocoOptions(False)),
     )
 

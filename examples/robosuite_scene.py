@@ -38,11 +38,13 @@ def build_config(num_envs: int = 4, horizon: int = 100) -> EnvConfig:
         robot=arm,
         control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
         task=TaskConfig(
-            id="robosuite/Lift",
+            params=RobosuiteParams(
+                name="Lift", env_kwargs={}, objective=LiftObject("cube", height=0.84),
+                reset_noise=0.0, terminate_on_success=False,
+            ),
             horizon=horizon,
             success_tolerance=None,
             target_region=None,
-            params=RobosuiteParams({}, LiftObject("cube", height=0.84), reset_noise=0.0, terminate_on_success=False),
         ),
         sim=SimConfig(
             simulator="mujoco", num_envs=num_envs, device="cpu", dt=0.002,

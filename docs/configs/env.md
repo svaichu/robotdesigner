@@ -44,9 +44,10 @@ arm = chain(3, "zyy", total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5
 cfg = EnvConfig(
     robot=arm,
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-    task=TaskConfig(id="robosuite/Lift", horizon=200, success_tolerance=None, target_region=None,   # a task of the
-                    params=RobosuiteParams({}, LiftObject("cube", height=0.84),                        # `robosuite` provider
-                                           reset_noise=0.0, terminate_on_success=False)),
+    task=TaskConfig(params=RobosuiteParams(name="Lift", env_kwargs={},                  # a task of the `robosuite` provider
+                                           objective=LiftObject("cube", height=0.84),
+                                           reset_noise=0.0, terminate_on_success=False),
+                    horizon=200, success_tolerance=None, target_region=None),
     sim=SimConfig(simulator="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
                   control_freq=50.0, seed=0, scene="empty",                # the arena brings its own floor
                   options=MujocoOptions(self_collision=False)),            # the settings of "mujoco" only
@@ -89,7 +90,7 @@ first 12 characters.
 |---|---|
 | any physical or control parameter, the task, the time step, the integrator, the scene, the options | the robot's `label` |
 | `num_envs` and `seed` (they define the run) | key order in a dict, `-0.0` versus `0.0`, scaling an axis or a quaternion |
-| the simulator name and the task id | |
+| the simulator name and the task (provider and name) | |
 
 Not in the hash, because they are not part of the config: the version of MuJoCo, robosuite or this package, and robosuite's
 own defaults for arguments you did not set (those are recorded on the environment as `resolved_env_kwargs`).
@@ -138,8 +139,8 @@ print(env.robot_hash, env.env_hash)   # the 12-character hashes of the robot and
 ```
 
 `make_env(cfg)` is the only way an `EnvConfig` becomes an environment, and it works the same for every task: the simulator
-is the one named in `cfg.sim.simulator`, the task comes from the provider that owns `cfg.task.id`
-(see [TaskConfig](task.md#where-task-ids-come-from)). `EnvConfig` itself has no `make()` method, so the config layer
+is the one named in `cfg.sim.simulator`, the task comes from the provider named by `cfg.task.params.provider`
+(see [TaskConfig](task.md#where-tasks-come-from)). `EnvConfig` itself has no `make()` method, so the config layer
 stays free of engines. Everything the simulator or the task cannot do with this config is reported in one `ConfigError`
 ([simulators](../simulators.md#capabilities)).
 

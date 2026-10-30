@@ -79,7 +79,7 @@ EnvConfig(robot, control, task, sim)
   SHA-256 of the canonical JSON without the label, quaternion signs canonicalized.
 - **ControlConfig.** Six mode names are declared; the MuJoCo simulator implements four (`joint_pos_abs`, `joint_pos_delta`, `joint_vel`,
   `joint_torque`), none implements the end-effector modes. Hardware limits stay in the robot (`effort_limit`).
-- **TaskConfig.** `<namespace>/<name>`; the provider owns the params class. A goal task takes `FixedBox` or `OwnReachable()` and a tolerance (family-reachable
+- **TaskConfig.** `TaskConfig(params, horizon, success_tolerance, target_region)`: the params object is the task. Its class names the provider (class attribute `provider`) and its `name` field the task within it; `TaskConfig.id` (`<provider>/<name>`) is derived and read-only, and no string id or `provider=` argument exists. `to_dict()` writes `provider` next to `params`; `from_dict()` finds the params class through the registry (errors at `provider` and `params.name`). A goal task takes `FixedBox` or `OwnReachable()` and a tolerance (family-reachable
   is deferred); a task that defines its own success takes `None` for both, and passing a value is an error.
 - **SimConfig.** `simulator, num_envs, device, dt, integrator, control_freq, seed, scene, options`, all required; `1 / (control_freq * dt)` must be a
   positive integer. `options` must be an instance of the class registered for `simulator`. Rendering is not a field ([viz.md](viz.md)).
@@ -102,7 +102,7 @@ EnvConfig(robot, control, task, sim)
 the same `MjModel` through `put_model` and `make_data(nworld)`, torch views, parity against the CPU simulator from injected state, and per-world model
 fields to let same-topology embodiments share one simulation (a different `n` needs another simulation per topology group).
 
-**Providers.** A task provider owns a namespace. Config side: params classes (numpy only). Engine side: a `TaskImpl` that adds scene assets to the model
+**Providers.** A task provider owns a namespace. Config side: params classes (numpy only), each with `provider` and a `name` field; providers read the task name from `cfg.task.params.name`. Engine side: a `TaskImpl` that adds scene assets to the model
 spec, places things at reset, observes and scores. `validate(cfg, simulator)` collects the provider's problems with the simulator's into one `ConfigError`.
 Providers are the subpackages of `robotdesigner.tasks`, the entry-point group `robotdesigner.task_providers`, or `register_task_provider` ([how to write one](tasks/writing-a-provider.md)).
 `env = make_env(cfg)` is the only construction path, and `MujocoEnv` is the one generic environment: it owns the robot, control law, batching, masked
@@ -174,6 +174,7 @@ such as `Lift`, with infeasibility separable from failures of learning; whether 
 | 2026-10-29 | `.agent/` is committed, with no machine-specific strings | the repository is public |
 | 2026-10-30 | the `native` provider and its reach task are removed; tests keep `tests/toy_provider` (user) | the package loads embodiments into an RL env, tasks are what providers bring, more will come |
 | 2026-10-30 | the task draws from its own random stream | with one stream the joint count changed the cube placement, which defeats comparing embodiments |
+| 2026-10-30 | the params object is the task: `TaskConfig.id` is removed (derived, read-only), params classes declare `provider` and have `name`, no `provider=` argument, no string id (user, roadmap #32, issue #33) | one place says which task runs, and a second argument could contradict the class. The `task` part of `to_dict()` changes shape, so **every `env_hash` changes once**: hashes recorded earlier no longer match |
 | 2026-10-30 | "backend" becomes "simulator" everywhere, no aliases; options move into `SimConfig`, so `EnvConfig` has four fields (user) | "backend" is dependency vocabulary and `SimConfig` names a physics engine; two fields that must agree need a cross-check. Every `env_hash` changed, `robot_hash` did not |
 
 ## Appendix A. robosuite as a task provider

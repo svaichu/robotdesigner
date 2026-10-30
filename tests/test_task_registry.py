@@ -16,14 +16,16 @@ BLOCKED = ["torch", "torchrl", "tensordict", "mujoco", "mujoco_warp", "robosuite
 
 @dataclass(frozen=True)
 class ExtParams:
+    provider = "ext"
     uses_goal = False
+    name: str = "thing"
 
     def to_dict(self):
-        return {}
+        return {"name": self.name}
 
     @classmethod
     def from_dict(cls, d):
-        return cls()
+        return cls(**d)
 
 
 class ExtTasks:
@@ -92,7 +94,7 @@ def test_explicit_registration_and_duplicates(clean_registry):
         register_task_provider("ext", ExtTasks())
     register_task_provider("ext", ExtTasks, replace=True)  # a class is instantiated on first use
     assert params_class("ext/thing") is ExtParams
-    cfg = TaskConfig("ext/thing", 5, None, None, ExtParams())
+    cfg = TaskConfig(ExtParams(), 5, None, None)
     assert TaskConfig.from_dict(cfg.to_dict()) == cfg
 
 
@@ -143,8 +145,14 @@ def test_object_without_the_protocol_is_rejected(clean_registry):
         params_class("odd/x")
 
 
-def test_unknown_id_error_lists_registered_ids():
+def test_unknown_provider_and_name_errors_carry_paths_and_list_what_is_known(clean_registry):
+    register_task_provider("ext", EXT)
+    good = TaskConfig(ExtParams(), 5, None, None).to_dict()
     with pytest.raises(ConfigError) as e:
-        TaskConfig("nope/nothing", 1, None, None, None)
-    msg = str(e.value)
-    assert "unknown task 'nope/nothing'" in msg and all(i in msg for i in known_task_ids())
+        TaskConfig.from_dict({**good, "provider": "nope"})
+    assert str(e.value).startswith("provider:") and all(ns in str(e.value) for ns in list_task_providers())
+    with pytest.raises(ConfigError) as e:
+        TaskConfig.from_dict({**good, "params": {"name": "nothing"}})
+    assert str(e.value).startswith("params.name:") and all(i in str(e.value) for i in known_task_ids())
+    with pytest.raises(ConfigError, match="^params.name: missing"):
+        TaskConfig.from_dict({**good, "params": {}})

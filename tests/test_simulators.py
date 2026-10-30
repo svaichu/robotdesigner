@@ -29,14 +29,16 @@ class DummyOptions:
 
 @dataclass(frozen=True)
 class DummyParams:
+    provider = "dummy"
     uses_goal = False
+    name: str = "noop"
 
     def to_dict(self):
-        return {}
+        return {"name": self.name}
 
     @classmethod
     def from_dict(cls, d):
-        return cls()
+        return cls(**d)
 
 
 class DummyTasks:
@@ -83,7 +85,7 @@ def dummy_cfg(**sim):
     from dataclasses import replace
 
     base = make_cfg()
-    task = TaskConfig("dummy/noop", 10, None, None, DummyParams())
+    task = TaskConfig(DummyParams(), 10, None, None)
     return type(base)(base.robot, base.control, task, replace(base.sim, simulator="dummy", options=DummyOptions(), **sim))
 
 

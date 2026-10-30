@@ -1,8 +1,9 @@
-"""Task description: an id, an episode length and, for goal-defined tasks, a target region and tolerance.
+"""Task description: the provider's params object, an episode length and, for goal-defined tasks, a target region
+and tolerance.
 
-``TaskConfig.id`` is ``<namespace>/<name>``. The namespace names a task provider (``config.providers``) that owns
-the typed ``params``; this module knows no provider and no task. Never mentions the number of joints or link
-lengths.
+The ``params`` object is the task: its class names the provider (class attribute ``provider``, a namespace of
+``config.providers``) and its ``name`` field names the task within it. ``TaskConfig.id`` is the derived
+``<provider>/<name>``. This module knows no provider and no task. Never mentions the number of joints or link lengths.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from typing import Any, Mapping
 
 from ._canon import as_float, as_int, as_vector, check_keys, within
 from .errors import ConfigError
-from .providers import known_task_ids, params_class
+from .providers import get_task_provider, known_task_ids, list_task_providers
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,21 +72,29 @@ class TaskConfig:
     """``target_region`` and ``success_tolerance`` define the goal of tasks whose ``params`` class sets
     ``uses_goal = True``; they must be ``None`` for tasks that define their own goal.
 
-    The ``params`` class of a task comes from its provider. Besides ``to_dict`` / ``from_dict`` the environment reads
-    ``reset_noise`` (rad, uniform noise on the initial joint positions) and ``terminate_on_success`` from it when
-    they exist.
+    ``params`` is an instance of the provider's params class: that class has a class attribute ``provider`` (the
+    namespace) and a field ``name`` (the task within the provider). Besides ``to_dict`` / ``from_dict`` the
+    environment reads ``reset_noise`` (rad, uniform noise on the initial joint positions) and
+    ``terminate_on_success`` from it when they exist.
     """
 
-    id: str
+    params: Any
     horizon: int
     success_tolerance: float | None
     target_region: TargetRegion | None
-    params: Any
 
     def __post_init__(self):
-        params_cls = params_class(self.id)
-        if params_cls is None:
-            raise ConfigError("id", f"unknown task {self.id!r}; known: {known_task_ids()}")
+        provider = getattr(self.params, "provider", None)
+        name = getattr(self.params, "name", None)
+        if not isinstance(provider, str) or not isinstance(name, str):
+            raise ConfigError(
+                "params",
+                f"expected a task provider's params object (a class attribute 'provider' and a field 'name'), "
+                f"got {type(self.params).__name__}",
+            )
+        params_cls = _params_class(provider, name, "params", "params.name")
+        if not isinstance(self.params, params_cls):
+            raise ConfigError("params", f"task {self.id!r} requires {params_cls.__name__}")
         horizon = as_int(self.horizon, "horizon")
         if horizon < 1:
             raise ConfigError("horizon", "must be >= 1")
@@ -104,29 +113,45 @@ class TaskConfig:
                 )
             if self.target_region is not None:
                 raise ConfigError("target_region", f"must be None for task {self.id!r}, which defines its own goal")
-        if not isinstance(self.params, params_cls):
-            raise ConfigError("params", f"task {self.id!r} requires {params_cls.__name__}")
+
+    @property
+    def id(self) -> str:
+        """``"<provider>/<name>"``, for messages and logs; derived from ``params``, never stored."""
+        return f"{self.params.provider}/{self.params.name}"
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "id": self.id,
+            "provider": self.params.provider,
+            "params": self.params.to_dict(),
             "horizon": self.horizon,
             "success_tolerance": self.success_tolerance,
             "target_region": None if self.target_region is None else self.target_region.to_dict(),
-            "params": self.params.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "TaskConfig":
-        check_keys(d, {"id", "horizon", "success_tolerance", "target_region", "params"}, "")
-        params_cls = params_class(d["id"])
-        if params_cls is None:
-            raise ConfigError("id", f"unknown task {d['id']!r}; known: {known_task_ids()}")
+        check_keys(d, {"provider", "params", "horizon", "success_tolerance", "target_region"}, "")
+        raw = d["params"]
+        if not isinstance(raw, Mapping):
+            raise ConfigError("params", f"expected a mapping, got {type(raw).__name__}")
+        if "name" not in raw:
+            raise ConfigError("params.name", "missing")
+        params_cls = _params_class(d["provider"], raw["name"], "provider", "params.name")
         region = d["target_region"]
         return cls(
-            id=d["id"],
+            params=within("params", params_cls.from_dict, raw),
             horizon=d["horizon"],
             success_tolerance=d["success_tolerance"],
             target_region=None if region is None else within("target_region", region_from_dict, region),
-            params=within("params", params_cls.from_dict, d["params"]),
         )
+
+
+def _params_class(provider: str, name: str, provider_path: str, name_path: str | None = None) -> type:
+    """The params class of task ``name`` of ``provider``; errors say where the bad value was written."""
+    name_path = name_path or provider_path
+    if not isinstance(provider, str) or provider not in list_task_providers():
+        raise ConfigError(provider_path, f"unknown task provider {provider!r}; registered: {list(list_task_providers())}")
+    cls = get_task_provider(provider).params_class(name) if isinstance(name, str) else None
+    if cls is None:
+        raise ConfigError(name_path, f"unknown task '{provider}/{name}'; known: {known_task_ids()}")
+    return cls

@@ -6,7 +6,7 @@ from typing import Any
 
 from ..simulators import check_capabilities, get_simulator
 from ..config import ConfigError, EnvConfig
-from ..config.providers import provider_for
+from ..config.providers import get_task_provider
 
 
 def make_env(cfg: EnvConfig) -> Any:
@@ -17,7 +17,7 @@ def make_env(cfg: EnvConfig) -> Any:
     so one error lists all of them.
     """
     simulator = get_simulator(cfg.sim.simulator)
-    provider, _ = provider_for(cfg.task.id)
+    provider = get_task_provider(cfg.task.params.provider)
     problems = check_capabilities(cfg, simulator.capabilities(), simulator.name)
     problems += simulator.validate(cfg)
     problems += provider.validate(cfg, simulator.name)

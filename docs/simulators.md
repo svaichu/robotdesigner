@@ -5,11 +5,11 @@ Related pages: [SimConfig](configs/sim.md), [TaskConfig](configs/task.md), [EnvC
 A **simulator** is a physics engine realized as code: `robotdesigner.simulators.<name>`, loaded by name when `sim.simulator`
 names it. It turns an [`EnvConfig`](configs/env.md) into a batched TorchRL environment. The config says
 what to run; the simulator and the task's provider decide whether they can, and build it. Tasks are not part of a simulator:
-they come from [task providers](configs/task.md#where-task-ids-come-from) and run on any simulator their provider accepts.
+they come from [task providers](configs/task.md#where-tasks-come-from) and run on any simulator their provider accepts.
 
 ```python no-run
 from robotdesigner import make_env
-env = make_env(cfg)        # cfg.sim.simulator picks the simulator, cfg.task.id the provider that supplies the task
+env = make_env(cfg)        # cfg.sim.simulator picks the simulator, cfg.task.params the provider that supplies the task
 ```
 
 | simulator | what it is | needs |
@@ -115,7 +115,7 @@ What tasks and wrappers need to know about a compiled robot, without engine-spec
 ```
 make_env(cfg)
   ├─ simulator = get_simulator(cfg.sim.simulator)                 the simulator named in the config
-  ├─ provider  = provider_for(cfg.task.id)                        owner of the task id's namespace
+  ├─ provider  = get_task_provider(cfg.task.params.provider)      owner of the task's namespace
   ├─ problems  = capabilities + simulator.validate + provider.validate   (all at once)
   └─ simulator.make_env(cfg)
         ├─ task = provider.build(cfg, simulator.name)       engine side of the task (a TaskImpl)
@@ -129,7 +129,7 @@ make_env(cfg)
 
 1. Write a class with `name`, `capabilities()`, `validate(cfg)` and `make_env(cfg)`. Import the engine inside
    `validate` and `make_env`, not at module level. `make_env` gets the task with
-   `provider_for(cfg.task.id)[0].build(cfg, self.name)`.
+   `get_task_provider(cfg.task.params.provider).build(cfg, self.name)`.
 2. Register it: `register_simulator("name", "your.module:YourSimulator")`.
 3. Register its options class: `register_simulator_options("name", YourOptions)` (it needs `to_dict` and `from_dict`). It
    is the type of `sim.options`, which `SimConfig` checks against `sim.simulator`.

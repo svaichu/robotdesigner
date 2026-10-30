@@ -13,10 +13,13 @@ from robotdesigner.tasks.robosuite.params import RESERVED_ENV_KWARGS
 
 Related pages: [TaskConfig](../configs/task.md), [SimConfig](../configs/sim.md), [simulators](../simulators.md). Needs the `robosuite` extra to build an environment; the config side below needs only numpy.
 
-## `RobosuiteParams(env_kwargs, objective, reset_noise, terminate_on_success)`
+## `RobosuiteParams(name, env_kwargs, objective, reset_noise, terminate_on_success)`
+
+The class names the provider (class attribute `provider = "robosuite"`); `name` names the task, so `TaskConfig.id` is `"robosuite/<name>"`.
 
 | field | type | rule |
 |---|---|---|
+| `name` | str | the robosuite environment, for example `"Lift"`; non-empty. Whether it exists is checked when the environment is built |
 | `env_kwargs` | mapping | keyword arguments for the robosuite environment constructor that shape the scene (`table_full_size`, `single_object_mode`, ...). Keys must be argument names; values must be `bool`, `int`, `float`, `str`, `None`, lists or mappings of those. Names the environment does not accept are reported when the environment is built |
 | `objective` | `LiftObject` or `ReachObject` | what counts as success, and which object the reward measures |
 | `reset_noise` | float | `>= 0`; uniform noise on the initial joint positions, in radians |
@@ -34,13 +37,14 @@ replace (add an objective, see [writing a task provider](writing-a-provider.md))
 
 ```python
 lift = TaskConfig(
-    id="robosuite/Lift",
+    params=RobosuiteParams(name="Lift", env_kwargs={"table_full_size": [0.8, 0.8, 0.05]},
+                           objective=LiftObject("cube", 0.84), reset_noise=0.0, terminate_on_success=False),
     horizon=200,
     success_tolerance=None,
     target_region=None,
-    params=RobosuiteParams({"table_full_size": [0.8, 0.8, 0.05]}, LiftObject("cube", 0.84),
-                           reset_noise=0.0, terminate_on_success=False),
 )
+assert lift.id == "robosuite/Lift"          # derived: the class names the provider, `name` the environment
+assert lift.to_dict()["provider"] == "robosuite" and lift.to_dict()["params"]["name"] == "Lift"
 assert lift.params.kwargs == {"table_full_size": (0.8, 0.8, 0.05)}
 assert lift.to_dict()["params"]["objective"] == {"kind": "lift_object", "object": "cube", "height": 0.84}
 assert TaskConfig.from_dict(lift.to_dict()) == lift
@@ -76,8 +80,8 @@ arm = chain(4, "zyyy", total_length=0.9, total_mass=6.0, radius=0.04, damping=1.
 cfg = EnvConfig(
     robot=arm,
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-    task=TaskConfig("robosuite/Lift", 200, None, None,
-                    RobosuiteParams({}, LiftObject("cube", 0.84), reset_noise=0.0, terminate_on_success=False)),
+    task=TaskConfig(RobosuiteParams("Lift", {}, LiftObject("cube", 0.84), reset_noise=0.0, terminate_on_success=False),
+                    horizon=200, success_tolerance=None, target_region=None),
     sim=SimConfig("mujoco", num_envs=4, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
                   scene="empty", options=MujocoOptions(self_collision=False)),
 )
@@ -134,12 +138,12 @@ def error_of(build):
     raise AssertionError("no error")
 
 objective = ReachObject("cube", 0.05)
-ok = RobosuiteParams({}, objective, 0.0, False)
-assert error_of(lambda: TaskConfig("robosuite/", 10, None, None, ok)).path == "id"                   # needs an environment name
-assert error_of(lambda: TaskConfig("robosuite/Lift", 10, 0.02, None, ok)).path == "success_tolerance"  # the objective defines success
-assert error_of(lambda: TaskConfig("robosuite/Lift", 10, None, None, objective)).path == "params"
-assert error_of(lambda: RobosuiteParams({"robots": "Panda"}, objective, 0.0, False)).path == "env_kwargs"
-assert error_of(lambda: RobosuiteParams({"x": object()}, objective, 0.0, False)).path == "env_kwargs.x"
-assert error_of(lambda: RobosuiteParams({}, "lift", 0.0, False)).path == "objective"
+ok = RobosuiteParams("Lift", {}, objective, 0.0, False)
+assert error_of(lambda: RobosuiteParams("", {}, objective, 0.0, False)).path == "name"                # needs an environment name
+assert error_of(lambda: TaskConfig(ok, 10, 0.02, None)).path == "success_tolerance"                  # the objective defines success
+assert error_of(lambda: TaskConfig(objective, 10, None, None)).path == "params"                      # not a params object
+assert error_of(lambda: RobosuiteParams("Lift", {"robots": "Panda"}, objective, 0.0, False)).path == "env_kwargs"
+assert error_of(lambda: RobosuiteParams("Lift", {"x": object()}, objective, 0.0, False)).path == "env_kwargs.x"
+assert error_of(lambda: RobosuiteParams("Lift", {}, "lift", 0.0, False)).path == "objective"
 assert error_of(lambda: ReachObject("cube", 0.0)).path == "tolerance"
 ```

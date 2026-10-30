@@ -42,7 +42,7 @@ class ToyTasks:
         return []
 
     def build(self, cfg: Any, simulator: str) -> Any:
-        module, _, cls = self.TASKS[cfg.task.id.split("/", 1)[1]][1].partition(":")
+        module, _, cls = self.TASKS[cfg.task.params.name][1].partition(":")
         return getattr(importlib.import_module(module), cls)(cfg)
 
 
