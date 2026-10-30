@@ -14,8 +14,8 @@ env = make_env(cfg)        # cfg.sim.backend picks the simulator, cfg.task.id th
 | `mujoco` | CPU MuJoCo: a model compiled from the config (robot, a scene preset, the task's assets). The reference and debugging backend | `[env]` extra |
 | `warp` | planned: the same models on the GPU. Declared as an extra only, not implemented | |
 
-Where a task's scene comes from is a provider matter: [native tasks](tasks/native.md) need none,
-[robosuite scenes](tasks/robosuite.md) load a robosuite arena and its objects into the MuJoCo model.
+Where a task's scene comes from is a provider matter: [robosuite scenes](tasks/robosuite.md) load a robosuite arena and
+its objects into the MuJoCo model; a task that needs no assets adds none and runs on `sim.scene`.
 
 ## Protocol and registry
 
@@ -78,10 +78,12 @@ Every backend returns a TorchRL `EnvBase` with these properties, whatever the ta
 - **Reward:** `[num_envs, 1]` float32, from the task.
 - **Always present** in the observation: `success` `[num_envs, 1]` bool and `episode_step` `[num_envs, 1]` int64, a
   `task` group (whatever the task observes) and a `proprio` group with `qpos`, `qvel` and `effort`, each `[num_envs, n]`.
-- **Injected state:** the reset TensorDict may carry `qpos` and `qvel`, and whatever the task accepts (the
-  [native reach](tasks/native.md) task takes `target`), which override the random initialization. This is how two
+- **Injected state:** the reset TensorDict may carry `qpos` and `qvel`, and whatever the task accepts (a task
+  documents its own keys, for example a goal point), which override the random initialization. This is how two
   backends are compared from the same start, or an episode is replayed.
-- **Seeding:** `env.set_seed(seed)`. The same backend, device and seed give the same episodes.
+- **Seeding:** `env.set_seed(seed)`. The same backend, device and seed give the same episodes. The reset noise of the
+  robot and the draws of the task come from two separate streams, both seeded from `sim.seed`: what a task draws (an
+  object's placement, a goal) is the same for every embodiment run with the same seed and `num_envs`.
 - **Attributes:** `env.cfg` (the resolved config), `env.robot_hash`, `env.env_hash`, `env.task` (the task's engine side),
   `env.interface` (a `RobotInterface`, below), `env.q_target` (position targets in `joint_pos_delta` mode).
 - `env.render(...)` returns an RGB frame of the live state, with the overlays the task draws; see [viz](viz.md).

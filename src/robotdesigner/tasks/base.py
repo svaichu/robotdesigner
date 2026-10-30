@@ -31,8 +31,9 @@ class TaskImpl(Protocol):
     def reset(self, sim: Any, mask: Any, rand: Callable[..., Any], injected: Callable[[str], Any]) -> None:
         """Reset the task state of the envs selected by ``mask`` (bool ``(N,)``), after the robot has been reset.
 
-        ``rand(*shape, dtype=torch.float64)`` draws from the environment's seeded generator; always draw for the whole
-        batch so the random stream does not depend on the mask. ``injected(key)`` returns a tensor the caller put in
+        ``rand(*shape, dtype=torch.float64)`` draws from a stream that belongs to the task: it is seeded by
+        ``sim.seed`` and does not depend on the robot, so the same task instance can be replayed on different
+        embodiments. Always draw for the whole batch so the stream does not depend on the mask. ``injected(key)`` returns a tensor the caller put in
         the reset TensorDict (for example a replayed ``target``), or ``None``.
         """
         ...

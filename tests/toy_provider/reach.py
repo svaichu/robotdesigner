@@ -1,4 +1,4 @@
-"""Engine side of the ``reach`` task: move the end effector to a target point. Needs torch, torchrl and MuJoCo."""
+"""Engine side of ``toy/reach``: move the end effector to a target point. Needs torch, torchrl and MuJoCo."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ import numpy as np
 import torch
 from torchrl.data import Composite, Unbounded
 
-from ...config import FixedBox, OwnReachable
-from ...config import kinematics as kin
-from ..base import BaseTask
+from robotdesigner.config import FixedBox, OwnReachable
+from robotdesigner.config import kinematics as kin
+from robotdesigner.tasks.base import BaseTask
 
 _TARGET = (0.95, 0.20, 0.20, 0.95)
 _TARGET_HIT = (0.20, 0.80, 0.30, 0.95)
@@ -85,7 +85,7 @@ class ReachTask(BaseTask):
     def overlays(self, scene, sim, data, env_index: int) -> None:
         import mujoco
 
-        from ...backends.mujoco.render import add_geom, add_line
+        from robotdesigner.backends.mujoco.render import add_geom, add_line
 
         R, p = sim._base_R, sim._base_pos
         tol = float(self._tol)

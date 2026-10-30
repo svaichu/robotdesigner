@@ -12,7 +12,7 @@ clip.save("run.mp4")       # the format follows the suffix: .mp4 or .gif
 clip.show("gif")           # show inline in a chosen format
 ```
 
-The walkthrough is `examples/reach_viz.ipynb`; `examples/reach_record.py` is the same thing as a headless script.
+The walkthrough is `examples/scene_viz.ipynb`; `examples/record_scene.py` is the same thing as a headless script.
 
 ## Install and headless machines
 
@@ -34,12 +34,9 @@ Without a context, `env.render()` raises a `RuntimeError` that says this.
 live state of one env, so any step loop can collect frames itself.
 
 - **The whole MuJoCo scene**: floor, robot, and anything else in the compiled model.
-- **Overlays** (`overlays=True`), drawn from task state that is not part of the model:
-  the target as a sphere (radius `success_tolerance`, at least 1 cm) with a cross-hair, red until the end effector is within the
-  tolerance and green after; and, for a `FixedBox` target region, its edges as a blue wireframe box.
-  The cross-hair is there because, when the arm is thicker than the tolerance (as in the examples), the sphere sits
-  inside the arm tip at the moment of success and would not be seen.
-  The region is a wireframe because a filled translucent box casts a solid shadow on the floor.
+- **Overlays** (`overlays=True`), drawn by the task's `overlays` hook from task state that is not part of the model (a
+  goal marker, say). A task that keeps everything in the model draws none: the robosuite scenes have none, their
+  objects are bodies of the model. Overlays are added to a scratch scene, never to the model.
 - Rendering never changes the simulation. It works on a scratch copy of the state (a test checks that rendering every
   step leaves `qpos`, `qvel`, time and warm start bit-identical).
 - The scene presets have no skybox, so the background above the floor is black.
@@ -65,14 +62,15 @@ covers every config; pass it as `camera=` to each recording. Frames then share a
 
 ```python
 shared = auto_camera(cfg_small, cfg_big)
-same_task = TensorDict({"target": torch.tensor([[0.35, 0.10, 0.0]])}, batch_size=[1])
-_, a = record_rollout(env_small, 60, policy_small, camera=shared, reset_td=same_task, every=2, label=False)
-_, b = record_rollout(env_big, 60, policy_big, camera=shared, reset_td=same_task, every=2, label=False)
+_, a = record_rollout(env_small, 60, policy_small, camera=shared, every=2, label=False)
+_, b = record_rollout(env_big, 60, policy_big, camera=shared, every=2, label=False)
 tile_clips([a, b], labels=["n=2", "n=5"])
 ```
 
-The reach env samples its random numbers in an order that depends on `n`, so the same seed does not give the same
-target to different embodiments; inject the target through `reset_td` as above.
+A task draws from its own random stream, so with the same `sim.seed` and `num_envs` every embodiment gets the same scene
+(the same object placement) at every reset, whatever its number of joints. For a task that takes injected state, `reset_td`
+(a `TensorDict` of what the reset should use) pins it instead. A fixed camera of the scene, such as the robosuite
+arena's `"rs_agentview"`, also shares a scale across embodiments.
 
 ## Reference
 
@@ -130,5 +128,5 @@ env.cfg.sim.control_freq                            # or pass fps= to record_rol
 - Only the CPU MuJoCo backend renders so far.
 - Frames are rendered while the rollout runs; replaying recorded states afterwards is not implemented.
 - TorchRL's own `torchrl.render` stack is not wired in (see `.agent/future_ideas.md`).
-- No depth or segmentation output, and only `FixedBox` target regions are drawn.
+- No depth or segmentation output.
 - Tested with Python 3.13 (CI also runs 3.10 and 3.12).

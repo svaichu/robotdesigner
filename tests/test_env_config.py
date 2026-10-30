@@ -14,7 +14,7 @@ from robotdesigner.config import (
     TaskConfig,
     chain,
 )
-from robotdesigner.tasks.native import ReachParams, reach_task
+from tests.toy_provider import ReachParams
 
 
 def make_cfg(dt=0.002, num_envs=8, horizon=200, kp=60.0, mass=3.0, region=None):
@@ -26,7 +26,7 @@ def make_cfg(dt=0.002, num_envs=8, horizon=200, kp=60.0, mass=3.0, region=None):
         robot=arm,
         control=ControlConfig(mode="joint_pos_abs", gains=FixedGains(kp=kp, kd=6.0), action_scale=None),
         task=TaskConfig(
-            id="native/reach",
+            id="toy/reach",
             horizon=horizon,
             success_tolerance=0.02,
             target_region=region or FixedBox(low=(0.2, -0.3, 0.0), high=(0.6, 0.3, 0.4)),
@@ -113,26 +113,24 @@ def test_inertia_scaled_gains_round_trip_and_validation():
 def test_task_config_rules_come_from_the_provider():
     ok = ReachParams(0.0, False)
     with pytest.raises(ConfigError, match="success_tolerance"):
-        TaskConfig("native/reach", 10, None, None, ok)  # a goal task needs its tolerance
+        TaskConfig("toy/reach", 10, None, None, ok)  # a goal task needs its tolerance
     with pytest.raises(ConfigError, match="target_region"):
-        TaskConfig("native/reach", 10, 0.02, None, ok)  # and its target region
+        TaskConfig("toy/reach", 10, 0.02, None, ok)  # and its target region
     with pytest.raises(ConfigError, match="horizon"):
-        TaskConfig("native/reach", 0, 0.02, OwnReachable(), ok)
-    with pytest.raises(ConfigError, match="params: task 'native/reach' requires ReachParams"):
-        TaskConfig("native/reach", 10, 0.02, OwnReachable(), MujocoOptions(False))
-    for bad in ("native/", "native/nope", "nope/reach", "reach", "", "Native/reach", 3):
+        TaskConfig("toy/reach", 0, 0.02, OwnReachable(), ok)
+    with pytest.raises(ConfigError, match="params: task 'toy/reach' requires ReachParams"):
+        TaskConfig("toy/reach", 10, 0.02, OwnReachable(), MujocoOptions(False))
+    for bad in ("toy/", "toy/nope", "nope/reach", "reach", "", "Toy/reach", 3):
         with pytest.raises(ConfigError, match="unknown task"):
             TaskConfig(bad, 10, 0.02, OwnReachable(), ok)
     with pytest.raises(ConfigError, match="unknown task"):
         TaskConfig.from_dict({**make_cfg().task.to_dict(), "id": "nope/reach"})
 
 
-def test_reach_task_helper_equals_the_spelled_out_config():
-    spelled = TaskConfig("native/reach", 200, 0.02, OwnReachable(), ReachParams(0.05, True))
-    assert reach_task(200, 0.02, OwnReachable(), 0.05, True) == spelled
-    assert reach_task(horizon=10, success_tolerance=0.1, target_region=OwnReachable(), reset_noise=0.0,
-                      terminate_on_success=False).id == "native/reach"
+def test_task_params_validate_themselves():
     with pytest.raises(ConfigError, match="^reset_noise"):
-        reach_task(10, 0.1, OwnReachable(), -1.0, False)
-    with pytest.raises(ConfigError, match="^target_region"):
-        reach_task(10, 0.1, None, 0.0, False)
+        ReachParams(-1.0, False)
+    with pytest.raises(ConfigError, match="terminate_on_success"):
+        ReachParams(0.0, "yes")
+    spelled = TaskConfig("toy/reach", 200, 0.02, OwnReachable(), ReachParams(0.05, True))
+    assert TaskConfig.from_dict(spelled.to_dict()) == spelled

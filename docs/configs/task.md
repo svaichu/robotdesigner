@@ -13,8 +13,8 @@ from robotdesigner.config import (
 ```
 
 Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [SimConfig](sim.md), [EnvConfig](env.md),
-[backends](../backends.md), and the pages of the task providers that ship with the package:
-[native tasks](../tasks/native.md) and [robosuite scenes](../tasks/robosuite.md).
+[backends](../backends.md), and the page of the task provider that ships with the package:
+[robosuite scenes](../tasks/robosuite.md).
 
 ## `TaskConfig(id, horizon, success_tolerance, target_region, params)`
 
@@ -36,7 +36,8 @@ never here.
 
 ## Where task ids come from
 
-The package itself knows no task. A **task provider** owns a namespace: it names its tasks, gives each a typed params
+The package itself knows no task by name, and the one provider that ships with it is `robosuite` (arenas and objects of
+robosuite environments). A **task provider** owns a namespace: it names its tasks, gives each a typed params
 class, checks a config against a simulator, and builds the task for it. Providers are registered, not listed:
 
 - every subpackage of `robotdesigner.tasks` is a provider, named like the subpackage (`PROVIDER` is its entry point);
@@ -56,7 +57,8 @@ placed.
 | `FixedBox(low, high)` | uniform in an axis-aligned box, in the base frame; `low <= high` componentwise |
 | `OwnReachable()` | the end-effector position of a uniformly sampled joint configuration of the arm itself (inside the joint ranges, `±pi` for unlimited joints), expressed in the base frame, so the target is always reachable |
 
-Both are drawn by the environment's seeded generator.
+Both are drawn by the task's own seeded random stream (`sim.seed`), which does not depend on the robot's number of joints,
+except that `OwnReachable` samples that many joint angles by definition.
 
 ```python
 box = FixedBox(low=(0.2, -0.3, 0.0), high=(0.6, 0.3, 0.4))
@@ -160,3 +162,8 @@ A provider has two halves, kept apart so that the config layer never imports an 
 
 Keep the module that defines the provider free of engine imports (put them inside `validate` and `build`, or in the
 module that `build` imports). Test it with `check_env_specs`, a masked-reset test and a seeding test.
+
+`tests/toy_provider/` is a complete small provider, a goal task that moves the end effector to a target point
+(`params.py` is the config side, `reach.py` the engine side, `__init__.py` the provider object). The engine tests use it,
+registered under the namespace `toy` by `tests/conftest.py`; it is not part of the installed package. Copy it as a
+starting point.

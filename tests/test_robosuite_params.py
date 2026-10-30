@@ -7,7 +7,6 @@ import pytest
 from robotdesigner.config import (
     ConfigError, ControlConfig, EnvConfig, FixedGains, MujocoOptions, OwnReachable, Pose, SimConfig, TaskConfig, chain,
 )
-from robotdesigner.tasks.native import ReachParams
 from robotdesigner.tasks.robosuite import LiftObject, ReachObject, RobosuiteParams
 from robotdesigner.tasks.robosuite.params import RESERVED_ENV_KWARGS, objective_from_dict
 
@@ -75,7 +74,7 @@ def test_validation_errors_carry_paths():
     with pytest.raises(ConfigError, match="target_region: must be None"):
         TaskConfig("robosuite/Lift", 10, None, OwnReachable(), ok)
     with pytest.raises(ConfigError, match="requires RobosuiteParams"):
-        TaskConfig("robosuite/Lift", 10, None, None, ReachParams(0.0, False))
+        TaskConfig("robosuite/Lift", 10, None, None, LiftObject("cube", 0.84))
     d = make_cfg().to_dict()
     d["task"]["params"]["objective"]["kind"] = "juggle"
     with pytest.raises(ConfigError, match=r"^task\.params\.objective\.kind"):

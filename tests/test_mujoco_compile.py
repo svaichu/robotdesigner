@@ -9,7 +9,7 @@ from robotdesigner.backends.mujoco.compile import compile_robot  # noqa: E402
 from robotdesigner.config import (  # noqa: E402
     ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
 )
-from robotdesigner.tasks.native import ReachParams
+from tests.toy_provider import ReachParams
 from robotdesigner.config import kinematics as kin  # noqa: E402
 
 COMMON = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0)
@@ -22,7 +22,7 @@ def make_cfg(arm, mode="joint_pos_abs", **sim):
     return EnvConfig(
         robot=arm,
         control=ControlConfig(mode=mode, gains=FixedGains(60.0, 6.0), action_scale=None),
-        task=TaskConfig("native/reach", 100, 0.02, FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)),
+        task=TaskConfig("toy/reach", 100, 0.02, FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)),
                         ReachParams(0.0, False)),
         sim=SimConfig(**sim_kw),
         backend_options=MujocoOptions(self_collision=False),

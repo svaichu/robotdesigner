@@ -15,7 +15,6 @@ Start with the [README](../README.md) for installation and a first environment.
 | [SimConfig and backend options](configs/sim.md) | simulator, batch size, time step, seed, scene, `MujocoOptions` |
 | [EnvConfig](configs/env.md) | how the sections combine, serialization, hashing, errors |
 | [Backends](backends.md) | simulators, capabilities, the environment contract, how an environment is put together, adding a backend |
-| [Native tasks](tasks/native.md) | the tasks that need no third-party assets |
 | [robosuite scenes](tasks/robosuite.md) | robosuite arenas and objects as a task, objectives, which environments work |
 | [Recording and showing videos](viz.md) | `env.render()`, `robotdesigner.viz` clips, the frame recorder and camera framing |
 | [Design spec](spec_robotconfig_env.md) | why it is built this way, status and decisions |
@@ -61,23 +60,26 @@ robot hash tells the arms apart.
 from dataclasses import replace
 
 from robotdesigner.config import (
-    ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, SimConfig, chain,
+    ControlConfig, EnvConfig, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
 )
-from robotdesigner.tasks.native import reach_task        # a task comes from the provider that owns it
+from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams   # a task comes from the provider that owns it
+
+MOUNT = Pose((-0.56, 0.0, 0.912), (1.0, 0.0, 0.0, 0.0))   # where robosuite mounts a stock arm in the Lift scene
 
 def arm_with(n):
     # the same total length and mass, spread over n joints: a yaw joint followed by n - 1 pitch joints
     return chain(n, "z" + "y" * (n - 1), total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5,
-                 armature=0.01, frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5), label=f"{n}-joint")
+                 armature=0.01, frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5), base_pose=MOUNT,
+                 label=f"{n}-joint")
 
 base = EnvConfig(
     robot=arm_with(3),
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-    task=reach_task(horizon=200, success_tolerance=0.02,
-                    target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),   # the same targets for every arm
-                    reset_noise=0.0, terminate_on_success=False),
+    task=TaskConfig("robosuite/Lift", horizon=200, success_tolerance=None, target_region=None,
+                    params=RobosuiteParams({}, LiftObject("cube", height=0.84), reset_noise=0.0,
+                                           terminate_on_success=False)),   # the same table and cube for every arm
     sim=SimConfig("mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
-                  scene="plain_floor"),
+                  scene="empty"),
     backend_options=MujocoOptions(self_collision=False),
 )
 family = {n: replace(base, robot=arm_with(n)) for n in (2, 3, 4, 5, 6)}
@@ -87,5 +89,6 @@ assert len({cfg.robot.config_hash for cfg in family.values()}) == 5      # five 
 assert all(cfg.task == base.task and cfg.sim == base.sim for cfg in family.values())   # one task, one sim
 ```
 
-Then build each with `env = make_env(cfg)`. Use `OwnReachable()` instead of `FixedBox` to give every arm targets it can
-reach. The hashes in `cfg.env_hash` and `env.env_hash` identify each run.
+Then build each with `env = make_env(cfg)` (the robosuite extra is needed to build the scene). With the same `sim.seed`
+and `num_envs` every arm gets the same cube placement at every reset, whatever its number of joints: the task draws from
+its own random stream. The hashes in `cfg.env_hash` and `env.env_hash` identify each run.

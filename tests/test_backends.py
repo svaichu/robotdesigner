@@ -127,14 +127,14 @@ def test_provider_problems_are_collected_with_the_backend_problems(dummy):
 
 
 def test_a_task_of_one_provider_is_checked_against_the_backend(dummy):
-    # the built-in task provider runs only on backends it names; the dummy backend is not one of them
+    # a task provider runs only on the backends it names; the dummy backend is not one of them
     from dataclasses import replace
 
     cfg = dummy_cfg(device="cuda:0")
     cfg = type(cfg)(cfg.robot, replace(cfg.control, mode="joint_torque", gains=cfg.control.gains),
                     make_cfg().task, cfg.sim, cfg.backend_options)
     register_backend("dummy", DummyBackend())
-    with pytest.raises(ConfigError, match="task 'native/reach' runs on"):
+    with pytest.raises(ConfigError, match="task 'toy/reach' runs on"):
         make_env(cfg)
 
 

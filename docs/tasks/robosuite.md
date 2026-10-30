@@ -11,8 +11,7 @@ from robotdesigner.tasks.robosuite import LiftObject, ReachObject, RobosuitePara
 from robotdesigner.tasks.robosuite.params import RESERVED_ENV_KWARGS
 ```
 
-Related pages: [TaskConfig](../configs/task.md), [SimConfig](../configs/sim.md), [backends](../backends.md),
-[native tasks](native.md). Needs the `robosuite` extra to build an environment; the config side below needs only numpy.
+Related pages: [TaskConfig](../configs/task.md), [SimConfig](../configs/sim.md), [backends](../backends.md). Needs the `robosuite` extra to build an environment; the config side below needs only numpy.
 
 ## `RobosuiteParams(env_kwargs, objective, reset_noise, terminate_on_success)`
 
@@ -98,7 +97,8 @@ env = make_env(cfg)
   `PickPlace`) are in the scene but not observed.
 - **Randomness.** The scene is built once, with robosuite's own draws (for example the size of the `Lift` cube) seeded from
   `sim.seed`. Objects with a free joint are placed by robosuite's sampler at every reset, each env with its own stream
-  derived from the environment's generator, so `env.set_seed` reproduces episodes. Objects without a free joint (the
+  derived from the task's random stream, so `env.set_seed` reproduces episodes. That stream does not depend on the
+  robot: arms with different numbers of joints get the same placements for the same seed and `num_envs`. Objects without a free joint (the
   door of `Door`, the target bins of `PickPlace`) are fixtures: all envs share one model, so they are placed once, at build time,
   and stay put. Objects the sampler does not place keep their pose in the model.
 - **Cameras.** The arena's cameras are in the model, with the prefix `rs_`: `env.render(camera="rs_agentview")`.

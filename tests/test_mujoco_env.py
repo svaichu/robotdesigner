@@ -12,7 +12,7 @@ from torchrl.envs.utils import check_env_specs  # noqa: E402
 from robotdesigner.config import (  # noqa: E402
     ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, OwnReachable, SimConfig, TaskConfig, chain,
 )
-from robotdesigner.tasks.native import ReachParams
+from tests.toy_provider import ReachParams
 from robotdesigner.envs import make_env  # noqa: E402
 
 COMMON = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0)
@@ -23,7 +23,7 @@ def make_cfg(n=2, num_envs=3, seed=0, horizon=20, region=None, mode="joint_pos_a
     return EnvConfig(
         robot=arm,
         control=ControlConfig(mode, FixedGains(60.0, 6.0), None),
-        task=TaskConfig("native/reach", horizon, 0.02,
+        task=TaskConfig("toy/reach", horizon, 0.02,
                         region or FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)),
                         ReachParams(noise, terminate)),
         sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, seed, "plain_floor"),
@@ -86,6 +86,21 @@ def test_determinism():
     other = make_env(make_cfg(num_envs=2, noise=0.1, seed=5))
     other.set_seed(12)
     assert not torch.equal(other.reset()["task", "target_pos"], runs[0][0])
+
+
+def test_task_draws_do_not_depend_on_the_robot():
+    # the task has its own random stream: with the same seed, two embodiments get the same targets, reset after reset,
+    # although their reset noise has a different shape
+    targets = {}
+    for n in (2, 4):
+        env = make_env(make_cfg(n=n, num_envs=3, noise=0.1, seed=7))
+        draws = [env.reset()["task", "target_pos"].clone() for _ in range(3)]
+        env.set_seed(21)
+        draws.append(env.reset()["task", "target_pos"].clone())
+        targets[n] = torch.stack(draws)
+        env.close()
+    assert torch.equal(targets[2], targets[4])
+    assert not torch.equal(targets[2][0], targets[2][1])  # and the stream does advance
 
 
 def test_injected_state():

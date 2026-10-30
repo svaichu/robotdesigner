@@ -96,6 +96,18 @@ def test_placement_is_seeded_and_envs_differ():
     env.close()
 
 
+def test_the_same_scene_is_placed_for_every_embodiment():
+    # the placement comes from the task's own stream, so it does not depend on the robot's number of joints
+    cubes = {}
+    for n, axes in ((2, "zy"), (3, "zyy"), (5, "zyyyy")):
+        env = make_env(make_cfg(num_envs=3, seed=2, n=n, axes=axes, noise=0.1))
+        cubes[n] = [env.reset()["task", "cube_pos"].clone() for _ in range(2)]
+        env.close()
+    for n in (3, 5):
+        assert all(torch.equal(a, b) for a, b in zip(cubes[2], cubes[n]))
+    assert not torch.equal(cubes[2][0], cubes[2][1])
+
+
 def test_masked_reset_only_replaces_the_masked_envs():
     env = make_env(make_cfg(num_envs=2))
     td = env.reset()

@@ -10,9 +10,9 @@ import json
 from dataclasses import replace
 
 from robotdesigner.config import (
-    ConfigError, ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, chain,
+    ConfigError, ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
 )
-from robotdesigner.tasks.native import reach_task
+from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams
 ```
 
 Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [TaskConfig](task.md), [SimConfig](sim.md),
@@ -41,16 +41,17 @@ accepts it on that simulator is not checked here: `make_env` reports it when the
 ## Example
 
 ```python
-arm = chain(3, "zyz", total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5, armature=0.01,
-            frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5), label="three-joint arm")
+arm = chain(3, "zyy", total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5, armature=0.01,
+            frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5), label="three-joint arm",
+            base_pose=Pose((-0.56, 0.0, 0.912), (1.0, 0.0, 0.0, 0.0)))   # the mount of a stock arm in robosuite's Lift
 cfg = EnvConfig(
     robot=arm,
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-    task=reach_task(horizon=200, success_tolerance=0.02,       # a task of the `native` provider
-                    target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),
-                    reset_noise=0.0, terminate_on_success=False),
+    task=TaskConfig(id="robosuite/Lift", horizon=200, success_tolerance=None, target_region=None,   # a task of the
+                    params=RobosuiteParams({}, LiftObject("cube", height=0.84),                        # `robosuite` provider
+                                           reset_noise=0.0, terminate_on_success=False)),
     sim=SimConfig(backend="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
-                  control_freq=50.0, seed=0, scene="plain_floor"),
+                  control_freq=50.0, seed=0, scene="empty"),               # the arena brings its own floor
     backend_options=MujocoOptions(self_collision=False),
 )
 assert list(cfg.to_dict()) == ["robot", "control", "task", "sim", "backend_options"]

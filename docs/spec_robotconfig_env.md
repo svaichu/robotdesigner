@@ -1,9 +1,9 @@
 # RobotConfig, EnvConfig and backends: design record (v7, as built)
 
 > **Status.** Implemented and tested: the config layer, the CPU MuJoCo backend with one generic environment, task providers
-> (the `native` provider with the reach task, and `robosuite` as a source of arenas and objects). Not implemented: the `warp` GPU backend, `ExternalRobot`, family-reachable target
+> (`robosuite`, a source of arenas and objects, is the one provider in the package). Not implemented: the `warp` GPU backend, `ExternalRobot`, family-reachable target
 > regions and end-effector control modes. Written 2026-10-27 as a proposal, brought in line with the code on 2026-10-29, and revised the same day for task
-> providers (section 5a; Appendix A is rewritten).
+> providers (section 5a; Appendix A is rewritten), and on 2026-10-30 again for the removal of the in-package reach task (section 5b).
 > Field-level detail lives in the reference pages ([docs/README.md](README.md)), which the tests check against the code;
 > this document keeps the purpose, the principles, the decisions and their reasons. Companion note:
 > `.agent/quotient_space.md`. Working notes: `.agent/memory.md`.
@@ -45,7 +45,6 @@ robotdesigner.viz                  clips, frame recorder, camera framing (saving
 robotdesigner.backends             simulators: protocol, capabilities, lazy registry
 robotdesigner.backends.mujoco      CPU reference backend and its generic env; arm_spec.add_arm builds the chain
 robotdesigner.tasks                task contract (base.py); one subpackage per provider namespace, found by config.providers
-robotdesigner.tasks.native         tasks without third-party assets (reach)
 robotdesigner.tasks.robosuite      robosuite arenas and objects as a task; the compatibility layer
 (planned) backends.warp            GPU training
 ```
@@ -86,7 +85,7 @@ EnvConfig(robot, control, task, sim, backend_options)
 |---|---|---|
 | robot | `ParametricArm` (a `RobotConfig`) | [robot.md](configs/robot.md) |
 | control | `ControlConfig` with `FixedGains` or `InertiaScaledGains` | [control.md](configs/control.md) |
-| task | `TaskConfig` with the params class of the task's provider | [task.md](configs/task.md), [native.md](tasks/native.md), [robosuite.md](tasks/robosuite.md) |
+| task | `TaskConfig` with the params class of the task's provider | [task.md](configs/task.md), [robosuite.md](tasks/robosuite.md) |
 | sim | `SimConfig` (names a simulator) | [sim.md](configs/sim.md) |
 | backend options | `MujocoOptions` | [sim.md](configs/sim.md#backend-options) |
 
@@ -103,7 +102,7 @@ As built, and where it differs from the first proposal:
   region is deferred. Tasks that define their own goal take `None` for `target_region` and `success_tolerance`.
 - **SimConfig.** `backend, num_envs, device, dt, integrator, control_freq, seed, scene`, all required, no defaults (the
   proposal planned defaults for `dt` and `integrator` and a `render` field; neither exists). `backend` names a simulator. `1 / (control_freq * dt)`
-  must be a positive integer. Rendering is not a config field: `env.render()` on the native env and `robotdesigner.viz`
+  must be a positive integer. Rendering is not a config field: `env.render()` on the MuJoCo env and `robotdesigner.viz`
   produce frames and clips ([viz.md](viz.md)).
 - **EnvConfig.** `resolve()` is the identity today (nothing needs resolving until family-reachable regions exist);
   `env_hash` covers the robot's full hash, control, task, sim and options, so `seed` and `num_envs` are part of it.
@@ -148,7 +147,24 @@ simulator and should be able to run any task, and a task source (robosuite) is n
   registry and fails if config, backends, envs, viz or the task contract mention one.
 - **robosuite is a source of assets** (Appendix A). Reward and success are ours.
 - Moving the reach task out of the core changed nothing it computes: rollouts of four configs (absolute, delta with a masked
-  reset, torque with self-collision, velocity) are bit-identical to those of the previous version, and so are the `env_hash`es.
+  reset, torque with self-collision, velocity) were bit-identical to those of the previous version, and so were the `env_hash`es.
+
+### 5b. No task ships except robosuite's (2026-10-30)
+
+The package no longer contains any task of its own. The reach task, its `reach_task` helper and its page are gone: the
+package is a framework for loading embodiments into an RL env, tasks are what a provider brings, and the one provider in
+the package is `robosuite` (arenas and objects). Consequences:
+
+- The engine tests (batched env, control modes, masked reset, seeding, rendering overlays, goal regions) run on a test-only
+  provider, `tests/toy_provider` (namespace `toy`, registered by `tests/conftest.py`); it is also the smallest example of a
+  provider. The reach `env_hash`es of section 5a no longer exist in the library.
+- The goal machinery (`FixedBox`, `OwnReachable`, `uses_goal`, `success_tolerance`, `target_region`) stays in the config
+  layer: it is the contract goal tasks of any provider use.
+- **The task has its own random stream.** The environment keeps two generators seeded from `sim.seed`: one for the reset noise of
+  the robot (its shape depends on `n`) and one for the task (`rand` in `TaskImpl.reset`). Before this change a task's draws
+  followed the robot's, so two embodiments with the same seed got different placements; now they get the same ones, which is
+  what comparing embodiments on one task needs. Reset noise and task draws changed relative to the previous commit for a
+  given seed; the config and its hash did not.
 
 ## 6. Env contract (TorchRL)
 
@@ -164,7 +180,7 @@ env.robot_hash, env.env_hash
 
 Subclasses implement `_reset`, `_step` and `_set_seed` and declare the specs; they never override `reset` or `step`.
 
-- **Observation keys are declared per backend.** `qpos` and `qvel` are required in `proprio`; `effort` exists on the native
+- **Observation keys are declared per backend.** `qpos` and `qvel` are required in `proprio`; `effort` exists on the MuJoCo
   backend only; the `task` group depends on the task. Analyses that must run everywhere use the required subset. Details:
   [backends.md](backends.md#the-environment-contract).
 - **No autoreset inside the env.** The driver reads the done keys and writes `_reset`.
@@ -186,7 +202,7 @@ Subclasses implement `_reset`, `_step` and `_set_seed` and declare the specs; th
   anchor resolves (`tests/test_docs.py`).
 - **Kinematics oracle:** for several `n`, axis patterns and parameter sets, the end-effector pose of the compiled model
   matches `config.kinematics`; the same comparison holds for the robot inside robosuite.
-- **Native env:** `check_env_specs`; masked reset; seeding determinism; injected state; control modes; joint limits are in
+- **MuJoCo env** (with a test-only provider, `tests/toy_provider`, that has a reach task): `check_env_specs`; masked reset; seeding determinism; injected state; control modes; joint limits are in
   radians.
 - **robosuite backend** (marker `robosuite`): several environments build and step; control holds and tracks; seeding and
   masked reset are independent per sub-environment; validation lists every problem. Run on robosuite 1.5.1 and 1.5.2 with
@@ -197,7 +213,7 @@ Subclasses implement `_reset`, `_step` and `_set_seed` and declare the specs; th
 
 Run and checked:
 
-- native reach on CPU; the whole suite passes;
+- the CPU MuJoCo env on the test-only reach task; the whole suite passes;
 - the robosuite backend: 13 of the 15 single-arm robosuite environments build, reset and step with a generated arm and pass
   `check_env_specs`; the hand pose in robosuite equals the numpy kinematics; hold and tracking behave as configured;
 - the compatibility layer on MuJoCo 3.3.1 to 3.17.
@@ -246,7 +262,8 @@ Not done or not verified:
 ## 10. Milestones
 
 1. **Config layer and CPU backend.** Done. `dt` and `integrator` stayed explicit (no defaults).
-2. **Native Reach on CPU (TorchRL).** Done: `check_env_specs`, masked `_reset`, seeding, injected state.
+2. **CPU MuJoCo env (TorchRL).** Done: `check_env_specs`, masked `_reset`, seeding, injected state. It was first built around
+   a reach task; that task is no longer in the package and survives as a test-only provider.
 3. **`warp` backend.** Not started.
 4. **robosuite.** Done as a source of assets (Appendix A) for generated arms: scenes of any single-arm environment that has
    a physical object, with objectives of our own. The stock-Panda baseline needs `ExternalRobot` and has not been done.
@@ -264,8 +281,8 @@ Package `robotdesigner.tasks.robosuite`. Reference: [tasks/robosuite.md](tasks/r
   the IK mocap bodies; `MjSpec.attach` merges the rest under the prefix `rs_`. The arena brings its own floor, so
   `sim.scene` must be `empty`. Physics settings follow `SimConfig` and MuJoCo's defaults.
 - **Placement.** At every reset, per env, robosuite's own sampler draws poses for the objects that have a free joint, with
-  the global numpy stream (robosuite 1.5.1) or the sampler's generator (1.5.2, not exercised) seeded from the environment's
-  generator, and restored afterwards. Objects without a free joint are placed once when the task is bound and written
+  the global numpy stream (robosuite 1.5.1) or the sampler's generator (1.5.2, not exercised) seeded from the task's
+  random stream, and restored afterwards. Objects without a free joint are placed once when the task is bound and written
   into the shared model.
 - **Objective.** `LiftObject(object, height)` and `ReachObject(object, tolerance)`; reward is the negative distance from the
   end effector to the object. Observations are `ee_pos` and `<object>_pos` / `<object>_quat` for physical objects, in the

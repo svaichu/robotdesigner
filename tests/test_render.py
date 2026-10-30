@@ -18,7 +18,7 @@ needs_gl = pytest.mark.skipif(not _has_gl(), reason="no OpenGL context (try MUJO
 
 def _env(num_envs=2, **kw):
     from robotdesigner.envs import make_env
-    from tests.test_reach_env import make_cfg
+    from tests.test_mujoco_env import make_cfg
 
     return make_env(make_cfg(num_envs=num_envs, **kw))
 
@@ -189,3 +189,22 @@ def test_record_rollout_stops_with_the_rollout():
     env = _env(1, horizon=3)  # truncates after 3 steps
     traj, clip = record_rollout(env, 10, size=(32, 48))
     assert len(clip) == traj.shape[-1] + 1
+
+
+@pytest.mark.render
+@pytest.mark.robosuite
+@needs_gl
+def test_record_scene_example(tmp_path, monkeypatch):
+    pytest.importorskip("robosuite")
+    import importlib.util
+    import pathlib
+    import sys
+
+    examples = pathlib.Path(__file__).parent.parent / "examples"
+    monkeypatch.syspath_prepend(str(examples))  # record_scene imports its sibling robosuite_scene
+    spec = importlib.util.spec_from_file_location("record_scene", examples / "record_scene.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["record_scene"] = mod
+    spec.loader.exec_module(mod)
+    mod.main(str(tmp_path), steps=6, num_envs=2)
+    assert (tmp_path / "scene.gif").stat().st_size > 0

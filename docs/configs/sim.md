@@ -41,7 +41,7 @@ at once (see [backends](../backends.md#capabilities)).
 | `integrator` | all four |
 | `scene` | `empty` or `plain_floor`; a task that brings its own floor (an arena) asks for `empty` |
 | `num_envs` | N simulations stepped one after another in one process |
-| `seed` | seeds the generator behind target, placement and reset-noise draws |
+| `seed` | seeds the generator of the reset noise and, separately, the task's own stream (placements, targets) |
 
 Scene presets of the MuJoCo backend: `empty` has nothing but the robot; `plain_floor` adds a floor plane at `z = 0` that
 robot geoms collide with, and a light. Same backend, device and seed reproduce the same results; random draws can differ

@@ -58,7 +58,7 @@ def main(num_envs: int = 4, steps: int = 50) -> None:
     traj = env.rollout(steps)
     print("rollout batch shape:", tuple(traj.shape))
     print("task observations:", sorted(traj["next", "task"].keys()))
-    print("final cube height above the base (m):", traj["next", "task", "cube_pos"][:, -1, 2].tolist())
+    print("final cube z in the robot's base frame (m):", traj["next", "task", "cube_pos"][:, -1, 2].tolist())
 
 
 if __name__ == "__main__":

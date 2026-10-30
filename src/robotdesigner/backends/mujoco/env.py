@@ -18,6 +18,12 @@ from ...config import EnvConfig
 from .compile import compile_robot
 from .sim import BatchedSim
 
+_TASK_STREAM = 0x5DEECE66D  # offset of the task's random stream from ``sim.seed``, so the two streams differ
+
+
+def _task_seed(seed: int) -> int:
+    return (int(seed) + _TASK_STREAM) % (2**63)
+
 
 class MujocoEnv(EnvBase):
     """Batched TorchRL environment: ``cfg.robot`` under ``cfg.control`` doing ``task`` in MuJoCo."""
@@ -63,8 +69,13 @@ class MujocoEnv(EnvBase):
         self._reset_noise = float(getattr(params, "reset_noise", 0.0))
         self._terminate_on_success = bool(getattr(params, "terminate_on_success", False))
 
+        # Two seeded streams. ``_gen`` draws the reset noise of the robot (its shape depends on the number of joints).
+        # ``_task_gen`` is for the task alone: what the task draws (an object placement, a goal) is then the same for
+        # every embodiment that runs it with the same seed and ``num_envs``, whatever the robot.
         self._gen = torch.Generator(device="cpu")
         self._gen.manual_seed(cfg.sim.seed)
+        self._task_gen = torch.Generator(device="cpu")
+        self._task_gen.manual_seed(_task_seed(cfg.sim.seed))
         self._episode_step = torch.zeros(N, 1, dtype=torch.int64)
 
         f32 = torch.float32
@@ -107,6 +118,9 @@ class MujocoEnv(EnvBase):
 
     def _rand(self, *shape, dtype=torch.float64) -> torch.Tensor:
         return torch.rand(*shape, generator=self._gen, dtype=dtype)
+
+    def _task_rand(self, *shape, dtype=torch.float64) -> torch.Tensor:
+        return torch.rand(*shape, generator=self._task_gen, dtype=dtype)
 
     # --- observations ---------------------------------------------------------------
 
@@ -156,7 +170,7 @@ class MujocoEnv(EnvBase):
         self._sim.reset(mask=mask.numpy(), qpos=qpos, qvel=qvel)
         if self._mode == "joint_pos_delta":
             self._q_target[mask.numpy()] = self._sim.qpos[mask.numpy()]
-        self._task.reset(self._sim, mask.numpy(), self._rand, injected)
+        self._task.reset(self._sim, mask.numpy(), self._task_rand, injected)
         self._episode_step[mask] = 0
 
         out, _ = self._observe()
@@ -194,6 +208,7 @@ class MujocoEnv(EnvBase):
     def _set_seed(self, seed: int | None):
         if seed is not None:
             self._gen.manual_seed(int(seed))
+            self._task_gen.manual_seed(_task_seed(int(seed)))
         return seed
 
     # --- rendering (needs an OpenGL context: MUJOCO_GL=egl on headless machines) ----------------------------

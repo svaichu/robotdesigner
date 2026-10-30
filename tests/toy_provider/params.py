@@ -1,12 +1,12 @@
-"""Parameters of the tasks in the ``native`` namespace. numpy only."""
+"""Parameters of the tasks in the ``toy`` namespace (test-only provider). numpy only."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
 from typing import Any, ClassVar, Mapping
 
-from ...config._canon import as_bool, as_float, check_keys
-from ...config.errors import ConfigError
+from robotdesigner.config._canon import as_bool, as_float, check_keys
+from robotdesigner.config.errors import ConfigError
 
 
 @dataclass(frozen=True, slots=True)

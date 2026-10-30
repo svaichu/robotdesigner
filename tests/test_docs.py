@@ -32,7 +32,7 @@ def anchors(path: Path) -> set[str]:
 
 def test_pages_exist():
     assert {p.name for p in RUNNABLE} >= {
-        "robot.md", "control.md", "task.md", "sim.md", "env.md", "README.md", "native.md", "robosuite.md",
+        "robot.md", "control.md", "task.md", "sim.md", "env.md", "README.md", "robosuite.md",
     }
 
 

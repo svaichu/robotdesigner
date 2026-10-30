@@ -23,7 +23,7 @@ Every environment takes actions in `[-1, 1]`, one per joint. The mode decides wh
 
 ### Modes
 
-| mode | meaning of an action `a` in `[-1, 1]` (native MuJoCo backend) | `action_scale` | gains used |
+| mode | meaning of an action `a` in `[-1, 1]` (MuJoCo backend) | `action_scale` | gains used |
 |---|---|---|---|
 | `joint_pos_abs` | target position: `a = -1` and `a = +1` are the two ends of the joint range (`±pi` for an unlimited joint) | `None` | `kp`, `kd` |
 | `joint_pos_delta` | `q_target += a * action_scale` each step (rad per step), clipped to the joint range; the target restarts at the measured position on reset | rad per step | `kp`, `kd` |
