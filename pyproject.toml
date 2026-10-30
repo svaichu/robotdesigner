@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "robotdesigner"
-version = "0.3.0"
+version = "0.2.0"
 description = "Robot embodiments as validated, hashable data, instantiated in batched RL environments"
 readme = "README.md"
 requires-python = ">=3.10"
