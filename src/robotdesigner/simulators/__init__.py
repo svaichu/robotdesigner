@@ -48,3 +48,4 @@ def get_simulator(name: str) -> Simulator:
 
 
 register_simulator("mujoco", "robotdesigner.simulators.mujoco:MujocoSimulator")
+register_simulator("warp", "robotdesigner.simulators.warp:WarpSimulator")

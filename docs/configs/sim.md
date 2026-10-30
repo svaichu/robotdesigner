@@ -6,7 +6,7 @@ objects come from is the business of the [task](task.md) and its provider.
 
 ```python
 from robotdesigner.config import (
-    ConfigError, INTEGRATORS, MujocoOptions, SimConfig, register_simulator_options,
+    ConfigError, INTEGRATORS, MujocoOptions, SimConfig, WarpOptions, register_simulator_options,
 )
 from robotdesigner.config.sim import SIMULATOR_OPTIONS
 ```
@@ -77,6 +77,27 @@ you change the simulator you change both together.
 assert MujocoOptions(self_collision=False).to_dict() == {"self_collision": False}
 assert SIMULATOR_OPTIONS["mujoco"] is MujocoOptions
 ```
+
+### `WarpOptions(njmax, nconmax, cuda_graph)`
+
+Options of the `"warp"` simulator (MuJoCo Warp on an NVIDIA GPU). The capacities are per world, so `sim.num_envs` can change
+in a sweep without re-tuning them.
+
+| field | type | meaning |
+|---|---|---|
+| `njmax` | int | `>= 1`; constraint rows allocated per world; no world may exceed it |
+| `nconmax` | int | `>= 1`; contacts allocated per world; the simulation allocates `nconmax * num_envs` |
+| `cuda_graph` | bool | capture the physics sub-steps of one policy step in a CUDA graph |
+
+```python
+o = WarpOptions(njmax=64, nconmax=16, cuda_graph=True)
+assert WarpOptions.from_dict(o.to_dict()) == o
+assert SIMULATOR_OPTIONS["warp"] is WarpOptions
+assert WarpOptions.default().njmax >= 1     # provisional numbers, to be set from measurements
+```
+
+The config side needs no GPU, torch or MuJoCo; building the environment (`make_env`) reports a missing CUDA device or
+library together with every other problem. The warp simulator does not run tasks yet.
 
 A simulator defined outside this package registers its options with `register_simulator_options("name", OptionsClass)`.
 The class needs `to_dict()` and a `from_dict()` classmethod, like every config class here.

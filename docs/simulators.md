@@ -15,7 +15,7 @@ env = make_env(cfg)        # cfg.sim.simulator picks the simulator, cfg.task.par
 | simulator | what it is | needs |
 |---|---|---|
 | `mujoco` | CPU MuJoCo: a model compiled from the config (robot, a scene preset, the task's assets). The reference and debugging simulator | `[env]` extra |
-| `warp` | planned: the same models on the GPU. Declared as an extra only, not implemented | |
+| `warp` | the same models on the GPU. Config, registry and capability checks exist; the environment is not implemented yet | |
 
 Where a task's scene comes from is a provider matter: [robosuite scenes](tasks/robosuite.md) load a robosuite arena and
 its objects into the MuJoCo model; a task that needs no assets adds none and runs on `sim.scene`.

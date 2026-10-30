@@ -15,7 +15,7 @@ from .providers import (
 )
 from .sweep import Family
 from .specs import NOT_SET, Chain
-from .sim import INTEGRATORS, MujocoOptions, SimConfig, register_simulator_options
+from .sim import INTEGRATORS, MujocoOptions, SimConfig, WarpOptions, register_simulator_options
 from .task import FixedBox, OwnReachable, TaskConfig
 from .robot import (
     Capsule,
@@ -45,6 +45,7 @@ __all__ = [
     "SimConfig",
     "TaskConfig",
     "TaskProvider",
+    "WarpOptions",
     "get_task_provider",
     "list_task_providers",
     "register_simulator_options",

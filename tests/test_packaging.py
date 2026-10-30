@@ -1,7 +1,7 @@
 import subprocess
 import sys
 
-BLOCKED = ["torch", "torchrl", "tensordict", "mujoco", "mujoco_warp", "robosuite"]
+BLOCKED = ["torch", "torchrl", "tensordict", "mujoco", "mujoco_warp", "warp", "robosuite"]
 
 
 def test_config_import_has_no_engine():

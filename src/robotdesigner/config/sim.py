@@ -39,8 +39,38 @@ class MujocoOptions:
         return cls(**d)
 
 
+@dataclass(frozen=True, slots=True)
+class WarpOptions:
+    """Settings of the MuJoCo Warp (GPU) simulator. Capacities are per world, so ``num_envs`` can change freely."""
+
+    njmax: int  # constraint rows allocated per world; no world may exceed it
+    nconmax: int  # contacts allocated per world; the simulation allocates nconmax * num_envs
+    cuda_graph: bool  # capture the physics sub-steps of one policy step in a CUDA graph
+
+    def __post_init__(self):
+        for name in ("njmax", "nconmax"):
+            value = as_int(getattr(self, name), name)
+            if value < 1:
+                raise ConfigError(name, "must be >= 1")
+            object.__setattr__(self, name, value)
+        as_bool(self.cuda_graph, "cuda_graph")
+
+    @classmethod
+    def default(cls) -> "WarpOptions":
+        # Provisional; the numbers come from the throughput measurements of the benchmark issue.
+        return cls(njmax=64, nconmax=16, cuda_graph=True)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {f.name: getattr(self, f.name) for f in fields(self)}
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "WarpOptions":
+        check_keys(d, {f.name for f in fields(cls)}, "")
+        return cls(**d)
+
+
 # One typed options class per simulator name. Simulators outside this package may register theirs.
-SIMULATOR_OPTIONS: dict[str, type] = {"mujoco": MujocoOptions}
+SIMULATOR_OPTIONS: dict[str, type] = {"mujoco": MujocoOptions, "warp": WarpOptions}
 
 
 def register_simulator_options(simulator: str, cls: type) -> None:
