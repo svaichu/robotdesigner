@@ -4,7 +4,7 @@ import pickle
 import pytest
 
 from robotdesigner.config import (
-    NOT_SET, BaseEnvConfig, Chain, ConfigError, ControlConfig, EnvConfig, FixedBox, FixedGains,
+    NOT_SET, BaseEnvConfig, Chain, ConfigError, ControlConfig, EnvConfig, FixedBox, FixedGains, InertiaScaledGains,
     MujocoOptions, Pose, SimConfig, TaskConfig, chain, register_simulator_options,
 )
 from robotdesigner.config import defaults
@@ -226,3 +226,167 @@ def test_not_set_is_a_singleton_that_survives_copies_and_pickles():
     assert copy.deepcopy(NOT_SET) is NOT_SET and pickle.loads(pickle.dumps(NOT_SET)) is NOT_SET
     assert repr(NOT_SET) == "NOT_SET" and Chain().written() == ()
     assert MujocoOptions.default() == MujocoOptions(False)
+
+
+# --- with_overrides ------------------------------------------------------------------------------------------
+
+def goal_cfg():
+    return BaseEnvConfig().task(ReachParams("reach", 0.0, False), success_tolerance=0.02,
+                                target_region=FixedBox((0.1, -0.1, 0.0), (0.4, 0.1, 0.3))).robot(
+        Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0))
+
+
+def test_overrides_edit_nested_fields_and_leave_the_rest_of_the_section():
+    cfg = goal_cfg()
+    new = cfg.with_overrides({"sim.options.self_collision": True, "task.params.reset_noise": 0.1,
+                              "robot.total_length": 1.2, "sim.num_envs": 64, "control.gains.kp": 99.0,
+                              "task.target_region.low": [0.0, -0.1, 0.0]})
+    r, o = new.resolve(), cfg.resolve()
+    assert r.sim.options.self_collision is True and r.sim.num_envs == 64 and r.sim.dt == o.sim.dt
+    assert r.task.params == ReachParams("reach", 0.1, False) and r.task.horizon == o.task.horizon
+    assert r.task.target_region.low == (0.0, -0.1, 0.0) and r.task.target_region.high == o.task.target_region.high
+    assert sum(s.link.tip_offset[0] for s in r.robot.segments) == pytest.approx(1.2)
+    assert r.robot.n == 3 and r.control.gains.kp == 99.0 and r.control.gains.kd == o.control.gains.kd
+    assert cfg.resolve() == o  # the receiver is unchanged
+
+
+def test_cli_strings_are_json_literals_or_strings():
+    new = BaseEnvConfig().with_overrides(["sim.num_envs=64", "robot.n=5", "robot.axes=zyyyy", "sim.integrator=rk4",
+                                          "robot.range=[-2.0, 2.0]", "sim.options.self_collision=true",
+                                          "control.action_scale=null", "sim.dt=1e-3"])
+    r = new.resolve()
+    assert r.sim.num_envs == 64 and r.robot.n == 5 and r.sim.integrator == "rk4" and r.sim.dt == 0.001
+    assert r.robot.segments[0].joint.range == (-2.0, 2.0) and r.sim.options.self_collision is True
+    assert r.control.action_scale is None
+    assert new.with_overrides({"sim.num_envs": 64}) == new.with_overrides(["sim.num_envs=64"])
+    for bad in ("sim.num_envs", "=3", 3):
+        with pytest.raises(ConfigError):
+            BaseEnvConfig().with_overrides([bad])
+
+
+def test_override_errors_name_the_dotted_path():
+    cfg = goal_cfg()
+    for ov, path in (({"sim.num_env": 1}, "sim.num_env"), ({"nope.x": 1}, "nope"), ({"sim": 1}, "sim"),
+                     ({"sim.options.zzz": 1}, "sim.options.zzz"), ({"task.params.zzz": 1}, "task.params.zzz"),
+                     ({"robot.lenght": 1}, "robot.lenght"), ({"sim.dt.x": 1}, "sim.dt"),
+                     ({"task.params.reset_noise": -1.0}, "task.params.reset_noise"), ({"sim.num_envs": 0}, "sim.num_envs")):
+        with pytest.raises(ConfigError) as e:
+            cfg.with_overrides(ov)
+        assert e.value.path == path, (ov, e.value)
+
+
+def test_overrides_clear_the_partner_of_an_exclusive_pair():
+    r = BaseEnvConfig().with_overrides({"robot.link_length": 0.3}).resolve().robot
+    assert r.segments[0].link.tip_offset[0] == 0.3
+    r = BaseEnvConfig().with_overrides({"robot.mass": 2.0}).resolve().robot
+    assert r.segments[0].link.mass == 2.0
+    with pytest.raises(ConfigError, match="link_length/total_length"):  # both written in one call: reported
+        BaseEnvConfig().with_overrides({"robot.link_length": 0.3, "robot.total_length": 1.0}).resolve()
+
+
+def test_a_simulator_override_resets_the_options():
+    saved = dict(SIMULATOR_OPTIONS)
+
+    class DOpts:
+        def __init__(self, k=1):
+            self.k = k
+
+        @classmethod
+        def default(cls):
+            return cls(7)
+
+        def to_dict(self):
+            return {"k": self.k}
+
+        @classmethod
+        def from_dict(cls, d):
+            return cls(**d)
+
+    try:
+        register_simulator_options("dummy", DOpts)
+        base = BaseEnvConfig().sim(options=MujocoOptions(True))
+        assert base.with_overrides({"sim.simulator": "dummy"})._sim["options"].k == 7
+        both = base.with_overrides({"sim.options.k": 3, "sim.simulator": "dummy"})  # options edit the new simulator's
+        assert both._sim["options"].k == 3
+        assert base.with_overrides({"sim.simulator": "mujoco"}).resolve().sim.options == MujocoOptions(True)
+    finally:
+        SIMULATOR_OPTIONS.clear()
+        SIMULATOR_OPTIONS.update(saved)
+
+
+def test_a_ready_arm_and_the_pinned_mount_through_overrides():
+    arm = chain(2, "zy", total_length=0.6, total_mass=2.0, radius=0.02, damping=0.1, armature=0.0, frictionloss=0.0,
+                effort_limit=10.0)
+    cfg = BaseEnvConfig().robot(arm).with_overrides({"robot.label": "mine", "task.mount": Pose((1, 0, 0), (1, 0, 0, 0))})
+    r = cfg.resolve()
+    assert r.robot.label == "mine" and r.task.mount.pos == (1.0, 0.0, 0.0)
+    assert "[set]" in [l for l in cfg.explain().splitlines() if "task.mount" in l][0]
+
+
+# --- dict, JSON and YAML round trips --------------------------------------------------------------------------
+
+def test_dict_and_json_round_trips_keep_the_hash(tmp_path):
+    cfg = goal_cfg().sim(num_envs=8).task(mount=Pose((0.1, 0.0, 0.2), (1.0, 0.0, 0.0, 0.0))).control(
+        gains=InertiaScaledGains(20.0, 1.0))
+    d = cfg.to_dict()
+    assert d["defaults_version"] == defaults.DEFAULTS_VERSION and d["task"]["provider"] == "toy"
+    assert "mount" not in goal_cfg().to_dict()["task"]  # the deferred default is omitted
+    back = BaseEnvConfig.from_dict(d)
+    assert back == cfg and back.resolve().env_hash == cfg.resolve().env_hash and back.diff() == cfg.diff()
+    path = tmp_path / "run.json"
+    cfg.dump(path)
+    assert BaseEnvConfig.load(path).resolve().env_hash == cfg.resolve().env_hash
+    assert BaseEnvConfig.from_dict(BaseEnvConfig().to_dict()) == BaseEnvConfig()
+    arm = chain(2, "zy", total_length=0.6, total_mass=2.0, radius=0.02, damping=0.1, armature=0.0, frictionloss=0.0,
+                effort_limit=10.0)
+    fixed = BaseEnvConfig().robot(arm)
+    assert BaseEnvConfig.from_dict(fixed.to_dict()).resolve().robot == arm
+
+
+def test_short_dicts_take_the_base_for_what_they_leave_out():
+    cfg = BaseEnvConfig.from_dict({"sim": {"num_envs": 4}, "robot": {"n": 2, "axes": "zy", "link_length": 0.3}})
+    r = cfg.resolve()
+    assert r.sim.num_envs == 4 and r.sim.dt == 0.002 and r.robot.n == 2
+    assert r.robot.segments[0].link.tip_offset[0] == 0.3 and r.robot.segments[0].joint.damping == 0.5
+    for bad, path in (({"sim": {"nope": 1}}, "sim"), ({"nope": {}}, ""), ({"robot": {"lenght": 1}}, "robot"),
+                      ({"sim": {"num_envs": 0}}, "sim.num_envs"), ({"task": {"params": {"name": "nope"}}}, "task")):
+        with pytest.raises(ConfigError) as e:
+            BaseEnvConfig.from_dict(bad)
+        assert e.value.path.startswith(path), (bad, e.value)
+
+
+def test_a_defaults_version_mismatch_warns():
+    d = {**BaseEnvConfig().to_dict(), "defaults_version": 0}
+    with pytest.warns(UserWarning, match="defaults version 0"):
+        BaseEnvConfig.from_dict(d)
+
+
+def test_yaml_round_trip_and_the_missing_extra(tmp_path, monkeypatch):
+    cfg = goal_cfg().sim(num_envs=8)
+    try:
+        import yaml  # noqa: F401
+    except ImportError:
+        with pytest.raises(ImportError, match=r"robotdesigner\[yaml\]"):
+            cfg.dump(tmp_path / "run.yaml")
+        return
+    path = tmp_path / "run.yaml"
+    cfg.dump(path)
+    assert BaseEnvConfig.load(path).resolve().env_hash == cfg.resolve().env_hash
+    import sys
+
+    monkeypatch.setitem(sys.modules, "yaml", None)
+    with pytest.raises(ImportError, match=r"robotdesigner\[yaml\]"):
+        cfg.dump(tmp_path / "again.yml")
+    with pytest.raises(ConfigError, match="^format"):
+        cfg.dump(tmp_path / "x.json", format="toml")
+
+
+def test_the_config_layer_imports_with_numpy_only():
+    import subprocess
+    import sys
+
+    code = ("import sys\nfor m in ['torch','torchrl','tensordict','mujoco','robosuite','yaml']: sys.modules[m] = None\n"
+            "from robotdesigner.config import BaseEnvConfig\n"
+            "c = BaseEnvConfig().with_overrides(['sim.num_envs=2']); assert c.resolve().sim.num_envs == 2\n"
+            "import json; BaseEnvConfig.from_dict(json.loads(json.dumps(c.to_dict())))\n")
+    subprocess.run([sys.executable, "-c", code], check=True)

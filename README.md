@@ -91,6 +91,8 @@ cfg = (
 )
 env = cfg.build()
 five = cfg.robot(Chain(n=5, axes="zyyyy"))    # a new config; cfg is unchanged
+big = cfg.with_overrides(["sim.num_envs=64", "sim.options.self_collision=true"])   # dotted paths, also CLI strings
+cfg.dump("run.json")                          # and BaseEnvConfig.load("run.json")
 ```
 
 Step by hand:

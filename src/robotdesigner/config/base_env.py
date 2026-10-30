@@ -9,15 +9,19 @@ else: ``EnvConfig`` and the configs under it keep requiring every field. numpy o
 
 from __future__ import annotations
 
+import json
+import warnings
 from dataclasses import fields
-from typing import Any
+from pathlib import Path
+from typing import Any, Mapping, Sequence
 
+from ._canon import check_keys, within
 from .control import ControlConfig, FixedGains
 from .defaults import DEFAULTS, DEFAULTS_VERSION
 from .env import EnvConfig
 from .errors import ConfigError, Problem
 from .providers import get_task_provider
-from .robot import ParametricArm, Pose
+from .robot import ParametricArm, Pose, ToolSpec
 from .sim import SIMULATOR_OPTIONS, SimConfig
 from .specs import NOT_SET, Chain
 from .task import TaskConfig
@@ -51,6 +55,45 @@ def _default_options(simulator: str) -> Any:
         raise ConfigError("sim.simulator", f"no options registered for simulator {simulator!r}; known: {sorted(SIMULATOR_OPTIONS)}")
     default = getattr(cls, "default", None)
     return NOT_SET if default is None else default()
+
+
+_SECTIONS = ("robot", "control", "task", "sim")
+_CHAIN_FIELDS = tuple(f.name for f in fields(Chain))
+_PAIRS = (("link_length", "total_length"), ("mass", "total_mass"))
+
+
+def _jsonable(v: Any) -> Any:
+    """A plain JSON-able value: objects with ``to_dict`` are converted, tuples become lists."""
+    if hasattr(v, "to_dict"):
+        return v.to_dict()
+    if isinstance(v, (list, tuple)):
+        return [_jsonable(x) for x in v]
+    if isinstance(v, Mapping):
+        return {k: _jsonable(x) for k, x in v.items()}
+    return v
+
+
+def _tuplify(v: Any) -> Any:
+    return tuple(_tuplify(x) for x in v) if isinstance(v, (list, tuple)) else v
+
+
+def _parse_override(item: str) -> tuple[str, Any]:
+    """``"path=value"``: the value is a JSON literal, or a string if it is not one."""
+    path, sep, raw = item.partition("=")
+    if not sep or not path.strip():
+        raise ConfigError("", f"override {item!r} is not of the form path=value")
+    try:
+        return path.strip(), json.loads(raw)
+    except ValueError:
+        return path.strip(), raw
+
+
+def _yaml():
+    try:
+        import yaml
+    except ImportError as e:
+        raise ImportError("YAML configs need the optional extra: pip install 'robotdesigner[yaml]'") from e
+    return yaml
 
 
 class BaseEnvConfig:
@@ -225,6 +268,201 @@ class BaseEnvConfig:
         from ..envs import make_env
 
         return make_env(self.resolve())
+
+    # --- serialization -----------------------------------------------------------------
+
+    def to_dict(self) -> dict[str, Any]:
+        """Every builder field as plain data, with ``defaults_version``. A mount that was not pinned is omitted: it is
+        the task's default, applied by ``resolve()``. The record to keep with a run is ``resolve().to_dict()``."""
+        robot = (self._robot.to_dict() if isinstance(self._robot, ParametricArm)
+                 else {"kind": "chain", **{n: _jsonable(getattr(self._robot, n)) for n in self._robot.written()}})
+        t = self._task
+        task = {"provider": t["params"].provider, "params": t["params"].to_dict(), "horizon": t["horizon"],
+                "success_tolerance": t["success_tolerance"], "target_region": _jsonable(t["target_region"])}
+        if t["mount"] is not NOT_SET:
+            task["mount"] = _jsonable(t["mount"])
+        sim = {k: self._sim[k] for k in _SIM_FIELDS if k != "options"}
+        if self._sim["options"] is not NOT_SET:
+            sim["options"] = self._sim["options"].to_dict()
+        control = {"mode": self._control["mode"], "gains": _jsonable(self._control["gains"]),
+                   "action_scale": self._control["action_scale"]}
+        return {"defaults_version": DEFAULTS_VERSION, "robot": robot, "control": control, "task": task, "sim": sim}
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "BaseEnvConfig":
+        """Inverse of ``to_dict``. Sections and keys left out take the base's value, so a hand-written file can be short.
+        Warns when ``defaults_version`` differs from this package's."""
+        check_keys(d, set(), "", optional={"defaults_version", *_SECTIONS})
+        version = d.get("defaults_version", DEFAULTS_VERSION)
+        if version != DEFAULTS_VERSION:
+            warnings.warn(
+                f"config written with defaults version {version}, this is version {DEFAULTS_VERSION}: values it left "
+                "out take the new defaults", stacklevel=2,
+            )
+        cfg = cls()
+        pristine = cfg.to_dict()
+        for section in _SECTIONS:
+            if section in d:
+                given = d[section]
+                if not isinstance(given, Mapping):
+                    raise ConfigError(section, f"expected a mapping, got {type(given).__name__}")
+                base = dict(pristine[section])
+                if section == "sim":
+                    base.pop("options")  # the options of the simulator written, or its defaults
+                if section == "robot":
+                    base = {}  # a chain is merged onto the default chain, an arm stands alone
+                cfg = cfg._with_section(section, {**base, **given}, merge_chain=True)
+        return cfg._with_written(cfg._diff_paths())
+
+    def _diff_paths(self) -> frozenset[str]:
+        return frozenset(self.diff())
+
+    def _with_written(self, paths) -> "BaseEnvConfig":
+        keep = {w for w in paths if not w.startswith("robot.") or w[6:] in getattr(self._robot, "written", lambda: ())()}
+        return self._copy(written=frozenset(keep))
+
+    def _with_section(self, section: str, d: Mapping[str, Any], merge_chain: bool = False) -> "BaseEnvConfig":
+        """The config with ``section`` replaced by what the dict ``d`` says (validated by the section's own classes)."""
+        if section == "robot":
+            if d.get("kind", "chain") == "parametric_arm":
+                return self._copy(robot=within("robot", ParametricArm.from_dict, d))
+            check_keys(d, set(), "robot", optional={"kind", *_CHAIN_FIELDS})
+            if d.get("kind", "chain") != "chain":
+                raise ConfigError("robot.kind", f"expected 'chain' or 'parametric_arm', got {d['kind']!r}")
+            given = {}
+            for k, v in d.items():
+                if k == "kind":
+                    continue
+                if k == "end_effector" and isinstance(v, Mapping):
+                    v = within(f"robot.{k}", Pose.from_dict, v)
+                elif k == "tool" and isinstance(v, Mapping):
+                    v = within(f"robot.{k}", ToolSpec.from_dict, v)
+                given[k] = _tuplify(v) if isinstance(v, (list, tuple)) else v
+            spec = Chain(**given)
+            return self._copy(robot=Chain(**DEFAULTS["robot"]).merge(spec) if merge_chain else spec)
+        if section == "control":
+            c = within("control", ControlConfig.from_dict, d)
+            return self._copy(control={k: getattr(c, k) for k in _CONTROL_FIELDS})
+        if section == "task":
+            check_keys(d, {"provider", "params", "horizon", "success_tolerance", "target_region"}, "task", {"mount"})
+            probe = within("task", TaskConfig.from_dict, {**d, "mount": d.get("mount", Pose.identity().to_dict())})
+            task = {"params": probe.params, "horizon": probe.horizon, "success_tolerance": probe.success_tolerance,
+                    "target_region": probe.target_region,
+                    "mount": probe.mount if "mount" in d else NOT_SET}
+            return self._copy(task=task)
+        d = dict(d)
+        check_keys(d, set(), "sim", optional=set(_SIM_FIELDS))
+        full = {k: v for k, v in d.items() if k != "options"}
+        sim = {k: self._sim[k] for k in _SIM_FIELDS if k != "options"} | full
+        options = d.get("options")
+        if options is None:
+            options = _default_options(sim["simulator"])
+            if options is NOT_SET:
+                raise ConfigError("sim.options", f"simulator {sim['simulator']!r} has no default options; give options")
+            options = options.to_dict()
+        probe = within("sim", SimConfig.from_dict, {**sim, "options": options})
+        return self._copy(sim={k: getattr(probe, k) for k in _SIM_FIELDS})
+
+    # --- overrides ---------------------------------------------------------------------
+
+    def with_overrides(self, overrides: Mapping[str, Any] | Sequence[str]) -> "BaseEnvConfig":
+        """A new config with dotted-path overrides applied, with the semantics of the section calls (they accumulate).
+
+        ``overrides`` is a mapping ``{"sim.num_envs": 64, "sim.options.self_collision": True, "robot.total_length": 1.2}``
+        or a list of CLI strings ``["sim.num_envs=64", "robot.axes=zyy"]`` (the value is a JSON literal, or a string if
+        it is not one). Paths reach nested fields (``sim.options.*``, ``task.params.*``, ``control.gains.*``). Unknown
+        keys and sections raise ``ConfigError`` with the dotted path; writing one of ``link_length`` / ``total_length``
+        (or ``mass`` / ``total_mass``) clears the other; changing ``sim.simulator`` resets ``sim.options`` to that
+        simulator's defaults unless ``sim.options.*`` is given too. Each touched section is rebuilt and validated by
+        its own classes."""
+        if isinstance(overrides, Mapping):
+            items = list(overrides.items())
+        elif isinstance(overrides, str) or not hasattr(overrides, "__iter__"):
+            raise ConfigError("", "overrides must be a mapping or a list of 'path=value' strings")
+        else:
+            items = []
+            for o in overrides:
+                if not isinstance(o, str):
+                    raise ConfigError("", f"override {o!r} is not a 'path=value' string")
+                items.append(_parse_override(o))
+        state = self.to_dict()
+        touched: dict[str, set[str]] = {}
+        # a simulator change first, so that options edits apply to the options of the new simulator
+        items.sort(key=lambda kv: kv[0] != "sim.simulator")
+        written_now: set[str] = set()
+        for path, value in items:
+            parts = str(path).split(".")
+            if parts[0] not in _SECTIONS:
+                raise ConfigError(parts[0], f"unknown section; expected one of {list(_SECTIONS)}")
+            if len(parts) == 1:
+                raise ConfigError(path, "give a field of the section (for example sim.num_envs)")
+            section = state[parts[0]]
+            if path == "sim.simulator" and value != section["simulator"]:
+                new = _default_options(value)
+                if new is NOT_SET:
+                    if not any(p.startswith("sim.options") for p, _ in items):
+                        raise ConfigError("sim.options", f"simulator {value!r} has no default options; give sim.options.*")
+                    section.pop("options", None)
+                else:
+                    section["options"] = new.to_dict()
+            self._set_path(state, parts, _jsonable(value), written_now)
+            touched.setdefault(parts[0], set()).add(".".join(parts[:2]))
+        cfg = self
+        for section in _SECTIONS:
+            if section in touched:
+                cfg = cfg._with_section(section, state[section])
+        written = set(self._written) | {w for ws in touched.values() for w in ws}
+        if isinstance(cfg._robot, Chain):
+            written = {w for w in written if not w.startswith("robot.") or w[6:] in cfg._robot.written()}
+        return cfg._copy(written=frozenset(written))
+
+    @staticmethod
+    def _set_path(state: dict, parts: list[str], value: Any, written_now: set[str]) -> None:
+        node, walked = state, []
+        for i, key in enumerate(parts[:-1]):
+            walked.append(key)
+            nxt = node.get(key) if isinstance(node, dict) else None
+            if not isinstance(nxt, dict):
+                raise ConfigError(".".join(parts[: i + 1]), "has no fields to reach into" if key in node else
+                                  f"unknown field; expected one of {sorted(node)}")
+            node = nxt
+        key, section = parts[-1], parts[0]
+        path = ".".join(parts)
+        chain_level = section == "robot" and len(parts) == 2 and node.get("kind", "chain") == "chain"
+        allowed = set(node) | ({*_CHAIN_FIELDS} if chain_level else set()) | ({"mount"} if path == "task.mount" else set())
+        if key not in allowed:
+            raise ConfigError(path, f"unknown field; expected one of {sorted(allowed)}")
+        node[key] = value
+        if chain_level:
+            written_now.add(key)
+            for a, b in _PAIRS:
+                for x, y in ((a, b), (b, a)):
+                    if key == x and y not in written_now:
+                        node.pop(y, None)
+
+    # --- files -------------------------------------------------------------------------
+
+    def dump(self, path: str | Path, format: str | None = None) -> None:
+        """Write ``to_dict()`` as JSON, or as YAML for ``.yaml`` / ``.yml`` (needs the ``yaml`` extra)."""
+        path = Path(path)
+        fmt = format or ("yaml" if path.suffix.lower() in (".yaml", ".yml") else "json")
+        if fmt == "yaml":
+            path.write_text(_yaml().safe_dump(self.to_dict(), sort_keys=False))
+        elif fmt == "json":
+            path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
+        else:
+            raise ConfigError("format", f"expected 'json' or 'yaml', got {fmt!r}")
+
+    @classmethod
+    def load(cls, path: str | Path, format: str | None = None) -> "BaseEnvConfig":
+        """Read what ``dump`` wrote."""
+        path = Path(path)
+        fmt = format or ("yaml" if path.suffix.lower() in (".yaml", ".yml") else "json")
+        if fmt == "yaml":
+            return cls.from_dict(_yaml().safe_load(path.read_text()))
+        if fmt == "json":
+            return cls.from_dict(json.loads(path.read_text()))
+        raise ConfigError("format", f"expected 'json' or 'yaml', got {fmt!r}")
 
     # --- inspection ------------------------------------------------------------------
 

@@ -19,8 +19,9 @@ env = [
 ]
 warp = ["robotdesigner[env]", "mujoco-warp", "warp-lang>=1.15"]
 robosuite = ["robotdesigner[env]", "robosuite>=1.5,<1.6"]
+yaml = ["pyyaml"]
 viz = ["imageio", "imageio-ffmpeg", "pillow"]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "pyyaml"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/robotdesigner"]

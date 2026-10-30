@@ -99,6 +99,61 @@ assert BaseEnvConfig().task(mount=pin).resolve().task.mount == pin
 pass `options=` to give them. The defaults come from an optional `default()` classmethod on the options class (`MujocoOptions` has one);
 without it, `options=` is required. Staying on the same simulator keeps the options.
 
+## Overrides by dotted path
+
+`with_overrides` returns a new config and has the semantics of the section calls (they accumulate), with paths that reach nested fields:
+`sim.options.*`, `task.params.*`, `control.gains.*`, `robot.*`. It takes a mapping or a list of CLI strings `path=value`; the value is parsed as a
+JSON literal and kept as a string if it is not one (`64` is an int, `[-2.0, 2.0]` a list, `true` a bool, `null` is `None`, `zyy` and `rk4` are strings).
+
+- Each touched section is converted to a dict, edited, and rebuilt with its own `from_dict` and validation, so providers need no extra code. The rebuilt
+  section is validated at once: `{"sim.num_envs": 0}` raises `sim.num_envs`. Several edits of one call are applied before the section is rebuilt.
+- An unknown section or key raises `ConfigError` with the dotted path (`sim.options.zzz`, `task.params.zzz`, `robot.lenght`).
+- Writing one member of an exclusive pair clears the other (unless both are written in the same call, which `resolve()` reports).
+- `sim.simulator` resets `sim.options` to that simulator's defaults unless `sim.options.*` is given in the same call (the options then edit the new simulator's).
+
+```python
+cfg = BaseEnvConfig().robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0))
+big = cfg.with_overrides({"sim.num_envs": 64, "sim.options.self_collision": True, "robot.total_length": 1.2})
+r = big.resolve()
+assert r.sim.num_envs == 64 and r.sim.options.self_collision is True and r.robot.n == 3    # the rest of each section stays
+assert abs(sum(s.link.tip_offset[0] for s in r.robot.segments) - 1.2) < 1e-12
+
+five = cfg.with_overrides(["sim.num_envs=64", "robot.n=5", "robot.axes=zyyyy", "sim.integrator=rk4"])   # CLI strings
+assert five.resolve().robot.n == 5 and five.resolve().sim.integrator == "rk4"
+assert five.with_overrides({"sim.num_envs": 64}) == five.with_overrides(["sim.num_envs=64"])
+```
+
+## Dict, JSON and YAML
+
+`to_dict()` holds every builder field and `defaults_version`; a mount that was not pinned is omitted (it is the task's default, applied by `resolve()`).
+`from_dict()` reads it back, takes the base's value for sections and keys left out (so a hand-written file can be short), and **warns when
+`defaults_version` differs** from the package's. `dump(path)` / `BaseEnvConfig.load(path)` write and read JSON; a `.yaml` / `.yml` path uses YAML,
+which needs the optional extra `pip install "robotdesigner[yaml]"` (without it the error names the extra; the base install stays numpy only).
+
+The record to keep with a run is still `resolve().to_dict()`: it holds every value, the mount included, and reproduces after the defaults change.
+
+```python
+import json, tempfile, pathlib
+
+d = cfg.sim(num_envs=8).to_dict()
+assert d["defaults_version"] == DEFAULTS_VERSION and "mount" not in d["task"]
+back = BaseEnvConfig.from_dict(json.loads(json.dumps(d)))
+assert back == cfg.sim(num_envs=8) and back.resolve().env_hash == cfg.sim(num_envs=8).resolve().env_hash
+
+short = BaseEnvConfig.from_dict({"sim": {"num_envs": 4}, "robot": {"n": 2, "axes": "zy"}})   # the rest is the base
+assert short.resolve().sim.num_envs == 4 and short.resolve().sim.dt == 0.002
+
+with tempfile.TemporaryDirectory() as tmp:
+    path = pathlib.Path(tmp) / "run.json"
+    cfg.dump(path)
+    assert BaseEnvConfig.load(path).resolve().env_hash == cfg.resolve().env_hash
+```
+
+```python no-run
+cfg.dump("run.yaml")                     # needs the `yaml` extra
+cfg = BaseEnvConfig.load("run.yaml")
+```
+
 ## Errors
 
 ```python
@@ -117,6 +172,8 @@ bad = BaseEnvConfig().robot(n=3).sim(num_envs=0).control(mode="warp")
 assert {p.path for p in bad.validate()} == {"robot.axes", "sim.num_envs", "control.mode"}   # all at once
 err = error_of(bad.resolve)
 assert err.path == "" and len(err.problems) == 3
+assert error_of(lambda: BaseEnvConfig().with_overrides({"sim.options.zzz": 1})).path == "sim.options.zzz"
+assert error_of(lambda: BaseEnvConfig().with_overrides(["nope.x=1"])).path == "nope"     # unknown section
 ```
 
 ## Looking at a config
