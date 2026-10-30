@@ -26,7 +26,7 @@ def _env(num_envs=2, **kw):
 @pytest.mark.render
 @needs_gl
 def test_render_rgb_shape_and_dtype():
-    from robotdesigner.backends.mujoco.render import render_rgb
+    from robotdesigner.simulators.mujoco.render import render_rgb
 
     env = _env(2)
     env.reset()
@@ -35,7 +35,7 @@ def test_render_rgb_shape_and_dtype():
 
 
 def test_render_rejects_bad_env_index():
-    from robotdesigner.backends.mujoco.render import render_rgb
+    from robotdesigner.simulators.mujoco.render import render_rgb
 
     env = _env(2)
     with pytest.raises(IndexError):

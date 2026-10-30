@@ -7,7 +7,7 @@ pytest.importorskip("torchrl")
 
 from torchrl.envs.utils import check_env_specs  # noqa: E402
 
-from robotdesigner.backends.mujoco.compile import compile_robot  # noqa: E402
+from robotdesigner.simulators.mujoco.compile import compile_robot  # noqa: E402
 from robotdesigner.config import (  # noqa: E402
     ControlConfig, EnvConfig, FixedBox, InertiaScaledGains, MujocoOptions, SimConfig,
     Pose, TaskConfig, chain,
@@ -26,8 +26,7 @@ def make_cfg(mode, scale, n=2, axes="zy", num_envs=2, rng=(-1.0, 1.0), bandwidth
         control=ControlConfig(mode, InertiaScaledGains(bandwidth, 1.0), scale),
         task=TaskConfig("toy/reach", 100, 0.02, FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)),
                         ReachParams(0.0, False)),
-        sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, 0, "plain_floor"),
-        backend_options=MujocoOptions(False),
+        sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, 0, "plain_floor", options=MujocoOptions(False)),
     )
 
 

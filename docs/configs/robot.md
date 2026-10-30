@@ -12,7 +12,7 @@ from robotdesigner.config import ParametricArm, Segment, JointSpec, LinkSpec, Po
 ```
 
 Related pages: [ControlConfig](control.md), [TaskConfig](task.md), [SimConfig](sim.md), [EnvConfig](env.md),
-[backends](../backends.md).
+[simulators](../simulators.md).
 
 ## Conventions
 
@@ -20,7 +20,7 @@ Related pages: [ControlConfig](control.md), [TaskConfig](task.md), [SimConfig](s
 - **Quaternions** are `(w, x, y, z)`. They are normalized on construction, and the sign is fixed so that the first
   non-zero component is positive (`q` and `-q` are the same rotation, so they hash the same).
 - **Everything dynamic is explicit.** Damping, armature, friction loss, effort limit, mass and radius have no defaults;
-  a backend never fills one in. Only `label`, and the optional arguments of `chain()` listed below, have defaults.
+  a simulator never fills one in. Only `label`, and the optional arguments of `chain()` listed below, have defaults.
 - **Frames.** The chain starts at the *base frame*, placed in the world by `base_pose`. Segment `i` has a *joint frame*
   (the pose of the joint relative to the previous link's end frame; the base frame for `i = 0`), a *link frame* (the
   joint frame rotated by the joint angle) and an *end frame* (the link frame translated by `tip_offset`; same
@@ -97,7 +97,7 @@ A gripper mounted on the end effector.
 | `mount_pos` | 3 floats | offset of the gripper's first body, metres |
 | `mount_quat` | 4 floats | orientation of the gripper's first body, normalized like any quaternion |
 
-It is stored and hashed. The MuJoCo backend does not build grippers yet and ignores it, so it changes `env_hash` but not the physics.
+It is stored and hashed. The MuJoCo simulator does not build grippers yet and ignores it, so it changes `env_hash` but not the physics.
 
 ### `ParametricArm(schema_version, segments, base_pose, home_qpos, end_effector, tool, label="")`
 
@@ -279,9 +279,9 @@ q = kinematics.sample_joint_positions(arm, 10, np.random.default_rng(0))
 assert q.shape == (10, 3) and np.all(np.abs(q) <= 2.5)
 ```
 
-## How the MuJoCo backend uses the robot
+## How the MuJoCo simulator uses the robot
 
-| aspect | MuJoCo backend |
+| aspect | MuJoCo simulator |
 |---|---|
 | names | `base`, `link_{i}`, `joint_{i}`, `geom_{i}`, `ee` (site), `act_{i}` |
 | actuators | position servo, velocity servo or torque, by control mode; force limited to `±effort_limit` |
@@ -289,4 +289,4 @@ assert q.shape == (10, 3) and np.all(np.abs(q) <= 2.5)
 | `base_pose` | world pose of the base, for every task |
 | collisions | robot geoms collide with the scene; with each other only if `MujocoOptions.self_collision` |
 
-The chain is built by one function (`backends/mujoco/arm_spec.py`), so the physical robot is the same in every scene.
+The chain is built by one function (`simulators/mujoco/arm_spec.py`), so the physical robot is the same in every scene.

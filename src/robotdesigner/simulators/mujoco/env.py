@@ -1,4 +1,4 @@
-"""The CPU MuJoCo backend's environment: any task of any provider, on any robot of the config.
+"""The CPU MuJoCo simulator's environment: any task of any provider, on any robot of the config.
 
 Owns what is the same for every task: the compiled robot, the batched simulation, the control law, resets with
 a mask, episode bookkeeping and rendering. The task (``tasks.base.TaskImpl``) adds its scene assets before the model

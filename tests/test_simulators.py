@@ -4,15 +4,15 @@ from dataclasses import dataclass
 
 import pytest
 
-from robotdesigner.backends import (
+from robotdesigner.simulators import (
     Capabilities,
     Problem,
-    get_backend,
-    list_backends,
-    register_backend,
+    get_simulator,
+    list_simulators,
+    register_simulator,
 )
 
-from robotdesigner.config import ConfigError, TaskConfig, register_backend_options, register_task_provider
+from robotdesigner.config import ConfigError, TaskConfig, register_simulator_options, register_task_provider
 from robotdesigner.envs import make_env
 from tests.test_env_config import make_cfg
 
@@ -51,14 +51,14 @@ class DummyTasks:
     def params_class(self, name):
         return DummyParams if name == "noop" else None
 
-    def validate(self, cfg, backend):
+    def validate(self, cfg, simulator):
         return self.problems
 
-    def build(self, cfg, backend):
-        return ("task", backend)
+    def build(self, cfg, simulator):
+        return ("task", simulator)
 
 
-class DummyBackend:
+class DummySimulator:
     name = "dummy"
 
     def __init__(self, extra=()):
@@ -84,32 +84,34 @@ def dummy_cfg(**sim):
 
     base = make_cfg()
     task = TaskConfig("dummy/noop", 10, None, None, DummyParams())
-    return type(base)(base.robot, base.control, task, replace(base.sim, backend="dummy", **sim), DummyOptions())
+    return type(base)(base.robot, base.control, task, replace(base.sim, simulator="dummy", options=DummyOptions(), **sim))
 
 
 @pytest.fixture
 def dummy():
     from robotdesigner.config import providers
 
-    register_backend_options("dummy", DummyOptions)
-    register_backend("dummy", DummyBackend(extra=[Problem("sim.scene", "scene not available")]))
+    register_simulator_options("dummy", DummyOptions)
+    register_simulator("dummy", DummySimulator(extra=[Problem("sim.scene", "scene not available")]))
     register_task_provider("dummy", DummyTasks(), replace=True)
     yield
-    from robotdesigner.backends import _REGISTRY
+    from robotdesigner.config.sim import SIMULATOR_OPTIONS
+    from robotdesigner.simulators import _REGISTRY
 
     _REGISTRY.pop("dummy", None)
+    SIMULATOR_OPTIONS.pop("dummy", None)
     providers._REGISTRY.pop("dummy", None)
     providers._EXPLICIT.discard("dummy")
 
 
-def test_unknown_backend_lists_registered_names():
+def test_unknown_simulator_lists_registered_names():
     with pytest.raises(ConfigError) as e:
-        get_backend("nope")
+        get_simulator("nope")
     assert "nope" in str(e.value) and "mujoco" in str(e.value)
-    assert "mujoco" in list_backends()
+    assert "mujoco" in list_simulators()
 
 
-def test_dummy_backend_reports_all_problems(dummy):
+def test_dummy_simulator_reports_all_problems(dummy):
     cfg = dummy_cfg()
     with pytest.raises(ConfigError) as e:
         make_env(cfg)
@@ -118,7 +120,7 @@ def test_dummy_backend_reports_all_problems(dummy):
     assert "'dummy'" in msg and "3 problems" in msg
 
 
-def test_provider_problems_are_collected_with_the_backend_problems(dummy):
+def test_provider_problems_are_collected_with_the_simulator_problems(dummy):
     register_task_provider("dummy", DummyTasks([Problem("task.params", "needs a gripper")]), replace=True)
     with pytest.raises(ConfigError) as e:
         make_env(dummy_cfg())
@@ -126,32 +128,32 @@ def test_provider_problems_are_collected_with_the_backend_problems(dummy):
     assert "4 problems" in msg and "task.params: needs a gripper" in msg and "control.mode" in msg
 
 
-def test_a_task_of_one_provider_is_checked_against_the_backend(dummy):
-    # a task provider runs only on the backends it names; the dummy backend is not one of them
+def test_a_task_of_one_provider_is_checked_against_the_simulator(dummy):
+    # a task provider runs only on the simulators it names; the dummy simulator is not one of them
     from dataclasses import replace
 
     cfg = dummy_cfg(device="cuda:0")
     cfg = type(cfg)(cfg.robot, replace(cfg.control, mode="joint_torque", gains=cfg.control.gains),
-                    make_cfg().task, cfg.sim, cfg.backend_options)
-    register_backend("dummy", DummyBackend())
+                    make_cfg().task, cfg.sim)
+    register_simulator("dummy", DummySimulator())
     with pytest.raises(ConfigError, match="task 'toy/reach' runs on"):
         make_env(cfg)
 
 
-def test_dummy_backend_runs_when_supported(dummy):
+def test_dummy_simulator_runs_when_supported(dummy):
     from dataclasses import replace
 
-    register_backend("dummy", DummyBackend())
+    register_simulator("dummy", DummySimulator())
     cfg = dummy_cfg(device="cuda:0")
-    cfg = type(cfg)(cfg.robot, replace(cfg.control, mode="joint_torque", gains=cfg.control.gains), cfg.task, cfg.sim, cfg.backend_options)
+    cfg = type(cfg)(cfg.robot, replace(cfg.control, mode="joint_torque", gains=cfg.control.gains), cfg.task, cfg.sim)
     assert make_env(cfg) == ("env", cfg.env_hash)
 
 
-def test_mujoco_backend_rejects_unsupported_config():
+def test_mujoco_simulator_rejects_unsupported_config():
     cfg = make_cfg()
     from dataclasses import replace
 
-    cuda = type(cfg)(cfg.robot, cfg.control, cfg.task, replace(cfg.sim, device="cuda:0"), cfg.backend_options)
+    cuda = type(cfg)(cfg.robot, cfg.control, cfg.task, replace(cfg.sim, device="cuda:0"))
     with pytest.raises(ConfigError, match="sim.device"):
         make_env(cuda)
 
@@ -159,7 +161,7 @@ def test_mujoco_backend_rejects_unsupported_config():
 def test_lazy_import_keeps_engines_out():
     code = (
         "import sys\n"
-        "import robotdesigner.backends, robotdesigner.envs\n"
+        "import robotdesigner.simulators, robotdesigner.envs\n"
         "bad = [m for m in ('mujoco', 'torch', 'torchrl') if m in sys.modules]\n"
         "assert not bad, bad\n"
     )

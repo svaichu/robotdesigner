@@ -2,7 +2,7 @@
 
 [robosuite](https://robosuite.ai) is a **source of task assets** here, not a simulator. `robosuite/<EnvName>` loads the
 arena, the objects and the placement rule of the robosuite environment `<EnvName>` into the simulation named by
-`sim.backend` (today: `mujoco`). That simulation steps everything: your robot, your control law and `SimConfig`'s time
+`sim.simulator` (today: `mujoco`). That simulation steps everything: your robot, your control law and `SimConfig`'s time
 step; robosuite's own physics options, controllers, robots and rewards are not used.
 
 ```python
@@ -11,7 +11,7 @@ from robotdesigner.tasks.robosuite import LiftObject, ReachObject, RobosuitePara
 from robotdesigner.tasks.robosuite.params import RESERVED_ENV_KWARGS
 ```
 
-Related pages: [TaskConfig](../configs/task.md), [SimConfig](../configs/sim.md), [backends](../backends.md). Needs the `robosuite` extra to build an environment; the config side below needs only numpy.
+Related pages: [TaskConfig](../configs/task.md), [SimConfig](../configs/sim.md), [simulators](../simulators.md). Needs the `robosuite` extra to build an environment; the config side below needs only numpy.
 
 ## `RobosuiteParams(env_kwargs, objective, reset_noise, terminate_on_success)`
 
@@ -57,10 +57,10 @@ listed takes robosuite's own default. Values are stored immutably; key order doe
 |---|---|
 | the arena (table, floor, walls, cameras), the objects with their geoms, masses, friction and textures | the robot, with its own links, joints, actuators and `home_qpos` |
 | the rule that places the objects at reset (robosuite's own sampler: ranges, rotation, collision-free placement) | the time step, integrator, device and seed (`SimConfig`); `MujocoOptions` |
-| the position where robosuite mounts a stock arm in that scene (`default_mount`) | control modes and gains (`ControlConfig`), all of the backend's modes |
+| the position where robosuite mounts a stock arm in that scene (`default_mount`) | control modes and gains (`ControlConfig`), all of the simulator's modes |
 | | success, reward and observations |
 
-Not used: robosuite's controllers, its robot models and grippers (`robot.tool` is ignored by the MuJoCo backend), its
+Not used: robosuite's controllers, its robot models and grippers (`robot.tool` is ignored by the MuJoCo simulator), its
 reward functions, its `<option>`, `<size>` and `<visual>` sections, and its IK target bodies. Contact physics therefore
 follow MuJoCo's defaults, not the settings robosuite's worlds ship with (for example its elliptic friction cone).
 
@@ -79,8 +79,7 @@ cfg = EnvConfig(
     task=TaskConfig("robosuite/Lift", 200, None, None,
                     RobosuiteParams({}, LiftObject("cube", 0.84), reset_noise=0.0, terminate_on_success=False)),
     sim=SimConfig("mujoco", num_envs=4, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
-                  scene="empty"),
-    backend_options=MujocoOptions(self_collision=False),
+                  scene="empty", options=MujocoOptions(self_collision=False)),
 )
 env = make_env(cfg)
 ```

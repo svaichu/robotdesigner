@@ -19,8 +19,7 @@ def make_cfg(params=None, name="Lift"):
         robot=arm,
         control=ControlConfig("joint_pos_abs", FixedGains(60.0, 6.0), None),
         task=TaskConfig(f"robosuite/{name}", 100, None, None, params),
-        sim=SimConfig("mujoco", 2, "cpu", 0.002, "euler", 50, 0, "empty"),
-        backend_options=MujocoOptions(False),
+        sim=SimConfig("mujoco", 2, "cpu", 0.002, "euler", 50, 0, "empty", options=MujocoOptions(False)),
     )
 
 

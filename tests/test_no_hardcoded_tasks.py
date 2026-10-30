@@ -1,7 +1,7 @@
 """The core names no task.
 
 Task ids, provider namespaces and params classes belong to the providers (``robotdesigner/tasks/<namespace>``). The code
-that every task goes through (configs, backends, ``make_env``, viz, the task contract) must not mention them. The
+that every task goes through (configs, simulators, ``make_env``, viz, the task contract) must not mention them. The
 names to look for are read from the registry, so this test does not hold a list of tasks either.
 """
 
@@ -13,7 +13,7 @@ from robotdesigner.config import get_task_provider, list_task_providers
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "robotdesigner"
 CORE = [
     *sorted((SRC / "config").rglob("*.py")),
-    *sorted((SRC / "backends").rglob("*.py")),
+    *sorted((SRC / "simulators").rglob("*.py")),
     *sorted((SRC / "envs").rglob("*.py")),
     *sorted((SRC / "viz").rglob("*.py")),
     SRC / "__init__.py",
@@ -50,6 +50,6 @@ def test_core_code_names_no_task():
 
 
 def test_capabilities_have_no_task_ids():
-    from robotdesigner.backends import Capabilities
+    from robotdesigner.simulators import Capabilities
 
     assert "task_ids" not in Capabilities.__dataclass_fields__

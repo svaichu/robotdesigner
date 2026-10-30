@@ -1,4 +1,4 @@
-"""The kinematic chain of a ``ParametricArm`` as MuJoCo spec bodies, shared by every MuJoCo-based backend."""
+"""The kinematic chain of a ``ParametricArm`` as MuJoCo spec bodies, shared by every MuJoCo-based simulator."""
 
 from __future__ import annotations
 

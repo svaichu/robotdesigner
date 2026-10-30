@@ -5,7 +5,7 @@ mujoco = pytest.importorskip("mujoco")
 
 from dataclasses import replace  # noqa: E402
 
-from robotdesigner.backends.mujoco.compile import compile_robot  # noqa: E402
+from robotdesigner.simulators.mujoco.compile import compile_robot  # noqa: E402
 from robotdesigner.config import (  # noqa: E402
     ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
 )
@@ -16,8 +16,8 @@ COMMON = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_
 
 
 def make_cfg(arm, mode="joint_pos_abs", **sim):
-    sim_kw = dict(backend="mujoco", num_envs=2, device="cpu", dt=0.002, integrator="euler",
-                  control_freq=50, seed=0, scene="plain_floor")
+    sim_kw = dict(simulator="mujoco", num_envs=2, device="cpu", dt=0.002, integrator="euler",
+                  control_freq=50, seed=0, scene="plain_floor", options=MujocoOptions(self_collision=False))
     sim_kw.update(sim)
     return EnvConfig(
         robot=arm,
@@ -25,7 +25,6 @@ def make_cfg(arm, mode="joint_pos_abs", **sim):
         task=TaskConfig("toy/reach", 100, 0.02, FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)),
                         ReachParams(0.0, False)),
         sim=SimConfig(**sim_kw),
-        backend_options=MujocoOptions(self_collision=False),
     )
 
 

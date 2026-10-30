@@ -33,10 +33,10 @@ class ExtTasks:
     def params_class(self, name):
         return ExtParams if name == "thing" else None
 
-    def validate(self, cfg, backend):
+    def validate(self, cfg, simulator):
         return []
 
-    def build(self, cfg, backend):
+    def build(self, cfg, simulator):
         return None
 
 

@@ -1,10 +1,10 @@
-"""The engine side of a task, as the generic environment of a simulator backend sees it.
+"""The engine side of a task, as the generic environment of a simulator sees it.
 
 A provider (``config.providers.TaskProvider``) builds one ``TaskImpl`` per environment. The environment owns the
 robot, the control law, batching, resets, episode bookkeeping and rendering; the task owns everything the world adds:
 scene assets, per-env state, the ``task`` observation group, success and reward. Nothing here imports an engine at
 module level, so provider config sides stay importable without one. The hooks below are written for the MuJoCo
-backend (``spec`` is a ``mujoco.MjSpec``, ``sim`` a ``BatchedSim``).
+simulator (``spec`` is a ``mujoco.MjSpec``, ``sim`` a ``BatchedSim``).
 """
 
 from __future__ import annotations

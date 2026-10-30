@@ -17,7 +17,7 @@ from ._introspect import constructor_params, env_class
 
 PREFIX = "rs_"  # names of everything attached from the scene start with this, in the compiled model
 
-# Top-level sections that are simulator settings: ``SimConfig`` and the backend options decide them, not robosuite.
+# Top-level sections that are simulator settings: ``SimConfig`` and the simulator options decide them, not robosuite.
 _DROP_SECTIONS = ("option", "size", "visual")
 _IK_TARGET_SUFFIX = "_eef_target"  # mocap bodies robosuite's IK controllers move; nothing here uses them
 

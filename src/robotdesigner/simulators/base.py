@@ -1,7 +1,7 @@
-"""Backend protocol and capability checks. No heavy imports.
+"""Simulator protocol and capability checks. No heavy imports.
 
-A backend is a simulator. Which tasks exist is the business of task providers (``config.providers``); a provider
-checks its own tasks against the backend (``TaskProvider.validate``), so a backend never lists task ids.
+A simulator is a physics engine realized as code (``robotdesigner.simulators.<name>``). Which tasks exist is the business of task providers (``config.providers``); a provider
+checks its own tasks against the simulator (``TaskProvider.validate``), so a simulator never lists task ids.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ class Capabilities:
 
 
 @runtime_checkable
-class Backend(Protocol):
+class Simulator(Protocol):
     name: str
 
     def capabilities(self) -> Capabilities: ...
@@ -40,9 +40,9 @@ def _robot_kind(robot: Any) -> str:
     return "parametric" if type(robot).__name__ == "ParametricArm" else type(robot).__name__
 
 
-def check_capabilities(cfg: Any, caps: Capabilities, backend: str = "") -> list[Problem]:
+def check_capabilities(cfg: Any, caps: Capabilities, simulator: str = "") -> list[Problem]:
     """Every way ``cfg`` falls outside ``caps``, as problems naming the config path."""
-    who = f"backend {backend!r}" if backend else "this backend"
+    who = f"simulator {simulator!r}" if simulator else "this simulator"
     problems: list[Problem] = []
 
     def check(path: str, value: str, allowed: frozenset[str], what: str) -> None:

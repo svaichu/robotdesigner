@@ -1,4 +1,4 @@
-"""A three-link arm in the robosuite Lift scene (table and cube), simulated by the CPU MuJoCo backend.
+"""A three-link arm in the robosuite Lift scene (table and cube), simulated by the CPU MuJoCo simulator.
 
 robosuite only supplies the assets (arena, cube, placement rule); our MuJoCo simulation steps everything.
 Needs the robosuite extra:  pip install -e ".[env,robosuite]"
@@ -45,10 +45,9 @@ def build_config(num_envs: int = 4, horizon: int = 100) -> EnvConfig:
             params=RobosuiteParams({}, LiftObject("cube", height=0.84), reset_noise=0.0, terminate_on_success=False),
         ),
         sim=SimConfig(
-            backend="mujoco", num_envs=num_envs, device="cpu", dt=0.002,
-            integrator="euler", control_freq=50, seed=0, scene="empty",
+            simulator="mujoco", num_envs=num_envs, device="cpu", dt=0.002,
+            integrator="euler", control_freq=50, seed=0, scene="empty", options=MujocoOptions(self_collision=False),
         ),
-        backend_options=MujocoOptions(self_collision=False),
     )
 
 

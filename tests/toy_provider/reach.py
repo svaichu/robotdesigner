@@ -85,7 +85,7 @@ class ReachTask(BaseTask):
     def overlays(self, scene, sim, data, env_index: int) -> None:
         import mujoco
 
-        from robotdesigner.backends.mujoco.render import add_geom, add_line
+        from robotdesigner.simulators.mujoco.render import add_geom, add_line
 
         R, p = sim._base_R, sim._base_pos
         tol = float(self._tol)

@@ -13,7 +13,7 @@ from robotdesigner.config import (
 ```
 
 Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [SimConfig](sim.md), [EnvConfig](env.md),
-[backends](../backends.md), and the page of the task provider that ships with the package:
+[simulators](../simulators.md), and the page of the task provider that ships with the package:
 [robosuite scenes](../tasks/robosuite.md).
 
 ## `TaskConfig(id, horizon, success_tolerance, target_region, params)`
@@ -31,7 +31,7 @@ success (an objective on a scene object, say) takes `None` for both; passing a v
 ignored.
 
 An unknown id is rejected with the list of every registered id. Which simulator can run a task is decided when the
-environment is built, by the task's provider and the backend together (see [backends](../backends.md#capabilities)),
+environment is built, by the task's provider and the simulator together (see [simulators](../simulators.md#capabilities)),
 never here.
 
 ## Where task ids come from
@@ -93,10 +93,10 @@ class DemoTasks:
     def params_class(self, name):
         return DemoParams if name == "hold" else None
 
-    def validate(self, cfg, backend):
+    def validate(self, cfg, simulator):
         return []
 
-    def build(self, cfg, backend):
+    def build(self, cfg, simulator):
         raise NotImplementedError("a real provider returns a tasks.base.TaskImpl here")
 
 
@@ -149,8 +149,8 @@ A provider has two halves, kept apart so that the config layer never imports an 
    `terminate_on_success`, the environment applies them. Use `robotdesigner.config._canon.freeze` / `thaw` for free-form
    mappings.
 2. **Provider object.** `task_names()` (names or patterns, for error messages), `params_class(name)`,
-   `validate(cfg, backend) -> list[Problem]` (every reason this task cannot run on that simulator, collected with the
-   backend's own problems into one `ConfigError`) and `build(cfg, backend)`, which imports the engine and returns the
+   `validate(cfg, simulator) -> list[Problem]` (every reason this task cannot run on that simulator, collected with the
+   simulator's own problems into one `ConfigError`) and `build(cfg, simulator)`, which imports the engine and returns the
    task.
 3. **Engine side.** A `robotdesigner.tasks.base.TaskImpl` (subclass `BaseTask` to skip the optional hooks): `attach(spec)`
    adds scene elements to the MuJoCo spec before it is compiled, `bind(sim)` resolves names to ids, `observation_spec`

@@ -1,6 +1,6 @@
 # EnvConfig
 
-The complete, declarative description of one environment: robot, control, task, sim and backend options, with one hash.
+The complete, declarative description of one environment: robot, control, task and sim (which includes the options of the chosen simulator), with one hash.
 Everything that changes behaviour is in here, so a run is identified by its `env_hash`. Importing it needs numpy only.
 An `EnvConfig` is data: `env = make_env(cfg)` is the one step that turns it into an environment (see
 [building the environment](#building-the-environment)).
@@ -16,23 +16,20 @@ from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams
 ```
 
 Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [TaskConfig](task.md), [SimConfig](sim.md),
-[backends](../backends.md).
+[simulators](../simulators.md).
 
-## `EnvConfig(robot, control, task, sim, backend_options)`
+## `EnvConfig(robot, control, task, sim)`
 
 | field | type | |
 |---|---|---|
 | `robot` | `ParametricArm` | [RobotConfig](robot.md) |
 | `control` | `ControlConfig` | [ControlConfig](control.md) |
 | `task` | `TaskConfig` | [TaskConfig](task.md) |
-| `sim` | `SimConfig` | [SimConfig](sim.md) |
-| `backend_options` | the options class of `sim.backend` | `MujocoOptions` for `"mujoco"` |
+| `sim` | `SimConfig` | [SimConfig](sim.md): the simulator, the batch, the time step, the seed, the scene and the simulator's options |
 
 Checks across the sections, on top of each section's own:
 
 - each field has the right class (error path: the field name);
-- `backend_options` is an instance of the class registered for `sim.backend` (path `backend_options`), and the backend
-  has options registered at all (path `sim.backend`);
 - per-joint `kp` and `kd` in `FixedGains` have exactly `robot.n` entries (path `control.gains.kp` or `.kd`).
 
 Whether the simulator can run the combination (a control mode, a device, the time step) and whether the task's provider
@@ -50,11 +47,11 @@ cfg = EnvConfig(
     task=TaskConfig(id="robosuite/Lift", horizon=200, success_tolerance=None, target_region=None,   # a task of the
                     params=RobosuiteParams({}, LiftObject("cube", height=0.84),                        # `robosuite` provider
                                            reset_noise=0.0, terminate_on_success=False)),
-    sim=SimConfig(backend="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
-                  control_freq=50.0, seed=0, scene="empty"),               # the arena brings its own floor
-    backend_options=MujocoOptions(self_collision=False),
+    sim=SimConfig(simulator="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
+                  control_freq=50.0, seed=0, scene="empty",                # the arena brings its own floor
+                  options=MujocoOptions(self_collision=False)),            # the settings of "mujoco" only
 )
-assert list(cfg.to_dict()) == ["robot", "control", "task", "sim", "backend_options"]
+assert list(cfg.to_dict()) == ["robot", "control", "task", "sim"]
 ```
 
 ## Serialization
@@ -81,18 +78,18 @@ else:
 
 ```python
 assert len(cfg.env_hash) == 12 and cfg.full_env_hash.startswith(cfg.env_hash) and len(cfg.full_env_hash) == 64
-assert list(cfg.hash_dict()) == ["robot_hash", "control", "task", "sim", "backend_options"]
+assert list(cfg.hash_dict()) == ["robot_hash", "control", "task", "sim"]
 ```
 
 `full_env_hash` is the SHA-256 of the canonical JSON (sorted keys, floats rounded to 12 significant digits, `-0.0` as
-`0.0`) of `hash_dict()`: the robot's `full_hash`, then the control, task, sim and backend-option dicts. `env_hash` is its
+`0.0`) of `hash_dict()`: the robot's `full_hash`, then the control, task and sim dicts (the simulator's options are part of `sim`). `env_hash` is its
 first 12 characters.
 
 | changes `env_hash` | does not |
 |---|---|
 | any physical or control parameter, the task, the time step, the integrator, the scene, the options | the robot's `label` |
 | `num_envs` and `seed` (they define the run) | key order in a dict, `-0.0` versus `0.0`, scaling an axis or a quaternion |
-| the backend name and the task id | |
+| the simulator name and the task id | |
 
 Not in the hash, because they are not part of the config: the version of MuJoCo, robosuite or this package, and robosuite's
 own defaults for arguments you did not set (those are recorded on the environment as `resolved_env_kwargs`).
@@ -123,12 +120,12 @@ def error_of(build):
         return e
     raise AssertionError("no error")
 
-# the options class must match the backend
-assert error_of(lambda: replace(cfg, backend_options=FixedBox((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)))).path == "backend_options"
+# the options class must match the simulator (checked by SimConfig, so the path is relative to it)
+assert error_of(lambda: replace(cfg, sim=replace(cfg.sim, options=FixedBox((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))))).path == "options"
 # a per-joint gain list must have n entries (the arm has 3 joints)
 assert error_of(lambda: replace(cfg, control=ControlConfig("joint_pos_abs", FixedGains((1.0, 2.0), 1.0), None))).path == "control.gains.kp"
-# an unknown backend has no options class
-assert error_of(lambda: replace(cfg, sim=replace(cfg.sim, backend="nope"))).path == "sim.backend"
+# an unknown simulator has no options class
+assert error_of(lambda: replace(cfg, sim=replace(cfg.sim, simulator="nope"))).path == "simulator"
 ```
 
 ## Building the environment
@@ -141,10 +138,10 @@ print(env.robot_hash, env.env_hash)   # the 12-character hashes of the robot and
 ```
 
 `make_env(cfg)` is the only way an `EnvConfig` becomes an environment, and it works the same for every task: the simulator
-is the one named in `cfg.sim.backend`, the task comes from the provider that owns `cfg.task.id`
+is the one named in `cfg.sim.simulator`, the task comes from the provider that owns `cfg.task.id`
 (see [TaskConfig](task.md#where-task-ids-come-from)). `EnvConfig` itself has no `make()` method, so the config layer
 stays free of engines. Everything the simulator or the task cannot do with this config is reported in one `ConfigError`
-([backends](../backends.md#capabilities)).
+([simulators](../simulators.md#capabilities)).
 
 Every environment exposes `cfg`, `robot_hash` (`robot.config_hash`) and `env_hash`. Keep the JSON from `to_dict()` with
 each run: `EnvConfig.from_dict(json.load(f)).env_hash` must equal the recorded `env_hash`.

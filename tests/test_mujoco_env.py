@@ -26,8 +26,7 @@ def make_cfg(n=2, num_envs=3, seed=0, horizon=20, region=None, mode="joint_pos_a
         task=TaskConfig("toy/reach", horizon, 0.02,
                         region or FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)),
                         ReachParams(noise, terminate)),
-        sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, seed, "plain_floor"),
-        backend_options=MujocoOptions(False),
+        sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, seed, "plain_floor", options=MujocoOptions(False)),
     )
 
 

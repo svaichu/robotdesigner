@@ -97,7 +97,7 @@ a rollout of `k` steps (the notebook shows this).
 `workspace_points(cfg)`; `tile(frames, ncols=None, pad=2)`, `tile_clips(clips, ncols=None, labels=None)` (equal frame
 size and fps; as long as the shortest clip), `annotate(frame, text, corner="tl")` (white text on a dark box).
 
-**On the env**: `env.render(...)`, `env.close()` (frees the renderer), and in `robotdesigner.backends.mujoco.render`:
+**On the env**: `env.render(...)`, `env.close()` (frees the renderer), and in `robotdesigner.simulators.mujoco.render`:
 `render_rgb(env, env_index, camera, size)` (the same as `env.render`) and `launch_viewer(env)` (interactive viewer, needs
 a display).
 
@@ -113,7 +113,7 @@ a display).
 - Frames are kept in memory as uint8 arrays: 150 frames at 240x320 are about 35 MB per env.
 - Rendering several envs costs one render per env per frame (about 14 ms each at 240x320 on a CPU node).
 
-## Adding rendering to another backend
+## Adding rendering to another simulator
 
 `FrameRecorder` and `record_rollout` need only this from an env:
 
@@ -125,7 +125,7 @@ env.cfg.sim.control_freq                            # or pass fps= to record_rol
 
 ## Not included
 
-- Only the CPU MuJoCo backend renders so far.
+- Only the CPU MuJoCo simulator renders so far.
 - Frames are rendered while the rollout runs; replaying recorded states afterwards is not implemented.
 - TorchRL's own `torchrl.render` stack is not wired in (see `.agent/future_ideas.md`).
 - No depth or segmentation output.

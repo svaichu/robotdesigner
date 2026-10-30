@@ -212,7 +212,7 @@ class Segment:
 class ToolSpec:
     """A gripper mounted on the end effector.
 
-    Part of the robot's identity: it is stored and hashed. The MuJoCo backend does not build a gripper, so it has no
+    Part of the robot's identity: it is stored and hashed. The MuJoCo simulator does not build a gripper, so it has no
     effect on the simulation yet.
     """
 
@@ -244,7 +244,7 @@ class ToolSpec:
 class ParametricArm:
     """A serial chain of hinge joints and capsule links on a fixed base.
 
-    The MuJoCo backend names the elements ``base``, ``link_{i}`` and ``joint_{i}``; the end effector is the ``ee``
+    The MuJoCo simulator names the elements ``base``, ``link_{i}`` and ``joint_{i}``; the end effector is the ``ee``
     site.
     ``label`` is metadata and does not enter the hash.
     """

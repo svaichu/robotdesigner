@@ -3,8 +3,8 @@ import pytest
 
 pytest.importorskip("mujoco")
 
-from robotdesigner.backends.mujoco.compile import compile_robot  # noqa: E402
-from robotdesigner.backends.mujoco.sim import BatchedSim  # noqa: E402
+from robotdesigner.simulators.mujoco.compile import compile_robot  # noqa: E402
+from robotdesigner.simulators.mujoco.sim import BatchedSim  # noqa: E402
 from robotdesigner.config import Pose, chain  # noqa: E402
 from robotdesigner.config import kinematics as kin  # noqa: E402
 from tests.test_mujoco_compile import COMMON, make_cfg  # noqa: E402

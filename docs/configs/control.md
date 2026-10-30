@@ -9,7 +9,7 @@ from robotdesigner.config import ConfigError, ControlConfig, FixedGains, Inertia
 ```
 
 Related pages: [RobotConfig](robot.md), [TaskConfig](task.md), [SimConfig](sim.md), [EnvConfig](env.md),
-[backends](../backends.md).
+[simulators](../simulators.md).
 
 ## `ControlConfig(mode, gains, action_scale)`
 
@@ -23,16 +23,16 @@ Every environment takes actions in `[-1, 1]`, one per joint. The mode decides wh
 
 ### Modes
 
-| mode | meaning of an action `a` in `[-1, 1]` (MuJoCo backend) | `action_scale` | gains used |
+| mode | meaning of an action `a` in `[-1, 1]` (MuJoCo simulator) | `action_scale` | gains used |
 |---|---|---|---|
 | `joint_pos_abs` | target position: `a = -1` and `a = +1` are the two ends of the joint range (`±pi` for an unlimited joint) | `None` | `kp`, `kd` |
 | `joint_pos_delta` | `q_target += a * action_scale` each step (rad per step), clipped to the joint range; the target restarts at the measured position on reset | rad per step | `kp`, `kd` |
 | `joint_vel` | target velocity `a * action_scale` (rad/s) | rad/s | `kd` |
 | `joint_torque` | torque `a * effort_limit` | `None` | none |
-| `ee_pos_delta`, `ee_pose_delta` | reserved names for end-effector control | | no backend supports them yet |
+| `ee_pos_delta`, `ee_pose_delta` | reserved names for end-effector control | | no simulator supports them yet |
 
-A backend that does not support a mode rejects the config before building anything; it never approximates
-(see [backends](../backends.md#capabilities)).
+A simulator that does not support a mode rejects the config before building anything; it never approximates
+(see [simulators](../simulators.md#capabilities)).
 
 ## Gains
 
@@ -66,7 +66,7 @@ kd = max(2 * zeta * (kp * M) ** 0.5 - joint_damping, 0.0)
 assert abs(kp - 50.0) < 1e-12 and abs(kd - 9.5) < 1e-12
 ```
 
-The MuJoCo backend evaluates `M` once at `home_qpos`.
+The MuJoCo simulator evaluates `M` once at `home_qpos`.
 
 ## Examples
 

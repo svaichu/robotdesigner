@@ -1,4 +1,4 @@
-"""CPU MuJoCo backend: the reference and debugging simulator."""
+"""CPU MuJoCo simulator: the reference and debugging simulator."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 from ..base import Capabilities, Problem
 
 
-class MujocoBackend:
+class MujocoSimulator:
     name = "mujoco"
 
     def capabilities(self) -> Capabilities:

@@ -1,17 +1,18 @@
-# Backends and the environment contract
+# Simulators and the environment contract
 
-A **backend** is a simulator. It turns an [`EnvConfig`](configs/env.md) into a batched TorchRL environment. The config says
-what to run; the backend and the task's provider decide whether they can, and build it. Tasks are not part of a backend:
-they come from [task providers](configs/task.md#where-task-ids-come-from) and run on any backend their provider accepts.
+A **simulator** is a physics engine realized as code: `robotdesigner.simulators.<name>`, loaded by name when `sim.simulator`
+names it. It turns an [`EnvConfig`](configs/env.md) into a batched TorchRL environment. The config says
+what to run; the simulator and the task's provider decide whether they can, and build it. Tasks are not part of a simulator:
+they come from [task providers](configs/task.md#where-task-ids-come-from) and run on any simulator their provider accepts.
 
 ```python no-run
 from robotdesigner import make_env
-env = make_env(cfg)        # cfg.sim.backend picks the simulator, cfg.task.id the provider that supplies the task
+env = make_env(cfg)        # cfg.sim.simulator picks the simulator, cfg.task.id the provider that supplies the task
 ```
 
-| backend | what it is | needs |
+| simulator | what it is | needs |
 |---|---|---|
-| `mujoco` | CPU MuJoCo: a model compiled from the config (robot, a scene preset, the task's assets). The reference and debugging backend | `[env]` extra |
+| `mujoco` | CPU MuJoCo: a model compiled from the config (robot, a scene preset, the task's assets). The reference and debugging simulator | `[env]` extra |
 | `warp` | planned: the same models on the GPU. Declared as an extra only, not implemented | |
 
 Where a task's scene comes from is a provider matter: [robosuite scenes](tasks/robosuite.md) load a robosuite arena and
@@ -20,36 +21,36 @@ its objects into the MuJoCo model; a task that needs no assets adds none and run
 ## Protocol and registry
 
 ```python no-run
-class Backend(Protocol):
+class Simulator(Protocol):
     name: str
     def capabilities(self) -> Capabilities: ...   # what it can run
     def validate(self, cfg) -> list[Problem]: ... # engine-specific checks, before anything is built
     def make_env(self, cfg): ...                  # a torchrl EnvBase
 ```
 
-- `robotdesigner.backends` is a registry: `register_backend(name, target)`, `get_backend(name)`, `list_backends()`.
-  `target` is a backend instance or a lazy `"module:attr"` string, resolved on first use, so importing
-  `robotdesigner.backends` never imports MuJoCo, torch or robosuite. An unknown name raises `ConfigError` with path
-  `sim.backend`.
+- `robotdesigner.simulators` is a registry: `register_simulator(name, target)`, `get_simulator(name)`, `list_simulators()`.
+  `target` is a simulator instance or a lazy `"module:attr"` string, resolved on first use, so importing
+  `robotdesigner.simulators` never imports MuJoCo, torch or robosuite. An unknown name raises `ConfigError` with path
+  `sim.simulator`.
 - `Problem(path, message)` names the config field at fault, like `ConfigError.path`.
 
 ## Capabilities
 
-`Capabilities` lists what a backend supports: `control_modes`, `devices`, `robot_kinds`, `integrators`. A device entry
-`"cuda"` matches any `cuda:N`. A backend never lists tasks.
+`Capabilities` lists what a simulator supports: `control_modes`, `devices`, `robot_kinds`, `integrators`. A device entry
+`"cuda"` matches any `cuda:N`. A simulator never lists tasks.
 
 `make_env(cfg)` collects problems from three places and raises one `ConfigError` that lists **every** one:
 
-1. the config against the backend's capabilities (control mode, integrator, robot kind, device);
-2. `backend.validate(cfg)` (engine-specific checks, for example the scene preset);
-3. `provider.validate(cfg, backend.name)`: the task's own checks against this backend.
+1. the config against the simulator's capabilities (control mode, integrator, robot kind, device);
+2. `simulator.validate(cfg)` (engine-specific checks, for example the scene preset);
+3. `provider.validate(cfg, simulator.name)`: the task's own checks against this simulator.
 
 Nothing is built, approximated or silently changed.
 
 ```text
-backend 'mujoco' cannot run this config (3 problems):
-  - control.mode: backend 'mujoco' does not support control mode 'ee_pos_delta'; supported: ['joint_pos_abs', ...]
-  - sim.device: backend 'mujoco' does not support device 'cuda:0'; supported: ['cpu']
+simulator 'mujoco' cannot run this config (3 problems):
+  - control.mode: simulator 'mujoco' does not support control mode 'ee_pos_delta'; supported: ['joint_pos_abs', ...]
+  - sim.device: simulator 'mujoco' does not support device 'cuda:0'; supported: ['cpu']
   - sim.scene: must be 'empty' for robosuite tasks: the arena brings its own floor
 ```
 
@@ -63,13 +64,13 @@ backend 'mujoco' cannot run this config (3 problems):
 | scenes | `empty`, `plain_floor` (a task's own scene is added on top) |
 | robot kinds | `parametric` |
 | `robot.tool` | ignored |
-| backend options | `MujocoOptions` |
+| `sim.options` | `MujocoOptions` |
 
 ## The environment contract
 
-Every backend returns a TorchRL `EnvBase` with these properties, whatever the task.
+Every simulator returns a TorchRL `EnvBase` with these properties, whatever the task.
 
-- `batch_size = [num_envs]`, batch-locked, on the CPU for the current backends.
+- `batch_size = [num_envs]`, batch-locked, on the CPU for the current simulators.
 - **No autoreset.** `step` never resets an environment. Reset chosen rows with a boolean mask `td["_reset"]` of shape
   `[num_envs, 1]` (absent: reset all), or use `env.step_and_maybe_reset(td)` to let the driver do it from the done keys.
 - **Step** reads `td["action"]`, shape `[num_envs, n]` in `[-1, 1]` (one value per joint), and returns the outputs under
@@ -80,8 +81,8 @@ Every backend returns a TorchRL `EnvBase` with these properties, whatever the ta
   `task` group (whatever the task observes) and a `proprio` group with `qpos`, `qvel` and `effort`, each `[num_envs, n]`.
 - **Injected state:** the reset TensorDict may carry `qpos` and `qvel`, and whatever the task accepts (a task
   documents its own keys, for example a goal point), which override the random initialization. This is how two
-  backends are compared from the same start, or an episode is replayed.
-- **Seeding:** `env.set_seed(seed)`. The same backend, device and seed give the same episodes. The reset noise of the
+  simulators are compared from the same start, or an episode is replayed.
+- **Seeding:** `env.set_seed(seed)`. The same simulator, device and seed give the same episodes. The reset noise of the
   robot and the draws of the task come from two separate streams, both seeded from `sim.seed`: what a task draws (an
   object's placement, a goal) is the same for every embodiment run with the same seed and `num_envs`.
 - **Attributes:** `env.cfg` (the resolved config), `env.robot_hash`, `env.env_hash`, `env.task` (the task's engine side),
@@ -111,26 +112,27 @@ What tasks and wrappers need to know about a compiled robot, without engine-spec
 
 ```
 make_env(cfg)
-  ├─ backend  = get_backend(cfg.sim.backend)              the simulator
-  ├─ provider = provider_for(cfg.task.id)                 owner of the task id's namespace
-  ├─ problems = capabilities + backend.validate + provider.validate     (all at once)
-  └─ backend.make_env(cfg)
-        ├─ task = provider.build(cfg, backend.name)       engine side of the task (a TaskImpl)
+  ├─ simulator = get_simulator(cfg.sim.simulator)                 the simulator named in the config
+  ├─ provider  = provider_for(cfg.task.id)                        owner of the task id's namespace
+  ├─ problems  = capabilities + simulator.validate + provider.validate   (all at once)
+  └─ simulator.make_env(cfg)
+        ├─ task = provider.build(cfg, simulator.name)       engine side of the task (a TaskImpl)
         └─ MujocoEnv(cfg, task)
               compile_robot(cfg, scene_hook=task.attach)  scene preset, then the task's assets, then the robot
               BatchedSim, control law, masked reset, episode counters, rendering   (shared by every task)
               task.reset / observe / success / reward                                (the task's part)
 ```
 
-## Adding a backend
+## Adding a simulator
 
 1. Write a class with `name`, `capabilities()`, `validate(cfg)` and `make_env(cfg)`. Import the engine inside
    `validate` and `make_env`, not at module level. `make_env` gets the task with
    `provider_for(cfg.task.id)[0].build(cfg, self.name)`.
-2. Register it: `register_backend("name", "your.module:YourBackend")`.
-3. Register its options class: `register_backend_options("name", YourOptions)` (it needs `to_dict` and `from_dict`).
+2. Register it: `register_simulator("name", "your.module:YourSimulator")`.
+3. Register its options class: `register_simulator_options("name", YourOptions)` (it needs `to_dict` and `from_dict`). It
+   is the type of `sim.options`, which `SimConfig` checks against `sim.simulator`.
 4. Return an `EnvBase` that follows the contract above: nested `task` / `proprio` observations, `[num_envs, ...]` shapes,
    no autoreset, `_reset` mask, injected state, deterministic seeding. Test it with `check_env_specs`, a masked-reset
    test and a seeding test.
-5. Tell the providers it exists: a provider accepts a backend by name in its `validate`, and builds the engine side the
-   backend needs in `build` (a provider that only knows MuJoCo reports `sim.backend` as a problem on yours).
+5. Tell the providers it exists: a provider accepts a simulator by name in its `validate`, and builds the engine side the
+   simulator needs in `build` (a provider that only knows MuJoCo reports `sim.simulator` as a problem on yours).

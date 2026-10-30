@@ -1,4 +1,4 @@
-"""Compile a ``ParametricArm`` into a MuJoCo model and a backend-neutral ``RobotInterface``."""
+"""Compile a ``ParametricArm`` into a MuJoCo model and a simulator-neutral ``RobotInterface``."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float], scene_hook=Non
     if scene_hook is not None:  # scene elements the task adds (arena, objects), before the robot
         scene_hook(spec)
 
-    self_collision = bool(getattr(cfg.backend_options, "self_collision", False))
+    self_collision = bool(getattr(cfg.sim.options, "self_collision", False))
     conaffinity = 1 if self_collision else 0
 
     base = spec.worldbody.add_body(

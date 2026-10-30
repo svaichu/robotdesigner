@@ -1,4 +1,4 @@
-"""Rendering for the CPU MuJoCo backend. Nothing but ``MujocoEnv.render`` imports this module.
+"""Rendering for the CPU MuJoCo simulator. Nothing but ``MujocoEnv.render`` imports this module.
 
 Needs an OpenGL context. On headless machines set ``MUJOCO_GL=egl`` before the first import of mujoco.
 

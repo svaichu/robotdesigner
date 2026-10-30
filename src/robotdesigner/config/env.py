@@ -9,7 +9,7 @@ from ._canon import HASH_DISPLAY_LENGTH, canonical_json, check_keys, sha256_hex,
 from .control import ControlConfig
 from .errors import ConfigError
 from .robot import ParametricArm
-from .sim import BACKEND_OPTIONS, SimConfig
+from .sim import SimConfig
 from .task import TaskConfig
 
 
@@ -19,7 +19,6 @@ class EnvConfig:
     control: ControlConfig
     task: TaskConfig
     sim: SimConfig
-    backend_options: Any
 
     def __post_init__(self):
         for name, cls in (
@@ -30,16 +29,6 @@ class EnvConfig:
         ):
             if not isinstance(getattr(self, name), cls):
                 raise ConfigError(name, f"expected {cls.__name__}")
-
-        options_cls = BACKEND_OPTIONS.get(self.sim.backend)
-        if options_cls is None:
-            raise ConfigError(
-                "sim.backend", f"no options registered for backend {self.sim.backend!r}; known: {sorted(BACKEND_OPTIONS)}"
-            )
-        if not isinstance(self.backend_options, options_cls):
-            raise ConfigError(
-                "backend_options", f"backend {self.sim.backend!r} requires {options_cls.__name__}"
-            )
 
         n = self.robot.n
         for name in ("kp", "kd"):
@@ -64,7 +53,6 @@ class EnvConfig:
             "control": r.control.to_dict(),
             "task": r.task.to_dict(),
             "sim": r.sim.to_dict(),
-            "backend_options": r.backend_options.to_dict(),
         }
 
     @property
@@ -83,22 +71,14 @@ class EnvConfig:
             "control": self.control.to_dict(),
             "task": self.task.to_dict(),
             "sim": self.sim.to_dict(),
-            "backend_options": self.backend_options.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "EnvConfig":
-        check_keys(d, {"robot", "control", "task", "sim", "backend_options"}, "")
-        sim = within("sim", SimConfig.from_dict, d["sim"])
-        options_cls = BACKEND_OPTIONS.get(sim.backend)
-        if options_cls is None:
-            raise ConfigError(
-                "sim.backend", f"no options registered for backend {sim.backend!r}; known: {sorted(BACKEND_OPTIONS)}"
-            )
+        check_keys(d, {"robot", "control", "task", "sim"}, "")
         return cls(
             robot=within("robot", ParametricArm.from_dict, d["robot"]),
             control=within("control", ControlConfig.from_dict, d["control"]),
             task=within("task", TaskConfig.from_dict, d["task"]),
-            sim=sim,
-            backend_options=within("backend_options", options_cls.from_dict, d["backend_options"]),
+            sim=within("sim", SimConfig.from_dict, d["sim"]),
         )

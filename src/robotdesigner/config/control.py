@@ -64,7 +64,7 @@ class FixedGains:
 
 @dataclass(frozen=True, slots=True)
 class InertiaScaledGains:
-    """Gains derived from the inertia each joint sees, evaluated at ``home_qpos`` by the backend.
+    """Gains derived from the inertia each joint sees, evaluated at ``home_qpos`` by the simulator.
 
     ``kp_i = bandwidth^2 * M_ii``, ``kd_i = max(2 * damping_ratio * sqrt(kp_i * M_ii) - damping_i, 0)``,
     with ``M`` the joint-space mass matrix of the compiled model (armature included). An approximation:

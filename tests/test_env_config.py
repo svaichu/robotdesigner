@@ -32,9 +32,8 @@ def make_cfg(dt=0.002, num_envs=8, horizon=200, kp=60.0, mass=3.0, region=None):
             target_region=region or FixedBox(low=(0.2, -0.3, 0.0), high=(0.6, 0.3, 0.4)),
             params=ReachParams(reset_noise=0.0, terminate_on_success=False),
         ),
-        sim=SimConfig(backend="mujoco", num_envs=num_envs, device="cpu", dt=dt, integrator="euler",
-                      control_freq=50, seed=0, scene="plain_floor"),
-        backend_options=MujocoOptions(self_collision=False),
+        sim=SimConfig(simulator="mujoco", num_envs=num_envs, device="cpu", dt=dt, integrator="euler",
+                      control_freq=50, seed=0, scene="plain_floor", options=MujocoOptions(self_collision=False)),
     )
 
 
@@ -66,8 +65,8 @@ def test_hash_sensitivity_and_invariance():
 
 def test_validation_errors_with_paths():
     with pytest.raises(ConfigError, match="^control_freq"):
-        SimConfig(backend="mujoco", num_envs=1, device="cpu", dt=0.003, integrator="euler",
-                  control_freq=50, seed=0, scene="plain_floor")
+        SimConfig(simulator="mujoco", num_envs=1, device="cpu", dt=0.003, integrator="euler",
+                  control_freq=50, seed=0, scene="plain_floor", options=MujocoOptions(False))
     with pytest.raises(ConfigError, match="^action_scale"):
         ControlConfig(mode="joint_pos_delta", gains=FixedGains(1.0, 1.0), action_scale=None)
     with pytest.raises(ConfigError, match="^action_scale"):
@@ -88,13 +87,36 @@ def test_cross_field_checks():
     cfg = make_cfg()
     with pytest.raises(ConfigError, match="control.gains.kp"):
         EnvConfig(cfg.robot, ControlConfig("joint_pos_abs", FixedGains((1.0, 2.0), 1.0), None),
-                  cfg.task, cfg.sim, cfg.backend_options)
-    with pytest.raises(ConfigError, match="backend_options"):
-        EnvConfig(cfg.robot, cfg.control, cfg.task, cfg.sim, ReachParams(0.0, False))
+                  cfg.task, cfg.sim)
+    with pytest.raises(ConfigError, match="^sim: expected SimConfig"):
+        EnvConfig(cfg.robot, cfg.control, cfg.task, cfg.sim.options)
     d = copy.deepcopy(cfg.to_dict())
-    d["sim"]["backend"] = "nope"
-    with pytest.raises(ConfigError, match="sim.backend"):
+    d["sim"]["simulator"] = "nope"
+    with pytest.raises(ConfigError, match="sim.simulator"):
         EnvConfig.from_dict(d)
+
+
+def test_the_options_belong_to_the_simulator():
+    from dataclasses import replace
+
+    cfg = make_cfg()
+    assert cfg.sim.options == MujocoOptions(self_collision=False)
+    assert cfg.to_dict()["sim"]["options"] == {"self_collision": False}
+    assert "backend_options" not in cfg.to_dict() and list(cfg.to_dict()) == ["robot", "control", "task", "sim"]
+    with pytest.raises(ConfigError, match="^options: simulator 'mujoco' requires MujocoOptions"):
+        replace(cfg.sim, options=ReachParams(0.0, False))
+    with pytest.raises(ConfigError, match="^simulator: no options registered for simulator 'nope'"):
+        replace(cfg.sim, simulator="nope")
+    d = copy.deepcopy(cfg.to_dict())
+    d["sim"]["options"]["self_collision"] = "yes"
+    with pytest.raises(ConfigError, match=r"^sim\.options\.self_collision"):
+        EnvConfig.from_dict(d)
+    d = copy.deepcopy(cfg.to_dict())
+    del d["sim"]["options"]
+    with pytest.raises(ConfigError, match=r"^sim"):
+        EnvConfig.from_dict(d)
+    on = replace(cfg, sim=replace(cfg.sim, options=MujocoOptions(self_collision=True)))
+    assert on.env_hash != cfg.env_hash and EnvConfig.from_dict(on.to_dict()) == on
 
 
 def test_inertia_scaled_gains_round_trip_and_validation():

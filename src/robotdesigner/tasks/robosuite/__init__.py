@@ -1,7 +1,7 @@
 """robosuite as a source of task assets: arenas, objects and their placement. Imports neither robosuite nor MuJoCo.
 
 ``robosuite/<EnvName>`` loads the arena and the objects of the robosuite environment ``<EnvName>`` into the
-simulation named by ``SimConfig.backend``. robosuite does not simulate anything here: its physics settings,
+simulation named by ``SimConfig.simulator``. robosuite does not simulate anything here: its physics settings,
 controllers, robots and rewards are not used. See ``params.py`` for what the task config holds.
 """
 
@@ -29,7 +29,7 @@ SCENE = "empty"  # the arena brings its own floor, so the simulator adds none
 
 
 class RobosuiteTasks:
-    BACKENDS = frozenset({"mujoco"})
+    SIMULATORS = frozenset({"mujoco"})
 
     def task_names(self) -> tuple[str, ...]:
         return ("<EnvName>",)
@@ -37,9 +37,9 @@ class RobosuiteTasks:
     def params_class(self, name: str) -> type | None:
         return RobosuiteParams if name else None
 
-    def validate(self, cfg: Any, backend: str) -> list[Problem]:
-        if backend not in self.BACKENDS:
-            return [Problem("sim.backend", f"task {cfg.task.id!r} runs on {sorted(self.BACKENDS)}, not on {backend!r}")]
+    def validate(self, cfg: Any, simulator: str) -> list[Problem]:
+        if simulator not in self.SIMULATORS:
+            return [Problem("sim.simulator", f"task {cfg.task.id!r} runs on {sorted(self.SIMULATORS)}, not on {simulator!r}")]
         try:
             apply_compat()
             import robosuite  # noqa: F401
@@ -101,7 +101,7 @@ class RobosuiteTasks:
                 )
         return problems
 
-    def build(self, cfg: Any, backend: str) -> Any:
+    def build(self, cfg: Any, simulator: str) -> Any:
         from .task import RobosuiteTask
 
         return RobosuiteTask(cfg)

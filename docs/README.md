@@ -1,7 +1,7 @@
 # robotdesigner documentation
 
 `robotdesigner` describes robot embodiments as validated, hashable data and runs them in batched TorchRL environments on
-several simulation backends, so the same task can be given to many embodiments and every run traces back to one hash.
+several simulators, so the same task can be given to many embodiments and every run traces back to one hash.
 
 Start with the [README](../README.md) for installation and a first environment.
 
@@ -12,9 +12,9 @@ Start with the [README](../README.md) for installation and a first environment.
 | [RobotConfig](configs/robot.md) | `ParametricArm` and its parts, the `chain()` generator, the kinematics oracle, the robot hash |
 | [ControlConfig](configs/control.md) | control modes, `FixedGains`, `InertiaScaledGains`, the action scale |
 | [TaskConfig](configs/task.md) | task ids and their providers, target regions, how to add a provider |
-| [SimConfig and backend options](configs/sim.md) | simulator, batch size, time step, seed, scene, `MujocoOptions` |
+| [SimConfig and simulator options](configs/sim.md) | simulator, batch size, time step, seed, scene, `MujocoOptions` |
 | [EnvConfig](configs/env.md) | how the sections combine, serialization, hashing, errors |
-| [Backends](backends.md) | simulators, capabilities, the environment contract, how an environment is put together, adding a backend |
+| [Simulators](simulators.md) | simulators, capabilities, the environment contract, how an environment is put together, adding a simulator |
 | [robosuite scenes](tasks/robosuite.md) | robosuite arenas and objects as a task, objectives, which environments work |
 | [Recording and showing videos](viz.md) | `env.render()`, `robotdesigner.viz` clips, the frame recorder and camera framing |
 | [Design spec](spec_robotconfig_env.md) | why it is built this way, status and decisions |
@@ -23,18 +23,17 @@ Every Python example in the configuration and task pages is executed by the test
 
 ## How the pieces fit
 
-![Before and after: backends that chose their own task, and one simulator that runs the task of the provider owning the id](architecture.png)
+![One simulator runs the task of the provider that owns the task id: EnvConfig, make_env, the simulator and its options, the task provider](architecture.png)
 
 ```
 EnvConfig
 ├── robot            RobotConfig (ParametricArm)   what the body is
 ├── control          ControlConfig                 how an action drives the joints
 ├── task             TaskConfig                    what to do; "<namespace>/<name>", owned by a task provider
-├── sim              SimConfig                     which simulator, batch size, time step, seed, scene
-└── backend_options  one options class per simulator
+└── sim              SimConfig                     which simulator and its options, batch size, time step, seed, scene
 
 env = make_env(cfg)
-        simulator  = sim.backend                    capabilities + validate
+        simulator  = sim.simulator                    capabilities + validate
         task       = provider of task.id            validate + build   (all problems reported at once)
         -> TorchRL EnvBase
 ```
@@ -42,10 +41,10 @@ env = make_env(cfg)
 - **The robot is data.** It is frozen, validated and serializable, and its hash ignores labels and float noise.
 - **Nothing has a hidden default.** Everything that changes behaviour is a field, and `env_hash` covers all of it.
 - **The task is independent of the embodiment**, so one task config can be paired with arms of any size.
-- **Simulators and tasks are separate.** `sim.backend` names a physics engine; tasks (and the scenes and objects they
+- **Simulators and tasks are separate.** `sim.simulator` names a physics engine; tasks (and the scenes and objects they
   bring) come from task providers. Neither knows the other's list: nothing in the core names a task.
-- **Backends refuse instead of approximating.** An unsupported combination is rejected before anything is built.
-- **One environment contract** for every backend and task: batched, no autoreset, masked reset, injected state,
+- **Simulators refuse instead of approximating.** An unsupported combination is rejected before anything is built.
+- **One environment contract** for every simulator and task: batched, no autoreset, masked reset, injected state,
   nested observations.
 
 Conventions: SI units, angles in radians, quaternions `(w, x, y, z)`, task observations of positions in the robot's base
@@ -79,8 +78,7 @@ base = EnvConfig(
                     params=RobosuiteParams({}, LiftObject("cube", height=0.84), reset_noise=0.0,
                                            terminate_on_success=False)),   # the same table and cube for every arm
     sim=SimConfig("mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
-                  scene="empty"),
-    backend_options=MujocoOptions(self_collision=False),
+                  scene="empty", options=MujocoOptions(self_collision=False)),
 )
 family = {n: replace(base, robot=arm_with(n)) for n in (2, 3, 4, 5, 6)}
 

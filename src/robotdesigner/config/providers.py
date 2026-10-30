@@ -3,8 +3,8 @@
 A task id has the form ``<namespace>/<name>``. The namespace selects a *provider*. A provider
 
 - names its tasks and gives the typed ``params`` class of each (the config side, numpy only),
-- checks a config against a simulator backend (``validate``), and
-- builds the engine side of a task for that backend (``build``): scene assets, resets, observations, reward.
+- checks a config against a simulator (``validate``), and
+- builds the engine side of a task for that simulator (``build``): scene assets, resets, observations, reward.
 
 robotdesigner's own code knows no namespace and no task. Providers are found lazily, from
 
@@ -53,12 +53,12 @@ class TaskProvider(Protocol):
         """The ``params`` class of task ``name`` (``to_dict`` / ``from_dict``), or ``None`` if there is no such task."""
         ...
 
-    def validate(self, cfg: Any, backend: str) -> list[Problem]:
-        """Every reason ``cfg`` cannot run this task on ``backend``. May import engines."""
+    def validate(self, cfg: Any, simulator: str) -> list[Problem]:
+        """Every reason ``cfg`` cannot run this task on ``simulator``. May import engines."""
         ...
 
-    def build(self, cfg: Any, backend: str) -> Any:
-        """The engine side of the task (a ``tasks.base.TaskImpl``) for ``backend``."""
+    def build(self, cfg: Any, simulator: str) -> Any:
+        """The engine side of the task (a ``tasks.base.TaskImpl``) for ``simulator``."""
         ...
 
 

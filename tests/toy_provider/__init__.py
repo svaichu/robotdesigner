@@ -25,7 +25,7 @@ class ToyTasks:
     TASKS: dict[str, tuple[type, str]] = {
         "reach": (ReachParams, "tests.toy_provider.reach:ReachTask"),
     }
-    BACKENDS = frozenset({"mujoco"})
+    SIMULATORS = frozenset({"mujoco"})
 
     def task_names(self) -> tuple[str, ...]:
         return tuple(self.TASKS)
@@ -34,14 +34,14 @@ class ToyTasks:
         entry = self.TASKS.get(name)
         return None if entry is None else entry[0]
 
-    def validate(self, cfg: Any, backend: str) -> list[Problem]:
-        if backend not in self.BACKENDS:
+    def validate(self, cfg: Any, simulator: str) -> list[Problem]:
+        if simulator not in self.SIMULATORS:
             return [
-                Problem("sim.backend", f"task {cfg.task.id!r} runs on {sorted(self.BACKENDS)}, not on {backend!r}")
+                Problem("sim.simulator", f"task {cfg.task.id!r} runs on {sorted(self.SIMULATORS)}, not on {simulator!r}")
             ]
         return []
 
-    def build(self, cfg: Any, backend: str) -> Any:
+    def build(self, cfg: Any, simulator: str) -> Any:
         module, _, cls = self.TASKS[cfg.task.id.split("/", 1)[1]][1].partition(":")
         return getattr(importlib.import_module(module), cls)(cfg)
 

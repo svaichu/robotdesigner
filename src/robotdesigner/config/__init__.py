@@ -12,7 +12,7 @@ from .providers import (
     register_task_provider,
     unregister_task_provider,
 )
-from .sim import INTEGRATORS, MujocoOptions, SimConfig, register_backend_options
+from .sim import INTEGRATORS, MujocoOptions, SimConfig, register_simulator_options
 from .task import FixedBox, OwnReachable, TaskConfig
 from .robot import (
     Capsule,
@@ -40,7 +40,7 @@ __all__ = [
     "TaskProvider",
     "get_task_provider",
     "list_task_providers",
-    "register_backend_options",
+    "register_simulator_options",
     "register_task_provider",
     "unregister_task_provider",
     "Capsule",
