@@ -10,6 +10,13 @@ import pytest
 
 from tests.nbrun import EXAMPLES, run_notebook
 
+try:
+    # Evaluated once, at collection. Probing for an OpenGL context a second time at run time aborts the whole process on a
+    # machine without a display (SIGABRT from the GL backend, no exception), which is what failed the robosuite CI job.
+    from tests.test_render import needs_gl
+except pytest.skip.Exception:  # test_render needs mujoco and torchrl; the structure checks here need nothing
+    needs_gl = pytest.mark.skip(reason="needs mujoco and torchrl")
+
 NOTEBOOKS = sorted(EXAMPLES.glob("*.ipynb"))
 
 
@@ -58,12 +65,9 @@ def test_quickstart_gpu_warp_notebook_runs():
 
 @pytest.mark.render
 @pytest.mark.robosuite
+@needs_gl
 def test_scene_viz_notebook_runs():
     pytest.importorskip("robosuite")
     pytest.importorskip("torchrl")
-    from tests.test_render import _has_gl
-
-    if not _has_gl():
-        pytest.skip("no OpenGL context (try MUJOCO_GL=egl)")
     ns = run_notebook("scene_viz.ipynb")
     assert len(ns["clip_all"]) > 0
