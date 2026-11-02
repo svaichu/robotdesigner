@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .robot import ParametricArm, Pose
+from ..robot import ParametricArm, Pose
 
 
 @dataclass(frozen=True)

@@ -5,9 +5,10 @@ from __future__ import annotations
 import numbers
 from typing import Any, Sequence
 
-from ._canon import as_float
-from .errors import ConfigError
-from .robot import Capsule, JointSpec, LinkSpec, ParametricArm, Pose, Segment, ToolSpec
+from .._canon import as_float
+from ..errors import ConfigError
+from .arm import Capsule, JointSpec, LinkSpec, ParametricArm, Pose, Segment, ToolSpec
+from .gripper import TwoFingerGripper
 
 _AXIS_LETTERS = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
 
@@ -81,6 +82,7 @@ def chain(
     home_qpos: Sequence[float] | None = None,
     end_effector: Pose | None = None,
     tool: ToolSpec | None = None,
+    gripper: TwoFingerGripper | None = None,
     label: str = "",
 ) -> ParametricArm:
     """An ``n``-joint serial arm, straight along +x of the base frame at ``q = 0``.
@@ -132,4 +134,5 @@ def chain(
         end_effector=Pose.identity() if end_effector is None else end_effector,
         tool=tool,
         label=label,
+        gripper=gripper,
     )

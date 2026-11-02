@@ -30,6 +30,10 @@ class WarpSimulator:
 
     def validate(self, cfg: Any) -> list[Problem]:
         problems: list[Problem] = []
+        if getattr(cfg.robot, "gripper", None) is not None:
+            problems.append(
+                Problem("robot.gripper", "the warp simulator does not build grippers yet; use the mujoco simulator")
+            )
         mujoco_version, warp_version = _installed("mujoco"), _installed("mujoco-warp")
         if warp_version is None:
             problems.append(

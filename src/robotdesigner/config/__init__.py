@@ -4,8 +4,7 @@ from . import kinematics
 from .base_env import BaseEnvConfig
 from .control import CONTROL_MODES, ControlConfig, FixedGains, InertiaScaledGains
 from .env import EnvConfig
-from .errors import ConfigError, Problem
-from .generators import chain
+from ..errors import ConfigError, Problem
 from .providers import (
     TaskProvider,
     get_task_provider,
@@ -17,8 +16,10 @@ from .sweep import Family
 from .specs import NOT_SET, Chain
 from .sim import INTEGRATORS, MujocoOptions, SimConfig, WarpOptions, register_simulator_options
 from .task import FixedBox, OwnReachable, TaskConfig
-from .robot import (
+from ..robot import (
     Capsule,
+    TwoFingerGripper,
+    chain,
     JointSpec,
     LinkSpec,
     ParametricArm,
@@ -59,6 +60,7 @@ __all__ = [
     "Pose",
     "Segment",
     "ToolSpec",
+    "TwoFingerGripper",
     "chain",
     "kinematics",
 ]

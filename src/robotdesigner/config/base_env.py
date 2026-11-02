@@ -15,13 +15,13 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from ._canon import check_keys, within
+from .._canon import check_keys, within
 from .control import ControlConfig, FixedGains
 from .defaults import DEFAULTS, DEFAULTS_VERSION
 from .env import EnvConfig
-from .errors import ConfigError, Problem
+from ..errors import ConfigError, Problem
 from .providers import get_task_provider
-from .robot import ParametricArm, Pose, ToolSpec
+from ..robot import ParametricArm, Pose, ToolSpec, TwoFingerGripper
 from .sim import SIMULATOR_OPTIONS, SimConfig
 from .specs import NOT_SET, Chain
 from .task import TaskConfig, migrate_task_dict
@@ -340,6 +340,8 @@ class BaseEnvConfig:
                     v = within(f"robot.{k}", Pose.from_dict, v)
                 elif k == "tool" and isinstance(v, Mapping):
                     v = within(f"robot.{k}", ToolSpec.from_dict, v)
+                elif k == "gripper" and isinstance(v, Mapping):
+                    v = within(f"robot.{k}", TwoFingerGripper.from_dict, v)
                 given[k] = _tuplify(v) if isinstance(v, (list, tuple)) else v
             spec = Chain(**given)
             return self._copy(robot=Chain(**DEFAULTS["robot"]).merge(spec) if merge_chain else spec)

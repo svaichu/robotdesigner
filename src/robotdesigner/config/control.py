@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from ._canon import as_float, check_keys, within
-from .errors import ConfigError
+from .._canon import as_float, check_keys, within
+from ..errors import ConfigError
 
 CONTROL_MODES = (
     "joint_pos_abs",

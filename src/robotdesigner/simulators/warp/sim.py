@@ -19,7 +19,7 @@ import torch
 import warp as wp
 from mujoco_warp._src import types as wtypes
 
-from ...config.errors import Problem
+from ...errors import Problem
 from ...config.kinematics import pose_to_matrix
 from ..mujoco.compile import CompiledRobot
 from ...config.sim import WarpOptions
