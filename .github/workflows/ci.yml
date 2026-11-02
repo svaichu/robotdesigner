@@ -32,4 +32,5 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Run robosuite tests
-        run: uv run --python 3.12 --extra robosuite --extra dev pytest -v -m robosuite
+        # The runner has no display and no GPU: the render and gpu tests (also marked robosuite) are not selected here, as in the test job.
+        run: uv run --python 3.12 --extra robosuite --extra dev pytest -v -m "robosuite and not gpu and not render"
