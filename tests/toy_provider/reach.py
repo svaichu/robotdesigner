@@ -28,7 +28,7 @@ class ReachTask(BaseTask):
         self._target: torch.Tensor | None = None
 
     def bind(self, sim) -> None:
-        self._target = torch.zeros(sim.num_envs, 3)
+        self._target = torch.zeros(sim.num_envs, 3, device=sim.device)
 
     def observation_spec(self, num_envs: int):
         f32 = torch.float32
@@ -61,13 +61,12 @@ class ReachTask(BaseTask):
         target_in = injected("target")
         if target_in is not None:
             target = target_in.to(torch.float32)
-        m = torch.from_numpy(np.asarray(mask, dtype=bool))
-        self._target[m] = target[m]
+        self._target[mask] = target.to(sim.device)[mask]
 
     # --- observations, success, reward ----------------------------------------------
 
     def observe(self, sim) -> dict[str, torch.Tensor]:
-        ee = torch.from_numpy(sim.ee_pos_base()).to(torch.float32)
+        ee = sim.site_pos(sim.iface.ee_site_id, "base")
         return {"ee_pos": ee, "target_pos": self._target.clone()}
 
     @staticmethod
@@ -87,9 +86,9 @@ class ReachTask(BaseTask):
 
         from robotdesigner.simulators.mujoco.render import add_geom, add_line
 
-        R, p = sim._base_R, sim._base_pos
+        p, R = sim.base_frame()
         tol = float(self._tol)
-        target = self._target[env_index].numpy().astype(float)  # base frame
+        target = self._target[env_index].cpu().numpy().astype(float)  # base frame
         ee_base = (data.site_xpos[sim.iface.ee_site_id] - p) @ R
         hit = float(np.linalg.norm(ee_base - target)) < tol
         color = _TARGET_HIT if hit else _TARGET

@@ -9,9 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, fields, replace
 from typing import Any
 
-from .errors import ConfigError
-from .generators import chain
-from .robot import ParametricArm
+from ..errors import ConfigError
+from ..robot import ParametricArm, chain
 
 __all__ = ["NOT_SET", "Chain"]
 
@@ -72,6 +71,7 @@ class Chain:
     home_qpos: Any = NOT_SET
     end_effector: Any = NOT_SET
     tool: Any = NOT_SET
+    gripper: Any = NOT_SET
     label: Any = NOT_SET
 
     def written(self) -> tuple[str, ...]:
@@ -107,5 +107,5 @@ class Chain:
             radius=self.radius, damping=self.damping, armature=self.armature,
             frictionloss=self.frictionloss, effort_limit=self.effort_limit,
             range=get("range"), home_qpos=get("home_qpos"), end_effector=get("end_effector"),
-            tool=get("tool"), label=get("label", ""),
+            tool=get("tool"), gripper=get("gripper"), label=get("label", ""),
         )

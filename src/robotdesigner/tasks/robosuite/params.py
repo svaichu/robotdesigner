@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from typing import Any, ClassVar, Mapping
 
-from ...config._canon import as_bool, as_float, as_str, canonicalize, check_keys, freeze, thaw, within
-from ...config.errors import ConfigError
+from ..._canon import as_bool, as_float, as_str, canonicalize, check_keys, freeze, thaw, within
+from ...errors import ConfigError
 
 # Constructor arguments of a robosuite environment that robotdesigner sets itself (the environment is built only to
 # read its assets, with a stock robot and no rendering) or that have no meaning for assets. They must not appear in

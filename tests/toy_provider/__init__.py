@@ -12,8 +12,8 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from robotdesigner.config.errors import Problem
-from robotdesigner.config.robot import Pose
+from robotdesigner.errors import Problem
+from robotdesigner.robot import Pose
 
 from .params import ReachParams
 
@@ -26,7 +26,7 @@ class ToyTasks:
     TASKS: dict[str, tuple[type, str]] = {
         "reach": (ReachParams, "tests.toy_provider.reach:ReachTask"),
     }
-    SIMULATORS = frozenset({"mujoco"})
+    SIMULATORS = frozenset({"mujoco", "warp"})
 
     def task_names(self) -> tuple[str, ...]:
         return tuple(self.TASKS)

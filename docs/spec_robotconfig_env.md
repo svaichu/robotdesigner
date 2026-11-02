@@ -4,7 +4,7 @@ Why the package is built the way it is, what is decided, what is done and what i
 ([docs/README.md](README.md)), which the tests check against the code. Working notes for agents: `.agent/memory.md`. Last revised 2026-10-30.
 
 **Status.** Built and tested: the config layer, the CPU MuJoCo simulator with one generic environment, and task providers (`robosuite`, arenas and
-objects as task assets, is the one real provider in the package, next to the `empty` placeholder). Not built: the `warp` GPU simulator, `ExternalRobot`, end-effector control modes, family-reachable
+objects as task assets, is the one real provider in the package, next to the `empty` placeholder). The `warp` GPU simulator is built (config, `SimView`, batched core, `WarpEnv`, robosuite tasks, CPU-versus-Warp parity tests) and verified only on the Warp library's CPU device: nothing has run on CUDA yet (section 8). Not built: `ExternalRobot`, end-effector control modes, family-reachable
 target regions (section 8).
 
 ## 1. Purpose and scope
@@ -39,7 +39,7 @@ robotdesigner.simulators           simulators: protocol, capabilities, lazy regi
 robotdesigner.simulators.mujoco    CPU reference simulator and its generic env; arm_spec.add_arm builds the chain
 robotdesigner.tasks                task contract (base.py); one subpackage per provider namespace, found by config.providers
 robotdesigner.tasks.robosuite      robosuite arenas and objects as a task; the compatibility layer
-(planned) simulators.warp          GPU training
+robotdesigner.simulators.warp      MuJoCo Warp (GPU): WarpBatchedSim, WarpEnv; imports its engine only in make_env
 ```
 
 `config` imports no engine, no torch and no robosuite (a test checks it); "engine" means those heavy libraries. Simulators are imported lazily by name
@@ -49,7 +49,7 @@ engine-independent oracle compiled models are tested against.
 ```
 base        numpy>=1.26                                     # robotdesigner.config
 [env]       torch>=2.7, tensordict>=0.14.3,<0.15, torchrl>=0.14.1,<0.15, mujoco>=3.13
-[warp]      [env] + mujoco-warp, warp-lang>=1.15            # declared; simulator not implemented
+[warp]      [env] + mujoco-warp, warp-lang>=1.15            # the GPU simulator (an NVIDIA GPU)
 [robosuite] [env] + robosuite>=1.5,<1.6
 [viz]       pillow, imageio, imageio-ffmpeg
 [dev]       pytest, ruff
@@ -81,7 +81,7 @@ EnvConfig(robot, control, task, sim)
   SHA-256 of the canonical JSON without the label, quaternion signs canonicalized.
 - **ControlConfig.** Six mode names are declared; the MuJoCo simulator implements four (`joint_pos_abs`, `joint_pos_delta`, `joint_vel`,
   `joint_torque`), none implements the end-effector modes. Hardware limits stay in the robot (`effort_limit`).
-- **TaskConfig.** `TaskConfig(params, horizon, success_tolerance, target_region, mount)`: the params object is the task; `mount` is the robot base in the world (a `Pose`, required; `TaskProvider.default_mount(name)` says where the task expects it). The robot has no pose, so `robot_hash` identifies the embodiment alone; target regions stay in the robot's base frame and follow the mount. Its class names the provider (class attribute `provider`) and its `name` field the task within it; `TaskConfig.id` (`<provider>/<name>`) is derived and read-only, and no string id or `provider=` argument exists. `to_dict()` writes `provider` next to `params`; `from_dict()` finds the params class through the registry (errors at `provider` and `params.name`). A goal task takes `FixedBox` or `OwnReachable()` and a tolerance (family-reachable
+- **TaskConfig.** `TaskConfig(params, max_episode_steps, success_tolerance, target_region, mount)`: the params object is the task; `mount` is the robot base in the world (a `Pose`, required; `TaskProvider.default_mount(name)` says where the task expects it). The robot has no pose, so `robot_hash` identifies the embodiment alone; target regions stay in the robot's base frame and follow the mount. Its class names the provider (class attribute `provider`) and its `name` field the task within it; `TaskConfig.id` (`<provider>/<name>`) is derived and read-only, and no string id or `provider=` argument exists. `to_dict()` writes `provider` next to `params`; `from_dict()` finds the params class through the registry (errors at `provider` and `params.name`). A goal task takes `FixedBox` or `OwnReachable()` and a tolerance (family-reachable
   is deferred); a task that defines its own success takes `None` for both, and passing a value is an error.
 - **SimConfig.** `simulator, num_envs, device, dt, integrator, control_freq, seed, scene, options`, all required; `1 / (control_freq * dt)` must be a
   positive integer. `options` must be an instance of the class registered for `simulator`. Rendering is not a field ([viz.md](viz.md)).
@@ -92,17 +92,22 @@ EnvConfig(robot, control, task, sim)
 
 **Simulators.** A simulator is a physics engine realized as code: `capabilities()`, `validate(cfg)` (problems, before anything is built), `make_env(cfg)`.
 
-| | `mujoco` | `warp` (planned) |
+| | `mujoco` | `warp` |
 |---|---|---|
-| Role, device | reference and debugging, CPU | training, CUDA |
+| Role, device | reference and debugging, CPU | training, CUDA (`cuda:N`) |
 | Robot, control | ours, compiled to `MjSpec`; actuators and the env layer | ours, the same model |
 | Scene, task | a scene preset plus what the task's provider attaches | the same |
-| Stepping | N `MjData` stepped one after another | MuJoCo Warp, `nworld = num_envs` |
+| Stepping | N `MjData` stepped one after another | MuJoCo Warp, `nworld = num_envs`, float32 state |
+| Env class | `MujocoEnv` | `WarpEnv`, its own class (a shared base is deferred) |
 
 `ParametricArm` compiles, with the scene preset and the task's assets on one `MjSpec`, to one `MjModel` and a `RobotInterface`; the compile sets
-`compiler.degree = False` (`MjSpec` reads degrees otherwise). `arm_spec.add_arm` builds the chain for every MuJoCo-based simulator. For Warp the plan is
-the same `MjModel` through `put_model` and `make_data(nworld)`, torch views, parity against the CPU simulator from injected state, and per-world model
-fields to let same-topology embodiments share one simulation (a different `n` needs another simulation per topology group).
+`compiler.degree = False` (`MjSpec` reads degrees otherwise). `arm_spec.add_arm` builds the chain for every MuJoCo-based simulator. Warp uses
+the same `MjModel` through `put_model` and `make_data(nworld)`, uploaded in `finalize()` after `task.bind` (the host model is editable until then), with
+torch views of the Warp arrays. Tasks are written against the engine-neutral, torch-valued `SimView` protocol (`tasks/base.py`), so one task engine side
+runs on both. Both random streams stay CPU generators seeded exactly as in `MujocoEnv` and the draws are copied to the device, so the same seed and
+`num_envs` give the same draws on both simulators. Capacities (`WarpOptions.njmax`, `nconmax`) are per world so `num_envs` can change without re-tuning;
+overflow is never silent (`CapacityError`). Nothing is approximated: unsupported features are reported as problems before anything is built. Per-world model
+fields, to let same-topology embodiments share one simulation (a different `n` needs another simulation per topology group), are not built.
 
 **Providers.** A task provider owns a namespace. Config side: params classes (numpy only), each with `provider` and a `name` field; providers read the task name from `cfg.task.params.name`. Engine side: a `TaskImpl` that adds scene assets to the model
 spec, places things at reset, observes and scores. `validate(cfg, simulator)` collects the provider's problems with the simulator's into one `ConfigError`.
@@ -151,9 +156,9 @@ Subclasses implement `_reset`, `_step` and `_set_seed` and declare the specs; th
 
 At the last revision 163 tests without the `render` marker and 12 render tests pass, 12 of the 15 single-arm robosuite environments build and step with a
 generated arm, and both example notebooks run every cell. Done: config layer and CPU simulator, the CPU TorchRL env, robosuite as a source of assets.
-Not started: the `warp` simulator. Shelved: Playground and JAX.
+Warp: built and tested on the Warp library's CPU device (parity with the CPU simulator within float32 tolerances in all four control modes, all four integrators, inertia-scaled gains and floor contact; `robosuite/Lift` and the other single-arm environments of the robosuite table). Shelved: Playground and JAX.
 
-Not done or not verified: Warp (masked reset, per-world fields, CPU parity); policy performance on any task; the throughput of the CPU simulator with many
+Not done or not verified: Warp on CUDA (stream sharing beyond the side-stream test, solver determinism, parity tolerances re-measured on a GPU, the pixel tolerance of the Warp render test, the `gpu`-marked tests), the throughput benchmark and the final `WarpOptions.default()` numbers, per-world model fields; policy performance on any task; the throughput of the CPU simulator with many
 envs; the robosuite 1.5.2 placement path (written, never run) and the `robosuite` CI job (added, not checked); an `ExternalRobot` baseline; a gripper (the
 MuJoCo simulator does not build `robot.tool`, so grasping tasks cannot be solved); lazy stacking of heterogeneous families.
 
@@ -168,6 +173,7 @@ such as `Lift`, with infeasibility separable from failures of learning; whether 
 | 2026-10-27 | `config` is numpy-only; frozen dataclasses with hand-written validation; no inherited defaults (`dt`, `integrator`, gains, masses explicit) | configs and hashes must work in any analysis environment; every behaviour-changing value must be in `env_hash` |
 | 2026-10-27 | env contract = TorchRL `EnvBase`, never autoreset, nested observations primary (user) | TorchRL collectors and `rollout` read the done keys and the `_reset` mask; a flat view is a transform |
 | 2026-10-27 | GPU simulator = MuJoCo Warp driven from torch; JAX shelved (user) | no JAX-to-torch bridge to maintain; it consumes the same `MjSpec` |
+| 2026-10-30 | the `warp` simulator is its own env class, tasks are written against a `SimView`, random streams stay on the CPU, capacities are per world, nothing is approximated (user, roadmap) | each simulator has its own env; a GPU simulation has no `MjData` per env; CPU and Warp resets draw identical numbers; `num_envs` can change in a sweep without re-tuning; an unsupported feature is a `Problem`, not a silent change |
 | 2026-10-28 | robosuite's MuJoCo incompatibility is patched at run time, only where a probe fails | capping MuJoCo would conflict with the Warp floor |
 | 2026-10-29 | `env = make_env(cfg)` is the only construction path; `EnvConfig` has no `make()` (user) | one step from config to environment; the config layer imports no engine |
 | 2026-10-29 | robosuite is a source of task assets, `robosuite/<EnvName>`, never a simulator; success and reward are ours (user) | as a simulator it brought its own controller and physics, so one robot was not controlled the same way across tasks |
@@ -177,12 +183,15 @@ such as `Lift`, with infeasibility separable from failures of learning; whether 
 | 2026-10-30 | the `native` provider and its reach task are removed; tests keep `tests/toy_provider` (user) | the package loads embodiments into an RL env, tasks are what providers bring, more will come |
 | 2026-10-30 | the task draws from its own random stream | with one stream the joint count changed the cube placement, which defeats comparing embodiments |
 | 2026-10-30 | the params object is the task: `TaskConfig.id` is removed (derived, read-only), params classes declare `provider` and have `name`, no `provider=` argument, no string id (user, roadmap #32, issue #33) | one place says which task runs, and a second argument could contradict the class. The `task` part of `to_dict()` changes shape, so **every `env_hash` changes once**: hashes recorded earlier no longer match |
+| 2026-10-30 | `TaskConfig.horizon` is renamed `max_episode_steps` (Gymnasium's name for the time limit); loaders still read `horizon` with a `DeprecationWarning`, both keys together are an error (issue #40) | the repo already emits Gymnasium's `terminated` / `truncated`, and the old name hid that `env.rollout(500)` stops at the limit. **Every `env_hash` changes once** (the key of `task.to_dict()` changed); hashes recorded earlier no longer match. The `DEFAULTS_VERSION` stays 1 (no default value changed). Release note: this rename and the hash change belong in the notes of the next version |
+| 2026-10-30 | `env.action_space` and `env.observation_space` are plain per-env shapes (`torch.Size`, and a nested dict of them), derived from the specs by `envs.spaces.SpacesMixin` (issue #41) | sizing a policy or a buffer for an embodiment needed the nested `Composite` specs with the batch dimension in front. Proposals of the issue taken: per-env without the batch dimension, `torch.Size`, Gymnasium's names kept with the difference documented |
 | 2026-10-30 | `BaseEnvConfig.sweep(paired=, grid=)` returns a `Family` (iterable of configs, `configs()`, `table()`); paired axes zip, grid axes multiply, repeated `env_hash` items are dropped with a note, invalid items raise at expansion naming the index (user, roadmap #32, issue #38) | embodiment studies need one config per embodiment with its own hash. A plain expansion: jobs (Slurm or other) are the downstream project's, and workers rebuild from the resolved dict because the registries are process-global. Random or Optuna-style sampling is later |
 | 2026-10-30 | `with_overrides` by dotted path (mapping or CLI `path=value` strings, values as JSON literals), `to_dict` / `from_dict` with `defaults_version` (a mismatch warns), `dump` / `load` as JSON and, with the optional extra `yaml`, YAML (user, roadmap #32, issue #37) | overrides are generic: a section is converted to a dict, edited and rebuilt with its own `from_dict`, so providers need no extra code. The base install stays numpy only: YAML is an extra, and its absence raises an error that names it. The record to keep with a run remains `resolve().to_dict()` |
 | 2026-10-30 | `BaseEnvConfig` (roadmap #32, issue #36): a complete runnable base refined with accumulating section calls (`robot`, `control`, `task`, `sim`), each returning a new config; `Chain` is the partial robot spec; `NOT_SET` marks "not passed"; `resolve()` returns the `EnvConfig` and lists every problem; `explain()`, `diff()`, `validate()`; `build()` stays a one-line delegate to `make_env(self.resolve())` (user) | RLlib-like ergonomics for embodiment studies with no `ray` and no trainer coupling. **Defaults live in the builder layer only** (`config/defaults.py`, `DEFAULTS_VERSION`, `MujocoOptions.default()`): the frozen configs keep requiring every field, so the 2026-10-27 rule holds for them. Calls accumulate, so a second `.sim(dt=...)` keeps `num_envs`. A change of a default changes the `env_hash` of configs that relied on it: store `resolve().to_dict()` with every run. The mount is the task's default until pinned |
 | 2026-10-30 | the package ships one placeholder task, `empty/idle` (user, roadmap #32, issue #35); `tests/test_no_hardcoded_tasks.py` exempts the `empty` namespace | supersedes "the core names no task" (2026-10-29) and "the package ships no task of its own" (2026-10-30) for this one task: a default environment must run, so it needs a task. Every other namespace, task id and params class stays enforced; the `empty` scene preset of the simulator is unrelated |
 | 2026-10-30 | the robot mount moves from `ParametricArm.base_pose` to `TaskConfig.mount` (user, roadmap #32, issue #34); `TaskProvider.default_mount(name)`; the kinematics oracle takes the base as an argument | where an arm stands is a property of the scene: the same arm had a different `robot_hash` in every scene. **Every `robot_hash` and `env_hash` changes again** (the robot loses `base_pose`, the task gains `mount`); hashes from before this entry no longer match |
 | 2026-10-30 | "backend" becomes "simulator" everywhere, no aliases; options move into `SimConfig`, so `EnvConfig` has four fields (user) | "backend" is dependency vocabulary and `SimConfig` names a physics engine; two fields that must agree need a cross-check. Every `env_hash` changed, `robot_hash` did not |
+| 2026-11-02 | `WarpOptions.default()` turns the CUDA graph on and `DEFAULTS_VERSION` becomes 2 (user): capture used to fail on torch's default stream ("unknown stream") and now runs on Warp's own stream; graph and eager steps agree within 1e-5 on a GPU, and a step was 12 to 13 times faster in the Lift sweep on a busy node |
 
 ## Appendix A. robosuite as a task provider
 

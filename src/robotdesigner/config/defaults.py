@@ -9,7 +9,7 @@ class (see ``config.sim``).
 
 from __future__ import annotations
 
-DEFAULTS_VERSION = 1
+DEFAULTS_VERSION = 2   # 2: WarpOptions.default() turned the CUDA graph on (the options are part of the env_hash)
 
 DEFAULTS: dict[str, dict] = {
     # the arm: one yaw joint, 0.5 m long, 1 kg (the arguments of ``chain``, see ``specs.Chain``)
@@ -20,7 +20,7 @@ DEFAULTS: dict[str, dict] = {
     # the README quick start's control: absolute joint positions, kp 60, kd 6 on every joint
     "control": dict(mode="joint_pos_abs", kp=60.0, kd=6.0, action_scale=None),
     # the placeholder task of the package; ``name`` is also the task whose default mount is used
-    "task": dict(provider="empty", name="idle", horizon=200),
+    "task": dict(provider="empty", name="idle", max_episode_steps=200),
     # 500 Hz physics, 50 Hz control (the quick start's numbers), one env, Euler
     "sim": dict(
         simulator="mujoco", num_envs=1, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,

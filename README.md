@@ -9,11 +9,12 @@ environments, so the same control task can be compared across embodiments.
 pip install -e .              # config layer only (numpy)
 pip install -e ".[env]"       # + torch, torchrl, tensordict, mujoco: the CPU MuJoCo simulator
 pip install -e ".[env,robosuite]"   # + robosuite: its arenas and objects as tasks
+pip install -e ".[env,warp]"        # + mujoco-warp, warp-lang: the GPU simulator (an NVIDIA GPU)
 pip install -e ".[env,dev]"   # + pytest, ruff
 ```
 
 Python >= 3.10. Other extras: `robosuite` (the task provider: robosuite arenas and objects as tasks; the quick start needs it),
-`viz` (Pillow, imageio-ffmpeg: GIF and MP4 output) and `warp` (a later milestone; declared only).
+`viz` (Pillow, imageio-ffmpeg: GIF and MP4 output) and `warp` (the MuJoCo Warp GPU simulator: an NVIDIA GPU, and `mujoco` and `mujoco-warp` of one release).
 `import robotdesigner.config` works with numpy alone and never imports an engine.
 
 ## The idea
@@ -60,7 +61,7 @@ cfg = EnvConfig(
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
     task=TaskConfig(params=RobosuiteParams(name="Lift", env_kwargs={}, objective=LiftObject("cube", height=0.84),
                                            reset_noise=0.0, terminate_on_success=False),
-                    horizon=200, success_tolerance=None, target_region=None,
+                    max_episode_steps=200, success_tolerance=None, target_region=None,
                     mount=default_mount("Lift")),   # where robosuite mounts a stock arm in this scene
     sim=SimConfig(simulator="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
                   control_freq=50, seed=0, scene="empty",      # the arena brings its own floor
@@ -71,9 +72,15 @@ env = make_env(cfg)
 print(env.robot_hash, env.env_hash)
 traj = env.rollout(50)          # random policy, TorchRL's own rollout
 print(traj.shape)               # torch.Size([8, 50])
+print(env.action_space)         # torch.Size([3]): the shape of one env's action (n joints)
+print(env.observation_space)    # {'task': {...}, 'proprio': {'qpos': torch.Size([3]), ...}, 'success': torch.Size([1]), ...}
 ```
 
-The full script is `examples/robosuite_scene.py` (headless; `python examples/robosuite_scene.py`). A walkthrough notebook is
+`env.action_space` and `env.observation_space` are plain per-env *shapes* (a `torch.Size`, and a nested dict of them that mirrors the nested observation;
+not Gymnasium `Space` objects); the batched shape is `env.batch_size + env.action_space`. The episode is truncated after `max_episode_steps` (Gymnasium's
+name for the time limit), so `env.rollout(500)` stops at that many steps.
+
+The full example is the notebook `examples/quickstart_cpu_mujoco.ipynb`; the examples are notebooks only. A walkthrough notebook is
 `examples/scene_walkthrough.ipynb` (embodiment comparison, control modes, rendering). Recording, saving and showing
 videos: `examples/scene_viz.ipynb`. Comparing embodiments with `sweep`: `examples/embodiment_sweep.ipynb`.
 
@@ -95,6 +102,21 @@ family = cfg.sweep(paired={"robot.n": [2, 3, 4, 5], "robot.axes": ["zy", "zyy", 
 big = cfg.with_overrides(["sim.num_envs=64", "sim.options.self_collision=true"])   # dotted paths, also CLI strings
 cfg.dump("run.json")                          # and BaseEnvConfig.load("run.json")
 ```
+
+On a GPU (the `warp` extra, an NVIDIA card, `mujoco` and `mujoco-warp` of one release) the same environment is three fields of `sim`; the robot is compiled
+exactly as for the CPU simulator and the tensors live on the device ([simulators](docs/simulators.md), [`WarpOptions`](docs/configs/sim.md#warpoptionsnjmax-nconmax-cuda_graph)):
+
+```python no-run
+cfg = cfg.sim(simulator="warp", device="cuda:0", num_envs=4096)     # options = WarpOptions.default()
+env = cfg.build()                      # env.device == cuda:0, env.batch_size == [4096]
+td = env.reset()
+traj = env.rollout(50)                 # tensors on cuda:0, the same keys as the CPU simulator
+# comparing the two simulators on one embodiment is a sweep, one config and one env_hash per item:
+family = cfg.sweep(paired={"sim.simulator": ["mujoco", "warp"], "sim.device": ["cpu", "cuda:0"]})
+```
+
+`examples/quickstart_gpu_warp.ipynb` is the GPU twin of `examples/quickstart_cpu_mujoco.ipynb`. A scene with many contacts needs larger `WarpOptions`
+capacities; a too-small allocation raises `CapacityError`, it is never silent.
 
 Step by hand:
 
@@ -128,9 +150,9 @@ clip.save("run.mp4")      # the format follows the suffix: .mp4 or .gif
 ```
 
 `env.render(env_index, camera=..., size=...)` returns one `uint8 (H, W, 3)` frame of the live state, so any step loop can collect its own frames;
-rendering never changes the simulation, and only the CPU MuJoCo simulator renders so far. To compare embodiments give them one camera
-(`auto_camera(cfg_a, cfg_b)`, or a fixed arena camera such as `rs_sideview`): with the same seed they get the same scene. `examples/record_scene.py`
-records a four-env rollout to `scene.mp4` and `scene.gif`; the full guide is [docs/viz.md](docs/viz.md).
+rendering never changes the simulation, and both simulators render (a Warp env renders from a host copy of one world). To compare embodiments give them one camera
+(`auto_camera(cfg_a, cfg_b)`, or a fixed arena camera such as `rs_sideview`): with the same seed they get the same scene. `examples/scene_viz.ipynb`
+records rollouts (several envs tiled, several cameras) and saves them as `.mp4` and `.gif`; the full guide is [docs/viz.md](docs/viz.md).
 
 ## Layout
 

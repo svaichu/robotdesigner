@@ -25,7 +25,7 @@ parameter, the robot config kept separate from the env. Do not overwrite the use
 - After a rename or removal, grep for leftovers in code, docs, images (`docs/architecture.png`), notebook outputs and this file.
 
 ## Terminology (the user's, 2026-10-30)
-- **simulator**: a physics engine realized as code, `robotdesigner.simulators.<name>`, named by `sim.simulator` (`mujoco`; later `warp`).
+- **simulator**: a physics engine realized as code, `robotdesigner.simulators.<name>`, named by `sim.simulator` (`mujoco`, `warp`).
   Git history, closed issues and old text say "backend": read it as "simulator". `build-backend` in `pyproject.toml` is packaging vocabulary.
 - **task provider**: owner of a task-id namespace (`robosuite`); **task**: `<namespace>/<name>`; **options**: the settings of one simulator,
   in `sim.options`. **config side / engine side**: numpy-only classes vs the code that needs torch and MuJoCo ("engine" = those libraries).
@@ -48,7 +48,7 @@ parameter, the robot config kept separate from the env. Do not overwrite the use
 - 2026-10-29 user: `env = make_env(cfg)`; robosuite is a source of assets, never a simulator (success and reward are ours); no hardcoded tasks.
 - 2026-10-30 user: the `native` provider and its reach task are purged (the tests keep a test-only provider, `tests/toy_provider`, namespace
   `toy`); "backend" becomes "simulator" everywhere and the options move into `SimConfig`. Agent: the task gets its own random stream.
-- 2026-10-30 user (roadmap #32, issue #33 done): the params object is the task (`TaskConfig(params, horizon, success_tolerance, target_region)`; params classes have `provider` and `name`; `task.id` is derived); every `env_hash` changed once. `provider_for` is removed (`get_task_provider(cfg.task.params.provider)`). Issue #34 done: `base_pose` left the robot, `TaskConfig.mount` (required `Pose`) and `TaskProvider.default_mount(name)` replace it; `kin.forward(arm, q, base=None)`; hashes changed again. Issue #35 done: `robotdesigner.tasks.empty` (`empty/idle`, `EmptyParams`), the one task the core may name; the no-hardcoded test exempts namespace `empty`. Issue #36 done: `BaseEnvConfig` (`config/base_env.py`), `Chain`/`NOT_SET` (`specs.py`), `DEFAULTS` (`defaults.py`, version 1); numbers chosen there (one z joint 0.5 m 1 kg, kp 60 kd 6, dt 0.002, 50 Hz, 1 env, scene `empty`, horizon 200), for the user's review; defaults change hashes, store `resolve().to_dict()`. Issue #37 done: `with_overrides`, `to_dict`/`from_dict`/`dump`/`load` (JSON; YAML via extra `yaml`, also in `dev`). Issue #38 done: `sweep`/`Family` (`config/sweep.py`), `examples/embodiment_sweep.ipynb`. Roadmap #32 is complete (#33 to #38); open the next work with the user in order, one issue at a time, wait for the user between issues.
+- 2026-10-30 user (roadmap #32, issue #33 done): the params object is the task (`TaskConfig(params, horizon, success_tolerance, target_region)`; params classes have `provider` and `name`; `task.id` is derived); every `env_hash` changed once. `provider_for` is removed (`get_task_provider(cfg.task.params.provider)`). Issue #34 done: `base_pose` left the robot, `TaskConfig.mount` (required `Pose`) and `TaskProvider.default_mount(name)` replace it; `kin.forward(arm, q, base=None)`; hashes changed again. Issue #35 done: `robotdesigner.tasks.empty` (`empty/idle`, `EmptyParams`), the one task the core may name; the no-hardcoded test exempts namespace `empty`. Issue #36 done: `BaseEnvConfig` (`config/base_env.py`), `Chain`/`NOT_SET` (`specs.py`), `DEFAULTS` (`defaults.py`, version 1); numbers chosen there (one z joint 0.5 m 1 kg, kp 60 kd 6, dt 0.002, 50 Hz, 1 env, scene `empty`, horizon 200), for the user's review; defaults change hashes, store `resolve().to_dict()`. Issue #37 done: `with_overrides`, `to_dict`/`from_dict`/`dump`/`load` (JSON; YAML via extra `yaml`, also in `dev`). Issue #38 done: `sweep`/`Family` (`config/sweep.py`), `examples/embodiment_sweep.ipynb`. Roadmap #32 is complete (#33 to #38), merged as PR #39. Issue #40: `horizon` -> `max_episode_steps` (loaders read `horizon` with a DeprecationWarning; hashes changed again). Issue #41: `env.action_space` / `env.observation_space` as shapes (`envs/spaces.py`) in order, one issue at a time, wait for the user between issues.
 - GitHub issues: roadmap #10; M1 #11 to #14 and #16; M2 #15 and #17 to #20 (all closed, implemented).
 
 ## Environment and workflow
@@ -62,7 +62,10 @@ parameter, the robot config kept separate from the env. Do not overwrite the use
 - A pytest run from the repo root writes `MUJOCO_LOG.TXT` (git-ignored now). Read repo files with `git show` or `cat`.
 - Moving files to the cluster: one tar bundle of the changed files is far faster than file by file.
 - Notebooks (`examples/*.ipynb`) are stored with outputs, executed in a fresh kernel with `jupyter_client` on a login node; rerun them when an
-  API they use changes. Quiet robosuite's per-scene INFO line with `logging.getLogger("robosuite_logs").setLevel(logging.WARNING)`.
+  API they use changes. Examples are notebooks ONLY (user rule, 2026-11-02): no `.py` scripts in `examples/` (`tests/test_notebooks.py` checks it).
+  `tests/nbrun.py` executes a notebook's code cells in-process for the smoke tests (`-m robosuite`, `-m gpu` for the Warp one, `-m render` for
+  `scene_viz`). The runner that stores outputs needs no nbclient: `jupyter_client` start_new_kernel, execute each code cell, collect iopub
+  stream / display_data / execute_result / error messages. The Warp notebook sets `wp.config.log_level = wp.LOG_WARNING` (Warp >= 1.18; `wp.config.quiet` no longer exists there and assigning it is silently ignored) to keep the banner and compile lines out of the outputs. Quiet robosuite's per-scene INFO line with `logging.getLogger("robosuite_logs").setLevel(logging.WARNING)`.
 - Only the tip of a branch is tested; intermediate commits are topic splits and may not pass alone.
 
 ## robosuite facts and pitfalls (1.5.1 unless stated)
@@ -81,13 +84,19 @@ parameter, the robot config kept separate from the env. Do not overwrite the use
 - Pitfalls: `MjSpec` reads angles as degrees unless `compiler.degree = False` (the compile sets it; a test guards it); `xpos` is stale until the
   next forward; robosuite's own delta input settles at about 17 % of the commanded rate, so delta mode accumulates the target in our env.
 
-## MuJoCo Warp (next milestone; nothing built)
-mujoco-warp 3.17.0 and warp-lang 1.18.0 are installed. Source-read API: `put_model(mjm, batch_sizes)`, `make_data(mjm, nworld, ...)`, `put_data`,
-`get_data_into(result, mjm, d, world_id)` (copy one world to a host `MjData` to replay or view it), `reset_data(m, d, reset)` (a mask: confirm it is
-a masked partial reset), `step`, integrators euler / implicit / rk4. Per-world model fields can batch same-topology embodiments; different `n`
-needs one simulation per topology group (open). Warp is float32 and CPU MuJoCo float64: parity needs tolerances and short, contact-free
-horizons first. Warp on a CPU device is unverified; NVIDIA only, no autodiff. Position and torque actuators run in the physics, delta and
-end-effector modes are ours.
+## MuJoCo Warp (built; verified only on Warp's CPU device)
+mujoco-warp 3.17.0 and warp-lang 1.18.0. Built: `WarpOptions` (config/sim.py, capacities per world), `simulators/warp` (`WarpSimulator`, `WarpBatchedSim`
+in sim.py, `WarpEnv` in env.py, `check_model_supported`, `CapacityError`), `SimView` in `tasks/base.py` (tasks are written against it; `BatchedSim`
+implements it too), `task_seed` in `simulators/base.py`. Warp runs on its CPU device, so everything except CUDA specifics is testable here: tests build
+`WarpEnv` directly with `device="cpu"` (`make_env` refuses it: capabilities say `cuda`); the `gpu` marker covers the same tests on `cuda:0`.
+- Facts found: `naconmax = nconmax * nworld`; `overflow` is a per-world bitmask (`OverflowType`), counters are clipped, so `check_overflow` reads
+  `overflow`; after a step the derived state (`xpos`, `site_xpos`) is the pre-integration one, as on the CPU, so `mj_forward` on a host copy matches only
+  after a reset; `reset_data(m, d, reset=mask)` is a masked partial reset; the CPU-versus-Warp errors (float32) are in the docstring of
+  `tests/test_warp_parity.py` (all four control modes and integrators match); `NutAssembly*` need `WarpOptions(njmax=512, nconmax=128)`.
+- Not verified (no GPU in the dev container): CUDA graph capture, stream sharing with torch, solver determinism, the parity tolerances on CUDA, the
+  Warp render test (needs OpenGL too), the throughput (`benchmarks/bench_warp.py` is written and was smoke-run on Warp's CPU device; its timings there mean nothing). `WarpOptions.default()` = 128 / 32 / graph off, from the device-independent per-world counts (Lift 32/8, Stack 52/13, NutAssemblySquare 374/63); turn the graph on after validating on a GPU.
+- Pitfall: a second `mujoco.Renderer` probe after a failed one aborts the process (glfw); import `needs_gl` from `tests/test_render.py` instead.
+- Open: per-world model fields (family batching, exploratory), a shared env base class for `MujocoEnv` and `WarpEnv`.
 
 ## TorchRL conventions
 Subclass `_reset`, `_step`, `_set_seed` and the specs; never override `reset` / `step`. `td["_reset"]` is bool `[B, 1]` (absent = reset all); the env

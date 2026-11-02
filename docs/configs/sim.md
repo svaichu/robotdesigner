@@ -6,7 +6,7 @@ objects come from is the business of the [task](task.md) and its provider.
 
 ```python
 from robotdesigner.config import (
-    ConfigError, INTEGRATORS, MujocoOptions, SimConfig, register_simulator_options,
+    ConfigError, INTEGRATORS, MujocoOptions, SimConfig, WarpOptions, register_simulator_options,
 )
 from robotdesigner.config.sim import SIMULATOR_OPTIONS
 ```
@@ -35,18 +35,18 @@ Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [TaskConfig
 integrator, time step and scene is checked by the simulator when the environment is built, and every problem is reported
 at once (see [simulators](../simulators.md#capabilities)).
 
-| field | `mujoco` |
-|---|---|
-| `device` | `cpu` |
-| `dt` | any |
-| `integrator` | all four |
-| `scene` | `empty` or `plain_floor`; a task that brings its own floor (an arena) asks for `empty` |
-| `num_envs` | N simulations stepped one after another in one process |
-| `seed` | two streams: the robot's reset noise, and separately the task's own draws (placements, targets), so the task's draws do not depend on the robot |
+| field | `mujoco` | `warp` |
+|---|---|---|
+| `device` | `cpu` | `cuda:N` |
+| `dt` | any | any |
+| `integrator` | all four | all four |
+| `scene` | `empty` or `plain_floor`; a task that brings its own floor (an arena) asks for `empty` | the same |
+| `num_envs` | N simulations stepped one after another in one process | N worlds in one device allocation |
+| `seed` | two streams: the robot's reset noise, and separately the task's own draws (placements, targets), so the task's draws do not depend on the robot | the same two streams, drawn on the CPU and copied to the device, so a reset draws the same numbers as `mujoco` |
 
-Scene presets of the MuJoCo simulator: `empty` has nothing but the robot; `plain_floor` adds a floor plane at `z = 0` that
-robot geoms collide with, and a light. Same simulator, device and seed reproduce the same results; random draws can differ
-between simulators.
+Scene presets (both simulators): `empty` has nothing but the robot; `plain_floor` adds a floor plane at `z = 0` that
+robot geoms collide with, and a light. Same simulator, device and seed reproduce the same results. Across simulators the draws
+are equal and the state agrees to float32 rounding (`warp` stores float32), but a long contact-rich rollout can diverge.
 
 ```python
 sim = SimConfig(simulator="mujoco", num_envs=4, device="cpu", dt=0.002, integrator="euler",
@@ -76,6 +76,45 @@ you change the simulator you change both together.
 ```python
 assert MujocoOptions(self_collision=False).to_dict() == {"self_collision": False}
 assert SIMULATOR_OPTIONS["mujoco"] is MujocoOptions
+```
+
+### `WarpOptions(njmax, nconmax, cuda_graph)`
+
+Options of the `"warp"` simulator (MuJoCo Warp on an NVIDIA GPU). The capacities are per world, so `sim.num_envs` can change
+in a sweep without re-tuning them.
+
+| field | type | meaning |
+|---|---|---|
+| `njmax` | int | `>= 1`; constraint rows allocated per world; no world may exceed it |
+| `nconmax` | int | `>= 1`; contacts allocated per world; the simulation allocates `nconmax * num_envs` |
+| `cuda_graph` | bool | capture the physics sub-steps of one policy step in a CUDA graph |
+
+```python
+o = WarpOptions(njmax=64, nconmax=16, cuda_graph=True)
+assert WarpOptions.from_dict(o.to_dict()) == o
+assert SIMULATOR_OPTIONS["warp"] is WarpOptions
+assert WarpOptions.default().njmax >= 1     # provisional numbers, to be set from measurements
+assert WarpOptions.default().cuda_graph         # the CUDA graph is on by default
+```
+
+`WarpOptions.default()` is `WarpOptions(njmax=128, nconmax=32, cuda_graph=True)`: plain choices, not recommendations. They come from the largest
+per-world counts that `benchmarks/bench_warp.py` saw over a random-policy rollout (`robosuite/Lift`: 32 constraint rows and 8 contacts, `Stack`: 52 and 13;
+the counts do not depend on the device), with about 2.5x headroom. The CUDA graph is on by default (the GPU simulator needs CUDA anyway). It captures the physics sub-steps of one policy step and replays them as one launch, which removes the
+launch cost of every kernel in them; resets are not captured. In a `robosuite/Lift` sweep (3 joints, 64 to 4096 envs, `benchmarks/bench_warp.py`) a step was 12 to 13 times
+faster than without it on a busy shared node, where launch cost is highest: measure on your own machine. Pass `cuda_graph=False` to step kernel by kernel (profiling, debugging).
+Scenes with many contacts need more (`NutAssembly`: 374 and 63; see [capacity overflow](../simulators.md#capacity-overflow)). The config side needs no GPU,
+torch or MuJoCo; building the environment (`make_env`) reports a missing CUDA device or library together with every other problem.
+
+```python
+warp = SimConfig(simulator="warp", num_envs=4096, device="cuda:0", dt=0.002, integrator="euler", control_freq=50.0,
+                 seed=0, scene="empty", options=WarpOptions(njmax=128, nconmax=32, cuda_graph=True))
+assert SimConfig.from_dict(warp.to_dict()) == warp
+try:
+    SimConfig(**{**{k: v for k, v in warp.to_dict().items() if k != "options"}, "options": MujocoOptions(self_collision=False)})
+except ConfigError as e:
+    assert e.path == "options"
+else:
+    raise AssertionError("no error")
 ```
 
 A simulator defined outside this package registers its options with `register_simulator_options("name", OptionsClass)`.

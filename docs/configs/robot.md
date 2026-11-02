@@ -8,8 +8,11 @@ kind, `ExternalRobot` (a reference to an existing model, for baselines such as a
 implemented. Everything below is about `ParametricArm`; "robot config" and `ParametricArm` mean the same thing in the code.
 
 ```python
-from robotdesigner.config import ParametricArm, Segment, JointSpec, LinkSpec, Pose, Capsule, ToolSpec, chain
+from robotdesigner.config import ParametricArm, Segment, JointSpec, LinkSpec, Pose, Capsule, ToolSpec, TwoFingerGripper, chain
 ```
+
+The classes live in the package `robotdesigner.robot` (`pose.py`, `gripper.py`, `arm.py`, `generators.py`); `robotdesigner.config`
+re-exports them, so both import paths work.
 
 Related pages: [ControlConfig](control.md), [TaskConfig](task.md), [SimConfig](sim.md), [EnvConfig](env.md),
 [simulators](../simulators.md).
@@ -99,7 +102,27 @@ A gripper mounted on the end effector.
 
 It is stored and hashed. The MuJoCo simulator does not build grippers yet and ignores it, so it changes `env_hash` but not the physics.
 
-### `ParametricArm(schema_version, segments, home_qpos, end_effector, tool, label="")`
+### `TwoFingerGripper(...)`
+
+A parametric two-finger parallel gripper on the end effector, built by the MuJoCo simulator. Stored and hashed; an arm
+without one hashes exactly as before (the `gripper` key is absent from the hashed dict when it is `None`).
+`TwoFingerGripper.default(**overrides)` gives a small gripper.
+
+| field | type | rule |
+|---|---|---|
+| `finger_length`, `finger_radius` | float | metres, `> 0`; the fingers are capsules along +x of the gripper frame |
+| `stroke` | float | `> 0`, travel of each finger; the opening is `0 .. 2 * stroke` (gap between the finger surfaces) |
+| `finger_mass`, `palm_mass` | float | kg, `> 0` (`finger_mass` is per finger) |
+| `palm_length` | float | `> 0`, a box along x from the gripper frame; the fingers start at its far end |
+| `kp`, `kd` | float | `>= 0`, gains of the position servo on the opening |
+| `force_limit` | float | `> 0`, N, on the servo |
+| `mount` | `Pose` | gripper frame relative to the end-effector frame |
+
+The two finger slides are coupled, so the gripper has one degree of freedom. It adds one action dimension (the last), mapped from
+`[-1, 1]` to an opening in `[0, 2 * stroke]` in every control mode, and `proprio.gripper` (the opening, metres) to the observation.
+The warp simulator does not build grippers and rejects an arm that has one (`robot.gripper`).
+
+### `ParametricArm(schema_version, segments, home_qpos, end_effector, tool, label="", gripper=None)`
 
 | field | type | rule |
 |---|---|---|
@@ -107,7 +130,8 @@ It is stored and hashed. The MuJoCo simulator does not build grippers yet and ig
 | `segments` | tuple of `Segment` | at least one; `n = len(segments)` |
 | `home_qpos` | `n` floats | each inside its joint's `range` |
 | `end_effector` | `Pose` | relative to the last end frame |
-| `tool` | `ToolSpec` or `None` | |
+| `tool` | `ToolSpec` or `None` | a named gripper the simulator ignores; not together with `gripper` |
+| `gripper` | `TwoFingerGripper` or `None` | |
 | `label` | str | metadata only; not part of the hash |
 
 `arm.n` is the number of joints. The number of joints is a property of the arm, never a field of any other config.
@@ -130,6 +154,7 @@ inertia. `n` is an argument of the generator, not a stored field, so a study can
 | `home_qpos` | default: all zeros |
 | `end_effector` | default: `Pose.identity()` |
 | `tool` | default: `None` |
+| `gripper` | default: `None`; a `TwoFingerGripper` |
 | `label` | default: `""` |
 
 Holding `total_length` or `total_mass` fixed while `n` changes is how a family of arms with comparable size is made.
@@ -279,6 +304,16 @@ q = kinematics.sample_joint_positions(arm, 10, np.random.default_rng(0))
 assert q.shape == (10, 3) and np.all(np.abs(q) <= 2.5)
 ```
 
+### An arm with a gripper
+
+```python
+from robotdesigner.config import TwoFingerGripper, chain
+
+gripped = chain(3, "zyy", total_length=0.9, total_mass=2.0, radius=0.03, damping=0.5, armature=0.01,
+                frictionloss=0.0, effort_limit=50.0, gripper=TwoFingerGripper.default(stroke=0.05))
+assert gripped.n == 3 and gripped.gripper.max_opening == 0.1
+```
+
 ## How the MuJoCo simulator uses the robot
 
 | aspect | MuJoCo simulator |
@@ -286,6 +321,7 @@ assert q.shape == (10, 3) and np.all(np.abs(q) <= 2.5)
 | names | `base`, `link_{i}`, `joint_{i}`, `geom_{i}`, `ee` (site), `act_{i}` |
 | actuators | position servo, velocity servo or torque, by control mode; force limited to `±effort_limit` |
 | `ToolSpec` | ignored |
+| `TwoFingerGripper` | bodies `gripper`, `finger_{0,1}`, joints `finger_joint_{0,1}`, tendon `gripper_width`, actuator `act_gripper` (last), site `tcp` |
 | mount | the `base` body sits at `TaskConfig.mount`, for every task |
 | collisions | robot geoms collide with the scene; with each other only if `MujocoOptions.self_collision` |
 

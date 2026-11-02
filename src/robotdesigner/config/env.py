@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from ._canon import HASH_DISPLAY_LENGTH, canonical_json, check_keys, sha256_hex, within
+from .._canon import HASH_DISPLAY_LENGTH, canonical_json, check_keys, sha256_hex, within
 from .control import ControlConfig
-from .errors import ConfigError
-from .robot import ParametricArm
+from ..errors import ConfigError
+from ..robot import ParametricArm
 from .sim import SimConfig
 from .task import TaskConfig
 

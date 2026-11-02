@@ -9,15 +9,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...config.errors import Problem
-from ...config.robot import Pose
+from ...errors import Problem
+from ...robot import Pose
 from .params import TASKS, EmptyParams
 
 __all__ = ["PROVIDER", "EmptyParams", "EmptyTasks"]
 
 
 class EmptyTasks:
-    SIMULATORS = frozenset({"mujoco"})
+    SIMULATORS = frozenset({"mujoco", "warp"})
 
     def task_names(self) -> tuple[str, ...]:
         return TASKS

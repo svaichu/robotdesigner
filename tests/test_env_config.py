@@ -18,7 +18,7 @@ from robotdesigner.config import (
 from tests.toy_provider import ReachParams
 
 
-def make_cfg(dt=0.002, num_envs=8, horizon=200, kp=60.0, mass=3.0, region=None):
+def make_cfg(dt=0.002, num_envs=8, max_episode_steps=200, kp=60.0, mass=3.0, region=None):
     arm = chain(
         3, "zyz", total_length=0.9, total_mass=mass,
         radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0,
@@ -28,7 +28,7 @@ def make_cfg(dt=0.002, num_envs=8, horizon=200, kp=60.0, mass=3.0, region=None):
         control=ControlConfig(mode="joint_pos_abs", gains=FixedGains(kp=kp, kd=6.0), action_scale=None),
         task=TaskConfig(
             params=ReachParams(name="reach", reset_noise=0.0, terminate_on_success=False),
-            horizon=horizon,
+            max_episode_steps=max_episode_steps,
             success_tolerance=0.02,
             target_region=region or FixedBox(low=(0.2, -0.3, 0.0), high=(0.6, 0.3, 0.4)),
             mount=Pose.identity(),
@@ -56,7 +56,7 @@ def test_own_reachable_round_trip():
 
 def test_hash_sensitivity_and_invariance():
     base = make_cfg()
-    for other in (make_cfg(num_envs=4), make_cfg(horizon=100), make_cfg(kp=61.0), make_cfg(mass=3.1)):
+    for other in (make_cfg(num_envs=4), make_cfg(max_episode_steps=100), make_cfg(kp=61.0), make_cfg(mass=3.1)):
         assert other.env_hash != base.env_hash
     d = base.to_dict()
     assert EnvConfig.from_dict(dict(reversed(list(d.items())))).env_hash == base.env_hash
@@ -139,7 +139,7 @@ def test_task_config_rules_come_from_the_provider():
         TaskConfig(ok, 10, None, None, mount=Pose.identity())  # a goal task needs its tolerance
     with pytest.raises(ConfigError, match="target_region"):
         TaskConfig(ok, 10, 0.02, None, mount=Pose.identity())  # and its target region
-    with pytest.raises(ConfigError, match="horizon"):
+    with pytest.raises(ConfigError, match="max_episode_steps"):
         TaskConfig(ok, 0, 0.02, OwnReachable(), mount=Pose.identity())
     with pytest.raises(ConfigError, match="^params: expected a task provider's params object"):
         TaskConfig(MujocoOptions(False), 10, 0.02, OwnReachable(), mount=Pose.identity())
@@ -189,3 +189,24 @@ def test_the_mount_belongs_to_the_task_not_the_robot():
     assert "base_pose" not in cfg.robot.to_dict()
     with pytest.raises(ConfigError, match="^task.mount"):
         EnvConfig.from_dict({**cfg.to_dict(), "task": {**cfg.to_dict()["task"], "mount": [0, 0, 0]}})
+
+
+def test_max_episode_steps_is_the_time_limit_and_the_old_horizon_key_still_loads():
+    import warnings
+
+    task = make_cfg().task
+    d = task.to_dict()
+    assert task.max_episode_steps == 200 and d["max_episode_steps"] == 200 and "horizon" not in d
+    old = {k: v for k, v in d.items() if k != "max_episode_steps"} | {"horizon": 200}
+    with pytest.warns(DeprecationWarning, match="'horizon' is deprecated.*max_episode_steps"):
+        assert TaskConfig.from_dict(old) == task
+    with pytest.warns(DeprecationWarning):  # also through the whole EnvConfig
+        assert EnvConfig.from_dict({**make_cfg().to_dict(), "task": old}).env_hash == make_cfg().env_hash
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # the new key does not warn
+        assert TaskConfig.from_dict(d) == task
+    with pytest.raises(ConfigError, match="^horizon: .*only max_episode_steps"):
+        TaskConfig.from_dict({**d, "horizon": 5})
+    with pytest.raises(ConfigError, match="^max_episode_steps"):
+        TaskConfig(ReachParams("reach", 0.0, False), 0, 0.02, OwnReachable(), Pose.identity())
+    assert make_cfg().env_hash == make_cfg().env_hash and make_cfg(max_episode_steps=100).env_hash != make_cfg().env_hash

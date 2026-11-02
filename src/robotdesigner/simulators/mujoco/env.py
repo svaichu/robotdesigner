@@ -15,17 +15,12 @@ from torchrl.data import Binary, Bounded, Composite, Unbounded
 from torchrl.envs import EnvBase
 
 from ...config import EnvConfig
+from ...envs.spaces import SpacesMixin
+from ..base import task_seed
 from .compile import compile_robot
 from .sim import BatchedSim
 
-_TASK_STREAM = 0x5DEECE66D  # offset of the task's random stream from ``sim.seed``, so the two streams differ
-
-
-def _task_seed(seed: int) -> int:
-    return (int(seed) + _TASK_STREAM) % (2**63)
-
-
-class MujocoEnv(EnvBase):
+class MujocoEnv(SpacesMixin, EnvBase):
     """Batched TorchRL environment: ``cfg.robot`` under ``cfg.control`` doing ``task`` in MuJoCo."""
 
     batch_locked = True
@@ -45,6 +40,8 @@ class MujocoEnv(EnvBase):
         self._renderer = None  # created by the first render()
         n = self._iface.n
         self._n = n
+        self._has_gripper = self._iface.has_gripper
+        m = self._iface.action_dim  # n joint commands, plus the gripper opening when there is a gripper
         task.bind(self._sim)
 
         # Action [-1, 1] -> actuator control: ctrl = action * scale + offset.
@@ -65,7 +62,7 @@ class MujocoEnv(EnvBase):
             self._offset = np.zeros(n)
 
         params = cfg.task.params
-        self._horizon = cfg.task.horizon
+        self._max_episode_steps = cfg.task.max_episode_steps
         self._reset_noise = float(getattr(params, "reset_noise", 0.0))
         self._terminate_on_success = bool(getattr(params, "terminate_on_success", False))
 
@@ -75,7 +72,7 @@ class MujocoEnv(EnvBase):
         self._gen = torch.Generator(device="cpu")
         self._gen.manual_seed(cfg.sim.seed)
         self._task_gen = torch.Generator(device="cpu")
-        self._task_gen.manual_seed(_task_seed(cfg.sim.seed))
+        self._task_gen.manual_seed(task_seed(cfg.sim.seed))
         self._episode_step = torch.zeros(N, 1, dtype=torch.int64)
 
         f32 = torch.float32
@@ -85,13 +82,14 @@ class MujocoEnv(EnvBase):
                 qpos=Unbounded(shape=(N, n), dtype=f32),
                 qvel=Unbounded(shape=(N, n), dtype=f32),
                 effort=Unbounded(shape=(N, n), dtype=f32),
+                **({"gripper": Unbounded(shape=(N, 1), dtype=f32)} if self._has_gripper else {}),
                 shape=(N,),
             ),
             success=Binary(shape=(N, 1), dtype=torch.bool),
             episode_step=Unbounded(shape=(N, 1), dtype=torch.int64),
             shape=(N,),
         )
-        self.action_spec = Bounded(low=-1.0, high=1.0, shape=(N, n), dtype=f32)
+        self.action_spec = Bounded(low=-1.0, high=1.0, shape=(N, m), dtype=f32)
         self.reward_spec = Unbounded(shape=(N, 1), dtype=f32)
         self.done_spec = Composite(
             done=Binary(shape=(N, 1), dtype=torch.bool),
@@ -135,6 +133,11 @@ class MujocoEnv(EnvBase):
                         "qpos": torch.from_numpy(s.qpos).to(torch.float32),
                         "qvel": torch.from_numpy(s.qvel).to(torch.float32),
                         "effort": torch.from_numpy(s.actuator_force).to(torch.float32),
+                        **(
+                            {"gripper": torch.from_numpy(s.gripper_opening).to(torch.float32)}
+                            if self._has_gripper
+                            else {}
+                        ),
                     },
                     batch_size=self.batch_size,
                 ),
@@ -170,7 +173,7 @@ class MujocoEnv(EnvBase):
         self._sim.reset(mask=mask.numpy(), qpos=qpos, qvel=qvel)
         if self._mode == "joint_pos_delta":
             self._q_target[mask.numpy()] = self._sim.qpos[mask.numpy()]
-        self._task.reset(self._sim, mask.numpy(), self._task_rand, injected)
+        self._task.reset(self._sim, mask, self._task_rand, injected)
         self._episode_step[mask] = 0
 
         out, _ = self._observe()
@@ -185,19 +188,26 @@ class MujocoEnv(EnvBase):
 
     def _step(self, tensordict: TensorDictBase) -> TensorDictBase:
         action = tensordict.get("action").to(torch.float64).clamp(-1.0, 1.0).numpy()
+        n = self._n
+        arm_action = action[:, :n]
         if self._mode == "joint_pos_delta":
             self._q_target = np.clip(
-                self._q_target + action * self._scale, self._range[:, 0], self._range[:, 1]
+                self._q_target + arm_action * self._scale, self._range[:, 0], self._range[:, 1]
             )
-            self._sim.set_ctrl(self._q_target)
+            ctrl = self._q_target
         else:
-            self._sim.set_ctrl(action * self._scale + self._offset)
+            ctrl = arm_action * self._scale + self._offset
+        if self._has_gripper:
+            # The last action component is the opening, [-1, 1] -> [0, max_opening], in every control mode.
+            opening = (action[:, n:] + 1.0) / 2.0 * self._iface.gripper_max_opening
+            ctrl = np.concatenate([ctrl, opening], axis=1)
+        self._sim.set_ctrl(ctrl)
         self._sim.step()
         self._episode_step += 1
 
         out, task_obs = self._observe()
         success = out["success"]
-        truncated = self._episode_step >= self._horizon
+        truncated = self._episode_step >= self._max_episode_steps
         terminated = success.clone() if self._terminate_on_success else torch.zeros_like(success)
         out.set("reward", self._task.reward(self._sim, task_obs))
         out.set("terminated", terminated)
@@ -208,7 +218,7 @@ class MujocoEnv(EnvBase):
     def _set_seed(self, seed: int | None):
         if seed is not None:
             self._gen.manual_seed(int(seed))
-            self._task_gen.manual_seed(_task_seed(int(seed)))
+            self._task_gen.manual_seed(task_seed(int(seed)))
         return seed
 
     # --- rendering (needs an OpenGL context: MUJOCO_GL=egl on headless machines) ----------------------------

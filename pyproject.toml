@@ -17,7 +17,7 @@ env = [
     "torchrl>=0.14.1,<0.15",
     "mujoco>=3.13",
 ]
-warp = ["robotdesigner[env]", "mujoco-warp", "warp-lang>=1.15"]
+warp = ["robotdesigner[env]", "mujoco-warp>=3.13", "warp-lang>=1.15"]
 robosuite = ["robotdesigner[env]", "robosuite>=1.5,<1.6"]
 yaml = ["pyyaml"]
 viz = ["imageio", "imageio-ffmpeg", "pillow"]

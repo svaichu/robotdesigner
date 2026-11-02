@@ -11,7 +11,7 @@ from robotdesigner.config import ConfigError, Pose, Problem, TaskConfig, list_ta
 from robotdesigner.config import providers
 from robotdesigner.config.providers import ENTRY_POINT_GROUP, known_task_ids, params_class, split_task_id
 
-BLOCKED = ["torch", "torchrl", "tensordict", "mujoco", "mujoco_warp", "robosuite"]
+BLOCKED = ["torch", "torchrl", "tensordict", "mujoco", "mujoco_warp", "warp", "robosuite"]
 
 
 @dataclass(frozen=True)

@@ -18,12 +18,12 @@ Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [SimConfig]
 [simulators](../simulators.md), and the pages of the task providers that ship with the package:
 [robosuite scenes](../tasks/robosuite.md) and [the `empty` placeholder](../tasks/empty.md).
 
-## `TaskConfig(params, horizon, success_tolerance, target_region, mount)`
+## `TaskConfig(params, max_episode_steps, success_tolerance, target_region, mount)`
 
 | field | type | rule |
 |---|---|---|
 | `params` | the provider's params class | the task: the class attribute `provider` is the namespace of a **task provider**, the field `name` is the task within it, and the provider decides which names exist. Validated and hashed with the config |
-| `horizon` | int | `>= 1`; the episode is truncated after this many steps |
+| `max_episode_steps` | int | `>= 1`; the episode is truncated after this many steps. Gymnasium's name for the time limit (`gym.make(..., max_episode_steps=...)`, `TimeLimit`); it was called `horizon` before, and `from_dict` still reads that key (below) |
 | `success_tolerance` | float or `None` | `> 0` when the task's params class sets `uses_goal = True`; must be `None` otherwise |
 | `target_region` | `FixedBox`, `OwnReachable` or `None` | required when `uses_goal` is true; must be `None` otherwise |
 | `mount` | `Pose` | the robot base in the world: where the scene expects the arm. Required; part of the task's dict and of `env_hash`, and **not** of the robot, so `robot_hash` identifies the embodiment alone |
@@ -31,7 +31,10 @@ Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [SimConfig]
 `TaskConfig.id` is a derived, read-only property, `"<provider>/<name>"`, for messages, logs and docs; it is not a field and
 not part of the dict. There is no `provider=` argument: a second argument could contradict the class.
 
-`to_dict()` writes `provider` (taken from the class) next to `params` (which holds `name`), `horizon`, `success_tolerance`,
+**The old key.** `from_dict()` (and with it `EnvConfig.from_dict`, `BaseEnvConfig.from_dict`, `load`) reads the key `horizon` as `max_episode_steps` and
+emits a `DeprecationWarning`; giving both keys is an error at `horizon`. Saved files keep loading. The `env_hash` of every config changed once with the rename.
+
+`to_dict()` writes `provider` (taken from the class) next to `params` (which holds `name`), `max_episode_steps`, `success_tolerance`,
 `target_region` and `mount`; `from_dict()` reads `provider` and `params.name`, asks the registry for that params class and builds
 it. Hashes (`env_hash`) are over the canonical form of the dict, so key order never matters.
 
@@ -118,13 +121,13 @@ class DemoTasks:
 register_task_provider("demo", DemoTasks(), replace=True)
 assert "demo" in list_task_providers()
 
-task = TaskConfig(params=DemoParams("hold", 0.0), horizon=200, success_tolerance=None, target_region=None,
+task = TaskConfig(params=DemoParams("hold", 0.0), max_episode_steps=200, success_tolerance=None, target_region=None,
                   mount=Pose((0.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0)))
 assert task.id == "demo/hold"              # derived and read-only
 assert task.to_dict() == {
     "provider": "demo",
     "params": {"name": "hold", "reset_noise": 0.0},
-    "horizon": 200,
+    "max_episode_steps": 200,
     "success_tolerance": None,
     "target_region": None,
     "mount": {"pos": [0.0, 0.0, 0.5], "quat": [1.0, 0.0, 0.0, 0.0]},
@@ -147,9 +150,17 @@ d = task.to_dict()
 assert error_of(lambda: TaskConfig.from_dict({**d, "provider": "nope"})).path == "provider"       # no such provider
 assert error_of(lambda: TaskConfig(DemoParams("nope", 0.0), 10, None, None, Pose.identity())).path == "params.name"   # no such task
 assert error_of(lambda: TaskConfig.from_dict({**d, "params": {**d["params"], "name": "nope"}})).path == "params.name"
+import warnings
+
+old = {k: v for k, v in d.items() if k != "max_episode_steps"} | {"horizon": 200}
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    assert TaskConfig.from_dict(old) == task                                  # the old key still loads ...
+assert any(issubclass(w.category, DeprecationWarning) for w in caught)       # ... with a warning
+assert error_of(lambda: TaskConfig.from_dict({**d, "horizon": 5})).path == "horizon"   # both keys: an error
 assert error_of(lambda: TaskConfig.from_dict({**d, "id": "demo/hold"}))                                # `id` is not a field
 M = Pose.identity()
-assert error_of(lambda: TaskConfig(ok, 0, None, None, M)).path == "horizon"
+assert error_of(lambda: TaskConfig(ok, 0, None, None, M)).path == "max_episode_steps"
 assert error_of(lambda: TaskConfig(ok, 10, 0.02, None, M)).path == "success_tolerance"
 assert error_of(lambda: TaskConfig(ok, 10, None, OwnReachable(), M)).path == "target_region"
 assert error_of(lambda: TaskConfig(box, 10, None, None, M)).path == "params"   # not a provider's params object

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...config.errors import Problem
-from ...config.robot import Pose
+from ...errors import Problem
+from ...robot import Pose
 from ._compat import CompatReport, apply_compat
 from .params import RESERVED_ENV_KWARGS, LiftObject, ReachObject, RobosuiteParams
 
@@ -29,7 +29,7 @@ SCENE = "empty"  # the arena brings its own floor, so the simulator adds none
 
 
 class RobosuiteTasks:
-    SIMULATORS = frozenset({"mujoco"})
+    SIMULATORS = frozenset({"mujoco", "warp"})
 
     def task_names(self) -> tuple[str, ...]:
         return ("<EnvName>",)

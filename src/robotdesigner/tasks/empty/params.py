@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from typing import Any, ClassVar, Mapping
 
-from ...config._canon import check_keys
-from ...config.errors import ConfigError
+from ..._canon import check_keys
+from ...errors import ConfigError
 
 TASKS = ("idle",)
 
