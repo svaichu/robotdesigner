@@ -1,7 +1,6 @@
 # robotdesigner: agent memory
 
-Start with `AGENTS.md` (what the package is), `docs/README.md` (reference index) and `docs/spec_robotconfig_env.md` (design record and dated
-decision log, with the reasons); `docs/tasks/writing-a-provider.md` shows how to add a task source. This file keeps what those do not: working rules, environment facts, pitfalls, open decisions.
+Start with `AGENTS.md` (what the package is), `docs/README.md` (reference index) and `docs/design.md` (principles, boundaries, vocabulary; the older dated decision log is in git history); `docs/tasks/writing-a-provider.md` shows how to add a task source. This file keeps what those do not: working rules, environment facts, pitfalls, open decisions.
 Last updated: 2026-10-30. Work happens on `devel` (merged locally; the user pushes). The older history of this file is in git.
 
 ## Goal
@@ -22,7 +21,7 @@ parameter, the robot config kept separate from the env. Do not overwrite the use
   rules or hashing and you change its page.
 - The user works in the repo concurrently: check `git status` before editing shared files. Tell the user what a long step is doing before
   it starts; they ask "is it done?" when a run is silent.
-- After a rename or removal, grep for leftovers in code, docs, images (`docs/architecture.png`), notebook outputs and this file.
+- After a rename or removal, grep for leftovers in code, docs, images (`docs/` diagrams), notebook outputs and this file.
 
 ## Terminology (the user's, 2026-10-30)
 - **simulator**: a physics engine realized as code, `robotdesigner.simulators.<name>`, named by `sim.simulator` (`mujoco`, `warp`).

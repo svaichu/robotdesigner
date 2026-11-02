@@ -1,169 +1,69 @@
 # robotdesigner
 
-Describe robot arms as validated, hashable data and run them in batched [TorchRL](https://github.com/pytorch/rl)
-environments, so the same control task can be compared across embodiments.
+Load different robot configurations into one batched RL environment, so the same control task can be compared across embodiments.
+
+A robot arm is **validated, hashable data**. An environment is one complete config (robot, control, task, simulation) with its own hash, and `make_env(cfg)` turns it into a batched
+[TorchRL](https://github.com/pytorch/rl) environment on the CPU (MuJoCo) or the GPU (MuJoCo Warp). Tasks come from providers (robosuite arenas and objects ship with the package; you can add your own),
+and the same seed gives every embodiment the same scene.
+
+```python
+from robotdesigner.config import BaseEnvConfig, Chain
+
+cfg = (
+    BaseEnvConfig()                                                          # a complete default: one-link arm, empty/idle task, CPU MuJoCo
+    .robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0))         # only what you write changes
+    .sim(num_envs=8, seed=0)
+)
+env = cfg.build()                         # make_env(cfg.resolve())
+traj = env.rollout(50)                    # random policy; traj.shape == [8, 50]
+print(env.robot_hash, env.env_hash)       # identify the embodiment and the run
+```
 
 ## Install
 
 ```bash
-pip install -e .              # config layer only (numpy)
-pip install -e ".[env]"       # + torch, torchrl, tensordict, mujoco: the CPU MuJoCo simulator
-pip install -e ".[env,robosuite]"   # + robosuite: its arenas and objects as tasks
-pip install -e ".[env,warp]"        # + mujoco-warp, warp-lang: the GPU simulator (an NVIDIA GPU)
-pip install -e ".[env,dev]"   # + pytest, ruff
+pip install -e .                        # config layer only (numpy): write, validate, hash and sweep configs anywhere
+pip install -e ".[env]"                 # + torch, TorchRL, MuJoCo: the CPU simulator
+pip install -e ".[env,robosuite]"       # + robosuite scenes as tasks
+pip install -e ".[env,warp]"            # + MuJoCo Warp: the GPU simulator (an NVIDIA GPU)
+pip install -e ".[env,viz]"             # + GIF / MP4 output
+pip install -e ".[env,robosuite,viz,dev]"   # a development install; "yaml" adds YAML config files
 ```
 
-Python >= 3.10. Other extras: `robosuite` (the task provider: robosuite arenas and objects as tasks; the quick start needs it),
-`viz` (Pillow, imageio-ffmpeg: GIF and MP4 output) and `warp` (the MuJoCo Warp GPU simulator: an NVIDIA GPU, and `mujoco` and `mujoco-warp` of one release).
-`import robotdesigner.config` works with numpy alone and never imports an engine.
+Python >= 3.10. `import robotdesigner.config` never imports an engine.
 
-## The idea
+## Ideas that shape the API
 
-- **The robot is data.** A `ParametricArm` is frozen, validated and serializable. It has a stable
-  `config_hash` (12 characters, SHA-256 prefix) that ignores labels and float noise.
-- **Everything that changes behaviour is in `EnvConfig`**: robot, control, task and sim (which carries the options of the simulator). There
-  are no hidden defaults. `env_hash` identifies a run.
-- **`env = make_env(cfg)`** is the one step from config to environment, for every task.
-- **Simulators and tasks are separate.** `sim.simulator = "mujoco"` names the simulator (the CPU reference simulator). A
-  task id is `"<namespace>/<name>"` and comes from a **task provider**: the package names one placeholder task
-  (`empty/idle`, [docs](docs/tasks/empty.md)) and ships one real provider, `robosuite`; others register themselves (see [TaskConfig](docs/configs/task.md#where-tasks-come-from)). An unsupported combination
-  (control mode, device, task on this simulator, ...) is rejected up front with every problem listed, never
-  approximated.
-- **One env contract.** Every environment is a TorchRL `EnvBase` with `batch_size = [num_envs]`. The env never
-  autoresets; reset rows with the `_reset` mask.
+- **The robot is data.** A `ParametricArm` is frozen, validated and serializable; `config_hash` ignores labels and float noise. The arm has no pose: the task's `mount` places it.
+- **Everything that changes behaviour is in `EnvConfig`.** No hidden defaults in the core; defaults live in the builder (`BaseEnvConfig`), versioned. `env_hash` identifies a run.
+- **Reject, never approximate.** A control mode, device, task or scene a simulator cannot run is rejected up front, with every problem listed and the config path to change.
+- **Comparable by construction.** `chain(total_length=, total_mass=)` holds size fixed while `n` varies, gains are explicit (`InertiaScaledGains` tunes joints to one bandwidth), and the task's random stream does not depend on the robot.
+- **One environment contract.** Every environment is a TorchRL `EnvBase` with `batch_size=[num_envs]`. It never autoresets; reset rows with the `_reset` mask.
+
+## Compare embodiments
+
+```python
+family = cfg.sweep(paired={"robot.n": [2, 3, 4, 5], "robot.axes": ["zy", "zyy", "zyyy", "zyyyy"]}, grid={"sim.seed": range(3)})   # 12 configs
+for env_cfg in family.configs():          # resolved, frozen, each with its own env_hash; store env_cfg.to_dict() with the run
+    ...
+```
+
+`sweep` expands; it launches nothing. [Running a family on a cluster](docs/cluster.md).
 
 ## Documentation
 
-Reference pages in [`docs/`](docs/README.md): [RobotConfig](docs/configs/robot.md), [ControlConfig](docs/configs/control.md),
-[TaskConfig](docs/configs/task.md), [SimConfig and simulator options](docs/configs/sim.md), [EnvConfig](docs/configs/env.md), [BaseEnvConfig](docs/configs/base-env.md),
-[simulators and the environment contract](docs/simulators.md), [robosuite scenes](docs/tasks/robosuite.md),
-[writing a task provider](docs/tasks/writing-a-provider.md), [recording videos](docs/viz.md) and the
-[design record](docs/spec_robotconfig_env.md). The words the docs use (embodiment, simulator, task provider, scene, ...) are
-defined in the [glossary](docs/README.md#words-used-in-these-docs). The Python examples in the pages are executed by the tests.
+Start with [`docs/README.md`](docs/README.md). The main pages:
 
-## Quick start
+| | |
+|---|---|
+| [Getting started](docs/getting-started.md) | install, first robot, first environment, sweep, GPU, video |
+| [Robot](docs/configs/robot.md), [Control](docs/configs/control.md), [Task](docs/configs/task.md), [Simulation](docs/configs/sim.md), [Environment](docs/configs/env.md), [Builder](docs/configs/base-env.md) | the config reference |
+| [Simulators and the environment contract](docs/simulators.md) | specs, reset, seeding, CPU and GPU |
+| [robosuite scenes](docs/tasks/robosuite.md), [writing a task provider](docs/tasks/writing-a-provider.md) | tasks |
+| [Rendering and video](docs/viz.md), [Running on a cluster](docs/cluster.md) | using it |
+| [Design](docs/design.md), [Development](docs/development.md) | why, and how to work on it |
 
-A three-link arm in the robosuite `Lift` scene (a table and a cube): robosuite supplies the assets, the simulator named
-in `sim.simulator` steps everything.
-
-```python
-from robotdesigner import make_env
-from robotdesigner.config import (
-    ControlConfig, EnvConfig, FixedGains, MujocoOptions, SimConfig, TaskConfig, chain,
-)
-from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams, default_mount   # a task comes from the provider that owns it
-
-arm = chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0, radius=0.03,
-            damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5))
-
-cfg = EnvConfig(
-    robot=arm,
-    control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-    task=TaskConfig(params=RobosuiteParams(name="Lift", env_kwargs={}, objective=LiftObject("cube", height=0.84),
-                                           reset_noise=0.0, terminate_on_success=False),
-                    max_episode_steps=200, success_tolerance=None, target_region=None,
-                    mount=default_mount("Lift")),   # where robosuite mounts a stock arm in this scene
-    sim=SimConfig(simulator="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
-                  control_freq=50, seed=0, scene="empty",      # the arena brings its own floor
-                  options=MujocoOptions(self_collision=False)),
-)
-
-env = make_env(cfg)
-print(env.robot_hash, env.env_hash)
-traj = env.rollout(50)          # random policy, TorchRL's own rollout
-print(traj.shape)               # torch.Size([8, 50])
-print(env.action_space)         # torch.Size([3]): the shape of one env's action (n joints)
-print(env.observation_space)    # {'task': {...}, 'proprio': {'qpos': torch.Size([3]), ...}, 'success': torch.Size([1]), ...}
-```
-
-`env.action_space` and `env.observation_space` are plain per-env *shapes* (a `torch.Size`, and a nested dict of them that mirrors the nested observation;
-not Gymnasium `Space` objects); the batched shape is `env.batch_size + env.action_space`. The episode is truncated after `max_episode_steps` (Gymnasium's
-name for the time limit), so `env.rollout(500)` stops at that many steps.
-
-The full example is the notebook `examples/quickstart_cpu_mujoco.ipynb`; the examples are notebooks only. A walkthrough notebook is
-`examples/scene_walkthrough.ipynb` (embodiment comparison, control modes, rendering). Recording, saving and showing
-videos: `examples/scene_viz.ipynb`. Comparing embodiments with `sweep`: `examples/embodiment_sweep.ipynb`.
-
-The same environment, written as chained refinements of a complete default (`BaseEnvConfig`, see [its page](docs/configs/base-env.md); the
-result is the frozen `EnvConfig` above, `.resolve()`, and `.build()` is `make_env(self.resolve())`):
-
-```python no-run
-from robotdesigner.config import BaseEnvConfig, Chain, FixedGains
-
-cfg = (
-    BaseEnvConfig()
-    .robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0))   # written fields change, the rest carries from the base
-    .control(gains=FixedGains(kp=60.0, kd=6.0))
-    .sim(num_envs=8)
-)
-env = cfg.build()
-five = cfg.robot(Chain(n=5, axes="zyyyy"))    # a new config; cfg is unchanged
-family = cfg.sweep(paired={"robot.n": [2, 3, 4, 5], "robot.axes": ["zy", "zyy", "zyyy", "zyyyy"]}, grid={"sim.seed": range(3)})   # 12 configs
-big = cfg.with_overrides(["sim.num_envs=64", "sim.options.self_collision=true"])   # dotted paths, also CLI strings
-cfg.dump("run.json")                          # and BaseEnvConfig.load("run.json")
-```
-
-On a GPU (the `warp` extra, an NVIDIA card, `mujoco` and `mujoco-warp` of one release) the same environment is three fields of `sim`; the robot is compiled
-exactly as for the CPU simulator and the tensors live on the device ([simulators](docs/simulators.md), [`WarpOptions`](docs/configs/sim.md#warpoptionsnjmax-nconmax-cuda_graph)):
-
-```python no-run
-cfg = cfg.sim(simulator="warp", device="cuda:0", num_envs=4096)     # options = WarpOptions.default()
-env = cfg.build()                      # env.device == cuda:0, env.batch_size == [4096]
-td = env.reset()
-traj = env.rollout(50)                 # tensors on cuda:0, the same keys as the CPU simulator
-# comparing the two simulators on one embodiment is a sweep, one config and one env_hash per item:
-family = cfg.sweep(paired={"sim.simulator": ["mujoco", "warp"], "sim.device": ["cpu", "cuda:0"]})
-```
-
-`examples/quickstart_gpu_warp.ipynb` is the GPU twin of `examples/quickstart_cpu_mujoco.ipynb`. A scene with many contacts needs larger `WarpOptions`
-capacities; a too-small allocation raises `CapacityError`, it is never silent.
-
-Step by hand:
-
-```python
-td = env.reset()
-td["action"] = env.action_spec.rand()          # [8, n] in [-1, 1]
-td = env.step(td)                              # outputs under ("next", ...)
-
-# or, with driver-side autoreset (the env itself never resets):
-data, td = env.step_and_maybe_reset(td)
-```
-
-## Tasks, control and rendering
-
-- **Tasks come from providers.** The package ships one, [robosuite scenes](docs/tasks/robosuite.md) (`robosuite/<EnvName>`): robosuite supplies
-  the arena, the objects and their placement rule, our simulator steps everything with your robot and control law, and the task's `objective`
-  (`LiftObject`, `ReachObject`) says what success and reward are. 12 of the 15 single-arm environments work (the table is on the page). Your own
-  tasks: [writing a task provider](docs/tasks/writing-a-provider.md). robosuite 1.5.x does not run on MuJoCo >= 3.10 as released; `apply_compat()`
-  patches that in the running process and is called for you.
-- **Control.** Four joint-space modes (`joint_pos_abs`, `joint_pos_delta`, `joint_vel`, `joint_torque`) with `FixedGains` or `InertiaScaledGains`:
-  [ControlConfig](docs/configs/control.md). A reset can inject `qpos`, `qvel` and whatever the task documents.
-- **Rendering and video** need an OpenGL context (headless: set `MUJOCO_GL=egl` before the first import of mujoco) and, for files, the `viz` extra
-  (`pip install -e ".[env,viz]"`: Pillow writes GIFs, imageio-ffmpeg writes MP4s).
-
-```python
-from robotdesigner.viz import record_rollout
-
-traj, clip = record_rollout(env, 150, env_index=0, camera="rs_sideview")   # renders the live state while the rollout runs
-clip                      # last expression of a notebook cell: plays inline
-clip.save("run.mp4")      # the format follows the suffix: .mp4 or .gif
-```
-
-`env.render(env_index, camera=..., size=...)` returns one `uint8 (H, W, 3)` frame of the live state, so any step loop can collect its own frames;
-rendering never changes the simulation, and both simulators render (a Warp env renders from a host copy of one world). To compare embodiments give them one camera
-(`auto_camera(cfg_a, cfg_b)`, or a fixed arena camera such as `rs_sideview`): with the same seed they get the same scene. `examples/scene_viz.ipynb`
-records rollouts (several envs tiled, several cameras) and saves them as `.mp4` and `.gif`; the full guide is [docs/viz.md](docs/viz.md).
-
-## Layout
-
-```
-src/robotdesigner/
-    config/      numpy only: configs, chain() generator, validation, hashing, kinematics oracle
-    simulators/  simulators: protocol, capabilities and lazy registry; mujoco/ is the CPU simulator and its generic env
-    tasks/       task providers, one subpackage per namespace (robosuite/), and the task contract (base.py)
-    envs/        make_env(cfg)
-    viz/         Clip (save GIF / MP4, show inline), frame recorder, camera framing; numpy only
-```
+Notebooks (`examples/`): `quickstart_cpu_mujoco`, `quickstart_gpu_warp`, `scene_walkthrough`, `scene_viz`, `embodiment_sweep`.
 
 ## Tests
 
@@ -171,6 +71,8 @@ src/robotdesigner/
 pytest -m "not gpu and not robosuite and not render"
 ```
 
-Markers: `gpu`, `robosuite` (needs the robosuite extra: `pytest -m robosuite`), `render` (skipped when no OpenGL context
-is available). `tests/test_docs.py` runs the Python
-examples in `docs/` and checks that every link and anchor resolves; it needs no simulator.
+Markers: `gpu` (a CUDA device), `robosuite` (the robosuite extra), `render` (an OpenGL context; `MUJOCO_GL=egl` when headless). `tests/test_docs.py` runs the Python examples in the docs and checks every link and anchor; it needs no simulator.
+
+## License
+
+See [LICENSE](LICENSE).

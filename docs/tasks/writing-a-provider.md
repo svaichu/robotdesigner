@@ -1,25 +1,23 @@
 # Writing a task provider
 
-A **task provider** brings tasks to the framework: it owns a namespace (`robosuite/...`, `mine/...`), names its tasks, gives each a typed params class, and builds
-the task for a simulator. The package names only the placeholder task `empty/idle`, so a new task source is a provider. This page builds one end to end, a goal task `mine/reach`
-that moves the end effector to a target point. `tests/toy_provider/` is the same thing in full; the engine tests use it.
+A **task provider** brings tasks to the framework. It owns a namespace (`mine/...`), names its tasks, gives each a typed params class and builds the task for a simulator.
+The package names only the placeholder `empty/idle`, so every real task source, yours included, is a provider. This page builds one end to end: `mine/reach`, a goal task
+that moves the end effector to a target point. The test-only provider in `tests/toy_provider/` is the same thing in full, and the engine tests run on it.
 
-Related pages: [TaskConfig](../configs/task.md), [simulators](../simulators.md), [robosuite scenes](robosuite.md) (a provider that brings assets).
-
-A provider has two halves, kept apart so that the config layer never imports an engine:
+A provider has two halves, kept apart so the config layer never imports an engine:
 
 | half | needs | holds |
 |---|---|---|
-| **config side** | numpy | the params class of each task and the provider object (`validate` has to run without an engine) |
+| **config side** | numpy | the params class of each task and the provider object (`validate` must run without an engine) |
 | **engine side** | torch, torchrl, the simulator's library | a `TaskImpl`: scene assets, per-env state, observations, success, reward |
+
+Related: [TaskConfig](../configs/task.md), [simulators](../simulators.md), [robosuite](robosuite.md) (a provider that brings assets).
 
 ## 1. The params class (config side)
 
-One frozen dataclass per task, with `to_dict()` and `from_dict()`, validated in `__post_init__`. **The params object is the task**: the class attribute
-`provider` is the namespace and the field `name` says which task of the provider it is, so `TaskConfig(params=ReachParams(name="reach", ...))` needs no
-second place to name the provider (there is no `provider=` argument and no string id). Both are part of `to_dict()` (`provider` is written by `TaskConfig`,
-`name` by the params). The class attribute `uses_goal` says whether the task is defined by a target region and a tolerance (`True`: `TaskConfig` then
-requires `success_tolerance` and `target_region`; `False`: it forbids them).
+One frozen dataclass per task, with `to_dict()` / `from_dict()`, validated in `__post_init__`. **The params object is the task**: the class attribute `provider` is the namespace and
+the field `name` says which task of the provider it is, so there is no second place to name the provider. `uses_goal` says whether the task is defined by a target region and a tolerance
+(`True`: `TaskConfig` requires `success_tolerance` and `target_region`; `False`: it forbids them).
 
 ```python
 from dataclasses import dataclass
@@ -32,16 +30,16 @@ from robotdesigner.config import (
 
 @dataclass(frozen=True)
 class ReachParams:
-    provider: ClassVar[str] = "mine"  # the namespace: this class belongs to the provider registered as "mine"
-    uses_goal: ClassVar[bool] = True  # a goal task: the config carries a target region and a tolerance
+    provider: ClassVar[str] = "mine"   # the namespace this class belongs to
+    uses_goal: ClassVar[bool] = True   # a goal task: the config carries a target region and a tolerance
 
-    name: str                        # which task of the provider: "reach"
-    reset_noise: float               # radians of uniform noise on the initial joint positions (the environment applies it)
-    terminate_on_success: bool       # `terminated` when the task is solved (the environment applies it)
+    name: str                          # which task of the provider: "reach"
+    reset_noise: float                 # rad of uniform noise on the initial joint positions (the environment applies it)
+    terminate_on_success: bool         # `terminated` when solved (the environment applies it)
 
     def __post_init__(self):
         if self.reset_noise < 0:
-            raise ConfigError("reset_noise", "must be >= 0")      # the path says which field is at fault
+            raise ConfigError("reset_noise", "must be >= 0")     # the path names the field at fault
 
     def to_dict(self):
         return {"name": self.name, "reset_noise": self.reset_noise, "terminate_on_success": self.terminate_on_success}
@@ -51,32 +49,32 @@ class ReachParams:
         return cls(**d)
 ```
 
-`reset_noise` and `terminate_on_success` are the two params the environment itself looks for; everything else in the class is yours. For free-form
-mappings (keyword arguments of a library) use `robotdesigner._canon.freeze` and `thaw`, which make them immutable and hashable.
+`reset_noise` and `terminate_on_success` are the two params the environment looks for (`getattr`, so they are optional); everything else in the class is yours.
+For free-form mappings (keyword arguments of a library) use `robotdesigner._canon.freeze` / `thaw`, which make them immutable and hashable.
 
 ## 2. The provider object
 
-Five methods, no engine import at module level. `default_mount(name)` says where the task expects the robot base (the origin when the scene has no opinion); the user's `TaskConfig.mount` is what counts.
+Five methods; no engine import at module level.
 
 ```python
 class MyTasks:
-    SIMULATORS = frozenset({"mujoco", "warp"})   # the simulators whose SimView the engine side was written for
+    SIMULATORS = frozenset({"mujoco", "warp"})   # the simulators whose SimView the engine side was written and tested for
 
-    def task_names(self):                      # names or patterns: they are listed when an id is unknown
+    def task_names(self):                        # names or patterns; listed in the error for an unknown id
         return ("reach",)
 
-    def params_class(self, name):              # None means "no such task"
+    def params_class(self, name):                # None means "no such task"
         return ReachParams if name == "reach" else None
 
-    def default_mount(self, name):             # where the robot base goes if the user does not say: a world Pose
+    def default_mount(self, name):               # where the robot base goes if the user does not say: a world Pose
         return Pose.identity()
 
-    def validate(self, cfg, simulator):        # every reason this task cannot run on that simulator
+    def validate(self, cfg, simulator):          # every reason this task cannot run on that simulator
         if simulator not in self.SIMULATORS:
             return [Problem("sim.simulator", f"task {cfg.task.id!r} runs on {sorted(self.SIMULATORS)}, not on {simulator!r}")]
         return []
 
-    def build(self, cfg, simulator):           # the engine side; import the heavy modules here, not above
+    def build(self, cfg, simulator):             # the engine side; import the heavy modules here, not above
         from my_package.reach import ReachTask
 
         return ReachTask(cfg)
@@ -85,12 +83,12 @@ class MyTasks:
 PROVIDER = MyTasks()
 ```
 
-`validate` returns a list of `Problem(path, message)`; `make_env` collects them with the simulator's own problems and raises one error that lists all of them.
+`validate` returns `Problem(path, message)` items; `make_env` collects them with the simulator's own and raises one error listing everything.
 
 ## 3. Register it
 
-Three ways: a subpackage of `robotdesigner.tasks` that exposes `PROVIDER` (the package name is the namespace); an entry point in another package,
-which is how a project brings its own tasks; and `register_task_provider`, which is also what tests use and which takes precedence over the other two.
+Three ways ([sources and precedence](../configs/task.md#where-tasks-come-from)): a subpackage of `robotdesigner.tasks` exposing `PROVIDER`; an entry point of another package,
+which is how a *project* brings its own tasks; and `register_task_provider`, which tests use and which wins over the other two.
 
 ```toml
 # pyproject.toml of your package
@@ -105,32 +103,34 @@ assert "mine" in list_task_providers()
 task = TaskConfig(
     params=ReachParams(name="reach", reset_noise=0.0, terminate_on_success=False),
     max_episode_steps=200, success_tolerance=0.02,
-    target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),
-    mount=PROVIDER.default_mount("reach"),                        # the robot base in the world; the target region is relative to it
+    target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),    # in the robot's base frame; it follows the mount
+    mount=PROVIDER.default_mount("reach"),
 )
-assert task.id == "mine/reach"                                # derived from the class and the name
-assert task.to_dict()["provider"] == "mine"
-assert TaskConfig.from_dict(task.to_dict()) == task           # provider and params.name pick the params class on the way back in
+assert task.id == "mine/reach" and task.to_dict()["provider"] == "mine"
+assert TaskConfig.from_dict(task.to_dict()) == task
 
-for wrong in (lambda: TaskConfig(ReachParams("lift", 0.0, False), 200, None, None, Pose.identity()),          # no such task
-              lambda: TaskConfig(ReachParams("reach", 0.0, False), 200, None, None, Pose.identity()),         # a goal task needs its tolerance
-              lambda: ReachParams("reach", -1.0, False)):                                     # the params validate themselves
+for wrong, path in (
+    (lambda: TaskConfig(ReachParams("lift", 0.0, False), 200, 0.02, FixedBox((0, 0, 0), (1, 1, 1)), Pose.identity()), "params.name"),   # no such task
+    (lambda: TaskConfig(ReachParams("reach", 0.0, False), 200, None, None, Pose.identity()), "success_tolerance"),   # a goal task needs its tolerance
+    (lambda: ReachParams("reach", -1.0, False), "reset_noise"),                                                      # the params validate themselves
+):
     try:
         wrong()
     except ConfigError as e:
-        assert e.path in ("params.name", "success_tolerance", "reset_noise")
+        assert e.path == path, e.path
     else:
         raise AssertionError("no error")
 
 unregister_task_provider("mine")
 ```
 
-From here the config side is complete: configs round-trip, hash and compare, without torch or MuJoCo installed.
+At this point the config side is complete: configs round-trip, hash and compare with neither torch nor MuJoCo installed.
+In a worker process (a cluster job, a `spawn`ed child) the registry starts empty: register the provider again, or declare the entry point so it is discovered ([cluster](../cluster.md)).
 
 ## 4. The engine side
 
-Subclass `robotdesigner.tasks.base.BaseTask` (the optional hooks have defaults) and state only what the task adds: the robot, the control law, batching,
-masked reset, episode counters and rendering belong to the environment. This is a trimmed `tests/toy_provider/reach.py`.
+Subclass `robotdesigner.tasks.base.BaseTask` (the optional hooks have defaults) and state only what the task adds. The robot, the control law, batching, masked reset, episode
+counters and rendering belong to the environment. This is a trimmed `tests/toy_provider/reach.py`.
 
 ```python no-run
 import torch
@@ -143,8 +143,8 @@ class ReachTask(BaseTask):
     def __init__(self, cfg):                       # cfg is the whole EnvConfig
         self._region, self._tol = cfg.task.target_region, cfg.task.success_tolerance
 
-    def bind(self, sim):                           # once, after the model is compiled: per-env state for sim.num_envs envs
-        self._target = torch.zeros(sim.num_envs, 3, device=sim.device)   # per-env state lives on sim.device
+    def bind(self, sim):                           # once, after compilation: per-env state for sim.num_envs envs
+        self._target = torch.zeros(sim.num_envs, 3, device=sim.device)
 
     def observation_spec(self, num_envs):          # the "task" observation group
         f32 = torch.float32
@@ -153,12 +153,12 @@ class ReachTask(BaseTask):
 
     def reset(self, sim, mask, rand, injected):    # place the task for the envs selected by mask (bool (N,), on sim.device)
         low, high = (torch.tensor(v, dtype=torch.float64) for v in (self._region.low, self._region.high))
-        target = (low + rand(sim.num_envs, 3) * (high - low)).to(torch.float32)   # draw for the WHOLE batch, whatever the mask
+        target = (low + rand(sim.num_envs, 3) * (high - low)).to(torch.float32)    # draw for the WHOLE batch, whatever the mask
         if injected("target") is not None:         # a value the caller put in the reset TensorDict
             target = injected("target").to(torch.float32)
         self._target[mask] = target.to(sim.device)[mask]
 
-    def observe(self, sim):                        # float32 tensors on sim.device, leading dimension N, base frame
+    def observe(self, sim):                        # float32 tensors on sim.device, leading dimension N, in the base frame
         return {"ee_pos": sim.site_pos(sim.iface.ee_site_id, "base"), "target_pos": self._target.clone()}
 
     def success(self, sim, obs):                   # bool (N, 1)
@@ -168,27 +168,37 @@ class ReachTask(BaseTask):
         return -torch.linalg.norm(obs["ee_pos"] - obs["target_pos"], dim=-1, keepdim=True)
 ```
 
-- **Draws.** `rand(*shape)` is the task's own seeded stream: it does not depend on the robot, so the same seed gives every embodiment the same draws. Always
-  draw for the whole batch and then apply the mask, so the stream does not depend on which envs are reset.
-- **Scene assets.** `attach(spec)` adds bodies and geoms to the `MjSpec` before it is compiled (robosuite's provider attaches an arena and objects under a
-  prefix); `bind(sim)` then resolves names to ids. Objects without a free joint are shared by every env of the batch.
-- **The simulation.** The engine side runs on any simulator that implements `SimView` (`mujoco` and `warp` today), so list in `SIMULATORS` every simulator you
-  tested it on. Hooks receive a `SimView` (`robotdesigner.tasks.base`), not a simulator's internals: `sim.num_envs`, `sim.device`,
-  `sim.iface`, `sim.body_pose(body, frame)` and `sim.site_pos(site, frame)` (`frame` is `"world"` or `"base"`, float32 on `sim.device`),
-  `sim.write_qpos(adr, values, mask)` to place a free body, `sim.base_frame()` and `sim.host_data(env_index)` for overlays.
-  `bind` is the last point at which the host `sim.model` may be edited.
-- **Overlays.** `overlays(scene, sim, data, env_index)` draws state that is not in the model (a goal marker) into a render scene; a task that keeps everything in
-  the model draws none.
-- **Injected state.** `injected(key)` returns a tensor the caller put in the reset TensorDict, or `None`; document the keys you accept.
+### The hooks
+
+| hook | when | what you do |
+|---|---|---|
+| `attach(spec)` | before the model compiles | add bodies and geoms to the `mujoco.MjSpec` (robosuite's provider attaches an arena and objects under a prefix) |
+| `bind(sim)` | once, after compilation | resolve names to ids, allocate per-env state; the **last** point at which the host model `sim.model` may be edited |
+| `observation_spec(num_envs)` | at construction | the TorchRL `Composite` of the `task` group, batch shape `(num_envs,)` |
+| `reset(sim, mask, rand, injected)` | after the robot is reset | set the task state of the masked envs |
+| `observe(sim)` | every step and reset | dict of float32 tensors on `sim.device` |
+| `success(sim, obs)`, `reward(sim, obs)` | every step | `(N, 1)` bool / float32 |
+| `overlays(scene, sim, data, env_index)` | rendering only | draw state that is not in the model (a goal marker) into an `mjvScene` |
+
+### Rules that keep embodiments comparable
+
+- **Draws.** `rand(*shape)` is the task's own seeded stream. It does not depend on the robot, so the same seed gives every embodiment the same draws. Always draw for the whole batch and then
+  apply the mask, so the stream does not depend on which envs are reset.
+- **The simulation view.** Hooks receive a `SimView` ([`tasks/base.py`](../../src/robotdesigner/tasks/base.py)), not a simulator's internals: `num_envs`, `device`, `iface` (joint
+  ranges, `ee_site_id`, the mount), `body_pose(body, frame)` and `site_pos(site, frame)` with `frame` either `"world"` or `"base"` (float32 on `device`), `write_qpos(adr, values, mask)`
+  to place a free body, `base_frame()` and `host_data(env_index)`. List in `SIMULATORS` every simulator you ran the task on.
+- **Fixtures.** All envs of a batch share one model, so a scene object without a free joint is placed once, at `bind`; per-env placement needs a free joint.
+- **Injected state.** `injected(key)` returns a tensor the caller put in the reset TensorDict (a replayed `target`), or `None`. Document the keys you accept.
+- **Frames.** Observe positions in the robot's base frame (`"base"`), as the other providers do, so a task reads the same for every mount.
 
 ## 5. Test it
 
-Copy `tests/toy_provider/` and `tests/conftest.py` as a starting point: the conftest registers the provider lazily with
-`register_task_provider("toy", "tests.toy_provider:PROVIDER", replace=True)`. A provider needs at least:
+Copy `tests/toy_provider/` and `tests/conftest.py` as a start: the conftest registers the provider lazily with `register_task_provider("toy", "tests.toy_provider:PROVIDER", replace=True)`.
+A provider needs at least:
 
 1. `check_env_specs(env)` on an environment built with your task;
 2. a masked-reset test: reset some rows and check that only those rows changed;
 3. a seeding test: the same seed gives the same draws, a different seed different ones, and two robots with different joint counts get the same draws;
-4. its config tests: round trip through `to_dict` / `from_dict`, and the errors above.
+4. its config tests: round trip through `to_dict` / `from_dict` and the errors above.
 
-The engine tests of the package are a worked example of each (`tests/test_mujoco_env.py`).
+`tests/test_mujoco_env.py` has a worked example of each.

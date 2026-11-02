@@ -1,117 +1,63 @@
-# EnvConfig
+# Environment: `EnvConfig`
 
-The complete, declarative description of one environment: robot, control, task and sim (which includes the options of the chosen simulator), with one hash.
-Everything that changes behaviour is in here, so a run is identified by its `env_hash`. Importing it needs numpy only.
-An `EnvConfig` is data: `env = make_env(cfg)` is the one step that turns it into an environment (see
-[building the environment](#building-the-environment)).
+`EnvConfig(robot, control, task, sim)` is the complete, declarative description of one environment. Everything that changes behaviour is in it, and nothing is
+filled in behind your back: every field of every part is required. Its hash, `env_hash`, identifies a run.
 
 ```python
-import json
-from dataclasses import replace
-
 from robotdesigner.config import (
-    ConfigError, ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
+    ConfigError, ControlConfig, EnvConfig, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
 )
-from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams
-```
+from robotdesigner.tasks.empty import EmptyParams
 
-Related pages: [RobotConfig](robot.md), [ControlConfig](control.md), [TaskConfig](task.md), [SimConfig](sim.md),
-[simulators](../simulators.md).
-
-## `EnvConfig(robot, control, task, sim)`
-
-| field | type | |
-|---|---|---|
-| `robot` | `ParametricArm` | [RobotConfig](robot.md) |
-| `control` | `ControlConfig` | [ControlConfig](control.md) |
-| `task` | `TaskConfig` | [TaskConfig](task.md) |
-| `sim` | `SimConfig` | [SimConfig](sim.md): the simulator, the batch, the time step, the seed, the scene and the simulator's options |
-
-Checks across the sections, on top of each section's own:
-
-- each field has the right class (error path: the field name);
-- per-joint `kp` and `kd` in `FixedGains` have exactly `robot.n` entries (path `control.gains.kp` or `.kd`).
-
-Whether the simulator can run the combination (a control mode, a device, the time step) and whether the task's provider
-accepts it on that simulator is not checked here: `make_env` reports it when the environment is built.
-
-## Example
-
-```python
-arm = chain(3, "zyy", total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5, armature=0.01,
-            frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5), label="three-joint arm")
+arm = chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5, armature=0.01,
+            frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5))
 cfg = EnvConfig(
     robot=arm,
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-    task=TaskConfig(params=RobosuiteParams(name="Lift", env_kwargs={},                  # a task of the `robosuite` provider
-                                           objective=LiftObject("cube", height=0.84),
-                                           reset_noise=0.0, terminate_on_success=False),
-                    max_episode_steps=200, success_tolerance=None, target_region=None,
-                    mount=Pose((-0.56, 0.0, 0.912), (1.0, 0.0, 0.0, 0.0))),   # the mount of a stock arm in robosuite's Lift
-    sim=SimConfig(simulator="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler",
-                  control_freq=50.0, seed=0, scene="empty",                # the arena brings its own floor
-                  options=MujocoOptions(self_collision=False)),            # the settings of "mujoco" only
+    task=TaskConfig(EmptyParams("idle"), max_episode_steps=200, success_tolerance=None, target_region=None, mount=Pose.identity()),
+    sim=SimConfig("mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
+                  scene="plain_floor", options=MujocoOptions(self_collision=False)),
 )
-assert list(cfg.to_dict()) == ["robot", "control", "task", "sim"]
+assert len(cfg.env_hash) == 12
 ```
+
+The four parts: [robot](robot.md), [control](control.md), [task](task.md), [sim](sim.md). To build the environment from a config:
+`env = make_env(cfg)` ([simulators](../simulators.md)). To write a config with defaults and refine it step by step: [`BaseEnvConfig`](base-env.md).
+
+## Hashes
+
+| hash | covers | use |
+|---|---|---|
+| `robot.config_hash` (12 hex) | the embodiment, label excluded | which arm; also `env.robot_hash` |
+| `cfg.env_hash` (12 hex) | the robot's full hash, control, task (including mount) and sim (including options) | which run; also `env.env_hash` |
+
+`full_env_hash` and `robot.full_hash` are the untruncated SHA-256 digests. The input is canonical JSON with floats rounded to 12 significant digits.
+
+```python
+same = EnvConfig.from_dict(cfg.to_dict())
+assert same == cfg and same.env_hash == cfg.env_hash
+
+import dataclasses
+more_envs = dataclasses.replace(cfg, sim=dataclasses.replace(cfg.sim, num_envs=16))
+assert more_envs.env_hash != cfg.env_hash                      # num_envs is part of the sim, so of the hash
+assert more_envs.robot.config_hash == cfg.robot.config_hash    # the embodiment did not change
+```
+
+Anything in the config changes the hash, including `seed` and `num_envs`. If two runs should be comparable *because* they share a hash,
+that is what you want; if you need "same everything except seed", compare the dicts or key on `robot_hash` plus the task.
+Defaults exist only in `BaseEnvConfig`. An `EnvConfig` holds every value, so its hash cannot move when the package's defaults change; what moves is the
+`EnvConfig` that an unchanged builder script resolves to. That is why you store `resolve().to_dict()` with a run
+([base-env](base-env.md#files-and-reproducibility)).
 
 ## Serialization
 
-`to_dict()` gives a plain structure and `from_dict()` rebuilds it, validating everything on the way in. Unknown keys,
-missing keys and wrong types raise `ConfigError`, and the path of the error is counted from the `EnvConfig`.
+`to_dict()` returns plain JSON-able data (lists, numbers, strings, `None`), and `EnvConfig.from_dict(d)` is its exact inverse; parsing validates every nested part and
+reports errors with the full path. Task params are rebuilt by the provider named in the dict, so a custom provider must be registered
+in the process that parses it.
 
-```python
-text = json.dumps(cfg.to_dict(), indent=2)           # store this next to your results
-back = EnvConfig.from_dict(json.loads(text))
-assert back == cfg and back.env_hash == cfg.env_hash
+## Cross-part checks
 
-broken = json.loads(text)
-broken["sim"]["dt"] = -1
-try:
-    EnvConfig.from_dict(broken)
-except ConfigError as e:
-    assert e.path == "sim.dt"
-else:
-    raise AssertionError("no error")
-```
-
-## Hashing
-
-```python
-assert len(cfg.env_hash) == 12 and cfg.full_env_hash.startswith(cfg.env_hash) and len(cfg.full_env_hash) == 64
-assert list(cfg.hash_dict()) == ["robot_hash", "control", "task", "sim"]
-```
-
-`full_env_hash` is the SHA-256 of the canonical JSON (sorted keys, floats rounded to 12 significant digits, `-0.0` as
-`0.0`) of `hash_dict()`: the robot's `full_hash`, then the control, task and sim dicts (the simulator's options are part of `sim`). `env_hash` is its
-first 12 characters.
-
-| changes `env_hash` | does not |
-|---|---|
-| any physical or control parameter, the task, the time step, the integrator, the scene, the options | the robot's `label` |
-| `num_envs` and `seed` (they define the run) | key order in a dict, `-0.0` versus `0.0`, scaling an axis or a quaternion |
-| the simulator name and the task (provider and name) | |
-
-Not in the hash, because they are not part of the config: the version of MuJoCo, robosuite or this package, and robosuite's
-own defaults for arguments you did not set (those are recorded on the environment as `resolved_env_kwargs`).
-
-```python
-assert replace(cfg, robot=replace(arm, label="renamed")).env_hash == cfg.env_hash
-assert replace(cfg, sim=replace(cfg.sim, seed=1)).env_hash != cfg.env_hash
-assert replace(cfg, sim=replace(cfg.sim, num_envs=16)).env_hash != cfg.env_hash
-assert replace(cfg, control=ControlConfig("joint_pos_abs", FixedGains(kp=61.0, kd=6.0), None)).env_hash != cfg.env_hash
-reordered = json.loads(json.dumps(cfg.to_dict(), sort_keys=True))
-assert EnvConfig.from_dict(reordered).env_hash == cfg.env_hash
-```
-
-`resolve()` returns a concrete config in which region policies are turned into numbers before hashing. Nothing needs
-resolving yet, so it returns the config itself; it is idempotent, and the environments and the hash call it for you.
-
-```python
-assert cfg.resolve() is cfg or cfg.resolve() == cfg
-```
-
-## Errors
+`EnvConfig` checks what no single part can: per-joint `kp` / `kd` sequences must have as many entries as the robot has joints.
 
 ```python
 def error_of(build):
@@ -121,28 +67,13 @@ def error_of(build):
         return e
     raise AssertionError("no error")
 
-# the options class must match the simulator (checked by SimConfig, so the path is relative to it)
-assert error_of(lambda: replace(cfg, sim=replace(cfg.sim, options=FixedBox((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))))).path == "options"
-# a per-joint gain list must have n entries (the arm has 3 joints)
-assert error_of(lambda: replace(cfg, control=ControlConfig("joint_pos_abs", FixedGains((1.0, 2.0), 1.0), None))).path == "control.gains.kp"
-# an unknown simulator has no options class
-assert error_of(lambda: replace(cfg, sim=replace(cfg.sim, simulator="nope"))).path == "simulator"
+wrong_gains = ControlConfig("joint_pos_abs", FixedGains(kp=(60.0, 40.0), kd=6.0), action_scale=None)
+assert error_of(lambda: dataclasses.replace(cfg, control=wrong_gains)).path == "control.gains.kp"
+assert error_of(lambda: EnvConfig(arm, cfg.control, cfg.task, "sim")).path == "sim"
+assert "unknown keys: extra" in str(error_of(lambda: EnvConfig.from_dict({**cfg.to_dict(), "extra": 1})))   # a typo is an error, not ignored
 ```
 
-## Building the environment
+What a config *cannot* tell you, because it depends on the installed engine, is whether it can run: the simulator supports the control mode, the device exists, the task's
+assets can be built. That is `make_env`'s job and it reports every such problem at once.
 
-```python no-run
-# needs the env extra (torch, torchrl, mujoco)
-from robotdesigner import make_env
-env = make_env(cfg)
-print(env.robot_hash, env.env_hash)   # the 12-character hashes of the robot and of this whole config
-```
-
-`make_env(cfg)` is the only way an `EnvConfig` becomes an environment, and it works the same for every task: the simulator
-is the one named in `cfg.sim.simulator`, the task comes from the provider named by `cfg.task.params.provider`
-(see [TaskConfig](task.md#where-tasks-come-from)). `EnvConfig` itself has no `make()` method, so the config layer
-stays free of engines. Everything the simulator or the task cannot do with this config is reported in one `ConfigError`
-([simulators](../simulators.md#capabilities)).
-
-Every environment exposes `cfg`, `robot_hash` (`robot.config_hash`) and `env_hash`. Keep the JSON from `to_dict()` with
-each run: `EnvConfig.from_dict(json.load(f)).env_hash` must equal the recorded `env_hash`.
+`EnvConfig.resolve()` returns the config itself. It exists so that code can treat `EnvConfig` and `BaseEnvConfig` alike (`BaseEnvConfig.resolve()` is where the work is).

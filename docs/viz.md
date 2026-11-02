@@ -1,131 +1,112 @@
-# Recording and showing videos (`robotdesigner.viz`)
+# Rendering and video: `robotdesigner.viz`
 
-Render a rollout and turn it into a GIF or MP4: save it, or show it inline in a notebook. Recording is
-Gymnasium-style: the live state is rendered after every step while the rollout runs.
+Every environment renders the **live state** of one of its worlds, so any loop can collect frames, and `robotdesigner.viz` turns frames into clips you can show in a notebook or save as MP4 or GIF.
+Rendering never changes the simulation. Both simulators render (a Warp environment renders from a host copy of the world).
 
-```python
-from robotdesigner.viz import record_rollout
+| need | for |
+|---|---|
+| an OpenGL context | any `env.render` |
+| `pip install -e ".[env,viz]"` | saving: Pillow writes GIFs and annotates frames, `imageio-ffmpeg` writes MP4s |
 
-traj, clip = record_rollout(env, 150, env_index=0)   # trajectory (a TensorDict) and a Clip
-clip                       # last expression of a notebook cell: plays inline
-clip.save("run.mp4")       # the format follows the suffix: .mp4 or .gif
-clip.show("gif")           # show inline in a chosen format
-```
+`import robotdesigner.viz` imports numpy only; Pillow, imageio and MuJoCo load when first needed.
 
-Related pages: [simulators](simulators.md) (the env contract, `env.render`), [robosuite scenes](tasks/robosuite.md) (the arena cameras). The walkthrough is `examples/scene_viz.ipynb`, which also runs headless (see below).
+## Headless machines
 
-## Install and headless machines
+Without a display (a cluster node, a container) use EGL, and set it **before MuJoCo is first imported** (in a notebook: before any cell that imports it, or restart the kernel):
 
 ```bash
-pip install -e ".[env,viz]"
+export MUJOCO_GL=egl
+export MUJOCO_EGL_DEVICE_ID=0     # on a multi-GPU node: pin the GPU that renders; pick an idle one
 ```
 
-`viz` adds Pillow (GIF) and imageio-ffmpeg (MP4: H.264, yuv420p; it ships its own ffmpeg binary, so no system ffmpeg
-is needed). `import robotdesigner.viz` itself needs only numpy; the other libraries load when a file is written.
+OSMesa and GLFW did not work in headless tests of this package; EGL is the supported route. Rendering is for inspection and figures, not for the training loop.
 
-Rendering needs an OpenGL context. On a headless Linux machine set `MUJOCO_GL=egl` **before the first import of
-mujoco** (in a notebook: before the first cell that imports it, or restart the kernel). With several GPUs,
-`MUJOCO_EGL_DEVICE_ID` picks one. EGL rendering worked on a CPU-only cluster node; `osmesa` and `glfw` did not there.
-Without a context, `env.render()` raises a `RuntimeError` that says this.
+## One frame
 
-## What a frame shows
+```python no-run
+frame = env.render(0, camera="iso", size=(240, 320))        # uint8 (H, W, 3)
+```
 
-`env.render(env_index=0, *, camera=None, size=(240, 320), overlays=True)` returns one `uint8 (H, W, 3)` frame of the
-live state of one env, so any step loop can collect frames itself.
-
-- **The whole MuJoCo scene**: floor, robot, and anything else in the compiled model.
-- **Overlays** (`overlays=True`), drawn by the task's `overlays` hook from task state that is not part of the model (a
-  goal marker, say). A task that keeps everything in the model draws none: the robosuite scenes have none, their
-  objects are bodies of the model. Overlays are added to a scratch scene, never to the model.
-- Rendering never changes the simulation. It works on a scratch copy of the state (a test checks that rendering every
-  step leaves `qpos`, `qvel`, time and warm start bit-identical).
-- The scene presets have no skybox, so the background above the floor is black.
-
-## Cameras
-
-`camera=` takes:
+`env.render(env_index=0, *, camera=None, size=(240, 320), overlays=True)`. `camera` is:
 
 | value | meaning |
 |---|---|
-| `None` or `"iso"` | default view, framed on the workspace |
-| `"front"`, `"side"`, `"top"` | other named views (world frame, `+x` forward) |
-| `CameraSpec(lookat, distance, azimuth, elevation)` | a free camera, angles in degrees |
-| `mujoco.MjvCamera`, a model camera name or id | passed to MuJoCo unchanged |
+| `None` or `"iso"` | an isometric view framed on the workspace |
+| `"front"`, `"side"`, `"top"` | the other preset views (`viz.VIEWS`) |
+| a `CameraSpec` | a free camera: `lookat`, `distance`, `azimuth`, `elevation` (degrees) |
+| a name or id | a camera in the model, e.g. `"rs_agentview"` from a [robosuite scene](tasks/robosuite.md) |
+| an `mujoco.MjvCamera` | used as given |
 
-The named views are framed on a bounding sphere of the robot's workspace: base, floor point under the base,
-end-effector positions for 512 random joint configurations (own random generator, so an env's random stream is not
-touched), the home pose and the corners of a `FixedBox` region.
+`overlays=True` also draws what the task adds that is not in the model (a goal marker).
 
-**Comparing embodiments needs one camera for all of them.** Each embodiment's own default camera is framed on its own
-workspace, so a short arm looks as big as a long one. `auto_camera(cfg_a, cfg_b, ...)` returns one `CameraSpec` that
-covers every config; pass it as `camera=` to each recording. Frames then share a scale, and a small arm looks small.
+## Cameras that compare embodiments
 
-```python
-shared = auto_camera(cfg_small, cfg_big)
-_, a = record_rollout(env_small, 60, policy_small, camera=shared, every=2, label=False)
-_, b = record_rollout(env_big, 60, policy_big, camera=shared, every=2, label=False)
-tile_clips([a, b], labels=["n=2", "n=5"])
-```
-
-With the same `sim.seed` and `num_envs` every embodiment gets the same scene at every reset, whatever its number of joints
-([seeding](simulators.md#the-environment-contract)); `reset_td` pins injected state instead. A fixed camera of the scene, such
-as the robosuite arena's `"rs_sideview"`, also shares a scale across embodiments.
-
-## Reference
-
-**`record_rollout(env, steps, policy=None, *, env_index=0, every=1, camera=None, size=(240, 320), fps=None, label=None,
-overlays=True, ncols=None, reset_td=None, **rollout_kwargs) -> (trajectory, Clip)`**
-Resets (with `reset_td` if given), runs `env.rollout(steps, policy, ...)` and renders after every `every`-th step.
-The clip has the initial state, every `every`-th state and the final state: `steps + 1` frames at `every=1`, fewer if
-the rollout stops early. `env_index` is an int, a list of ints or `"all"`; several envs are tiled (`ncols`) and
-labelled (`label`, default on for several envs). The clip plays at `control_freq / every` fps unless `fps` is given.
-Extra keyword arguments (`break_when_any_done=...`) go to `env.rollout`; `callback`, `auto_reset` and `tensordict` are
-set by `record_rollout`.
-
-**`Clip(frames, fps)`**: `frames` is `uint8 (T, H, W, 3)`. Properties `len()`, `size` (height, width), `duration`;
-`with_fps(fps)`, `save(path, fmt=None) -> Path`, `to_bytes(fmt)`, `show(fmt=None)`. As the last expression of a notebook
-cell a clip shows itself: an MP4 if imageio-ffmpeg is installed, otherwise a GIF with a note. Embedding more than
-25 MB warns; save the file instead.
-
-**`FrameRecorder(env, env_index=0, *, every=1, ...)`**: what `record_rollout` uses; it is a rollout callback with
-`capture(step=None)`, `finish(steps)` and `clip()`. TorchRL calls a rollout callback after every step except the last
-and except the step that stops a rollout early, so a hand-written loop must call `capture(0)` after the reset and `finish(k)` after
-a rollout of `k` steps (the notebook shows this).
-
-**Camera and frames**: `auto_camera(*cfgs, view="iso", fovy=45.0, aspect=4/3, margin=1.15)`, `CameraSpec`, `VIEWS`,
-`workspace_points(cfg)`; `tile(frames, ncols=None, pad=2)`, `tile_clips(clips, ncols=None, labels=None)` (equal frame
-size and fps; as long as the shortest clip), `annotate(frame, text, corner="tl")` (white text on a dark box).
-
-**On the env**: `env.render(...)`, `env.close()` (frees the renderer), and in `robotdesigner.simulators.mujoco.render`:
-`render_rgb(env, env_index, camera, size)` (the same as `env.render`) and `launch_viewer(env)` (interactive viewer, needs
-a display).
-
-## Rates, sizes and file formats
-
-- **GIF** stores delays in 10 ms steps (browsers play delays under 20 ms at 100 ms), so only some rates are exact:
-  50, 25, 20, 10 fps. Other rates warn and are stored as the nearest 10 ms delay (a 30 fps request is stored as 30 ms and
-  plays at 33.3 fps). GIF files are much larger than MP4 files of the same clip.
-- **MP4** pads odd frame sizes to even by repeating the last row / column (yuv420p needs even sizes) and does not
-  rescale.
-- **Frame size**: MuJoCo's offscreen buffer is 640x480 by default. A larger `size=` raises the model's visual buffer
-  setting (`model.vis.global_.offwidth/offheight`) automatically; this does not touch the physics.
-- Frames are kept in memory as uint8 arrays: 150 frames at 240x320 are about 35 MB per env.
-- Rendering several envs costs one render per env per frame (about 14 ms each at 240x320 on a CPU node).
-
-## Adding rendering to another simulator
-
-`FrameRecorder` and `record_rollout` need only this from an env:
+An `"iso"` camera framed on each arm separately makes a 0.5 m arm and a 2 m arm look the same size, which hides exactly what you want to see. `auto_camera` returns **one** camera that covers the workspace of every
+config you give it, so clips of different embodiments are drawn at the same scale:
 
 ```python
-env.batch_size[0]                                   # number of envs
-env.render(env_index, *, camera, size, overlays)    # -> uint8 (H, W, 3)
-env.cfg.sim.control_freq                            # or pass fps= to record_rollout
+import numpy as np
+
+from robotdesigner.config import BaseEnvConfig, Chain
+from robotdesigner.viz import VIEWS, Clip, auto_camera, tile
+
+small = BaseEnvConfig().robot(Chain(n=2, axes="zy", total_length=0.5, total_mass=1.0)).resolve()
+large = BaseEnvConfig().robot(Chain(n=4, axes="zyyy", total_length=1.5, total_mass=4.0)).resolve()   # configs or bare arms both work
+
+cam_both = auto_camera(small, large, view="iso")
+assert cam_both.distance > auto_camera(small, view="iso").distance       # the shared camera has to be farther back than the small arm needs
+assert (cam_both.azimuth, cam_both.elevation) == VIEWS["iso"]
 ```
 
-## Not included
+With the same seed the arms also get the same task draws ([seeding](simulators.md#seeding)), so the scenes are the same except for the robot. Or use a fixed arena camera of the scene.
 
-- Both simulators render through the same renderer; a Warp env copies one world to the host first, which makes rendering a debugging path, not a per-step one.
-- Frames are rendered while the rollout runs; replaying recorded states afterwards is not implemented.
-- TorchRL's own `torchrl.render` stack is not wired in (see `.agent/future_ideas.md`).
-- No depth or segmentation output.
-- Tested with Python 3.13 (CI also runs 3.10 and 3.12).
+## Recording a rollout
+
+`record_rollout(env, steps, policy=None, *, env_index=0, every=1, camera=None, size=(240, 320), fps=None, label=None, overlays=True, ncols=None, reset_td=None, **rollout_kwargs)`
+resets, runs `env.rollout`, renders after every `every`-th step and returns `(trajectory, clip)`. The clip holds the initial state, every `every`-th state and the final state (`steps + 1` frames at `every=1`).
+
+```python no-run
+from robotdesigner.viz import record_rollout
+
+traj, clip = record_rollout(env, 150, env_index=0, camera="rs_sideview")
+clip                          # the last expression of a notebook cell plays inline
+clip.save("run.mp4")          # the format follows the suffix: .mp4 or .gif
+
+traj, tiled = record_rollout(env, 150, env_index=[0, 1, 2, 3], ncols=2)   # several envs of one batch in one clip, labelled "env i  step t"
+```
+
+- `env_index` is one index, a list, or `"all"`; several are tiled into a grid (`ncols`) and labelled (`label=False` to turn that off).
+- `fps` defaults to `control_freq / every`, so a clip plays in real time.
+- `policy` is anything `env.rollout` takes; `reset_td` goes to `env.reset` (to inject a target, say). Other keyword arguments go to `env.rollout`.
+- `callback`, `auto_reset` and `tensordict` are set by the function and cannot be passed.
+
+To record inside your own loop use `FrameRecorder(env, ...)` : call `capture()` after the reset, use the recorder as the `callback` of `env.rollout` (TorchRL calls it after every step but the last, never before the first),
+call `finish(steps)` at the end, then `clip()`.
+
+## `Clip`
+
+A `Clip` is `frames` (`uint8 (T, H, W, 3)`) plus `fps`, immutable.
+
+| | |
+|---|---|
+| `len(clip)`, `clip.size` `(H, W)`, `clip.duration` | frames, frame size, seconds |
+| `clip.save(path)` | writes `.mp4` (H.264, needs `imageio-ffmpeg`) or `.gif` (needs Pillow); creates parent directories |
+| `clip.to_bytes(fmt)` | the encoded file in memory |
+| `clip.show()` or a bare `clip` | plays inline in a notebook |
+| `clip.with_fps(fps)` | the same frames at another rate |
+
+Side by side, for comparing embodiments: `tile_clips([clip_a, clip_b], ncols=2, labels=["n=2", "n=4"])` (same frame size and fps, as long as the shortest), and `tile(frames, ncols)` /
+`annotate(frame, text, corner="tl")` for single frames.
+
+```python
+frames = np.zeros((10, 48, 64, 3), dtype=np.uint8)
+clip = Clip(frames, fps=50.0)
+assert len(clip) == 10 and clip.size == (48, 64) and abs(clip.duration - 0.2) < 1e-12
+assert tile([frames[0], frames[1]], ncols=2).shape[0] == 48 + 2 * 2                       # two frames side by side, padded
+try:
+    Clip(frames.astype(float), 50.0)
+except ValueError:
+    pass
+```
+
+A worked notebook: `examples/scene_viz.ipynb`.

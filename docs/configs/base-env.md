@@ -1,258 +1,145 @@
-# BaseEnvConfig
+# The builder: `BaseEnvConfig`
 
-A complete, runnable environment description that you refine with section calls, in the ergonomics of RLlib's
-`AlgorithmConfig` (nothing else is borrowed: no `ray`, no trainer). `BaseEnvConfig()` is a one-link arm in the `empty`
-scene doing the [`empty/idle`](../tasks/empty.md) task on the CPU MuJoCo simulator. `.robot()`, `.control()`, `.task()` and `.sim()` each
-return a **new** config that changes what the call writes; `resolve()` returns the frozen, validated
-[`EnvConfig`](env.md) with its `env_hash`. Importing it needs numpy only; `build()` imports the engine.
+`EnvConfig` requires every value. `BaseEnvConfig` is the layer on top of it for people: a **complete, runnable default** that you refine by saying only what differs.
+It is the one place in the package that holds defaults, and it ends in a frozen `EnvConfig` (`resolve()`) and an environment (`build()`).
 
 ```python
-from robotdesigner.config import (
-    NOT_SET, BaseEnvConfig, Chain, ConfigError, EnvConfig, FixedGains, Pose,
-)
-from robotdesigner.config.defaults import DEFAULTS, DEFAULTS_VERSION
-```
+import os
+import tempfile
 
-Related pages: [EnvConfig](env.md), [RobotConfig](robot.md), [TaskConfig](task.md), [SimConfig](sim.md), [simulators](../simulators.md).
+from robotdesigner.config import BaseEnvConfig, Chain, ConfigError, EnvConfig, FixedGains, Pose
 
-## The rules
-
-1. **`BaseEnvConfig()` is complete and runnable.** Its defaults are explicit values in one table (`config/defaults.py`, `DEFAULTS` and
-   `DEFAULTS_VERSION`), shown by `explain()`. Defaults live in this builder layer only: `EnvConfig`, `SimConfig`, `ControlConfig`, `TaskConfig`
-   and `ParametricArm` still require every field.
-2. **Every call returns a new config**; the receiver is never changed, so one base serves a whole sweep. Sections not called keep the base's value.
-3. **Calls accumulate.** A call changes only what it writes: a second `.sim(dt=...)` keeps the first call's `num_envs`.
-4. **`NOT_SET`** means "argument not passed". `None` is a meaningful value in the configs (`action_scale=None`, `target_region=None`).
-5. **`resolve()`** applies the deferred default (the mount), validates every section and raises **one** `ConfigError` that lists every problem
-   with its dotted path (`.problems` holds them). `validate()` returns the same problems without raising.
-6. **Store `resolve().to_dict()` with every run, checkpoint and dataset.** `env_hash` is computed on the resolved `EnvConfig`, so changing a
-   default changes the hash of configs that relied on it; the stored dict holds every value and reproduces after the defaults change.
-
-```python
-base = BaseEnvConfig()
-cfg = base.resolve()
-assert isinstance(cfg, EnvConfig) and cfg.robot.n == 1 and cfg.task.id == "empty/idle" and cfg.sim.scene == "empty"
-assert DEFAULTS_VERSION == 2 and DEFAULTS["sim"]["control_freq"] == 50.0
-assert EnvConfig.from_dict(cfg.to_dict()).env_hash == cfg.env_hash      # the stored resolved dict reproduces
-```
-
-## The section calls
-
-| call | what it takes | what it does |
-|---|---|---|
-| `.robot(robot=, **fields)` | a `Chain`, a ready `ParametricArm`, or `Chain` fields as keywords | a `Chain` is partial: written fields change, the rest carries. A `ParametricArm` is a fixed robot and replaces the section |
-| `.control(control=, **fields)` | `mode`, `gains`, `action_scale`, or a `ControlConfig` | assigns the fields written |
-| `.task(params=, **fields)` | a provider's params object, `max_episode_steps`, `success_tolerance`, `target_region`, `mount`, or a `TaskConfig` | the params object is the task. A *new params class* resets `success_tolerance` and `target_region` (they belong to goal tasks) unless the call writes them |
-| `.sim(sim=, **fields)` | the fields of `SimConfig` (including `options`), or a `SimConfig` | assigns the fields written; `simulator=` replaces `options` with that simulator's defaults (below) |
-
-An unknown field is a `ConfigError` at the call, with the dotted path (`sim.num_env`). Values are validated by `resolve()`.
-
-```python
+base = BaseEnvConfig()                                   # a one-link arm doing empty/idle on the CPU MuJoCo simulator
 cfg = (
-    BaseEnvConfig()
-    .robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0))
+    base
+    .robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0))   # written fields change, the rest carries over
     .control(gains=FixedGains(kp=60.0, kd=6.0))
-    .task(max_episode_steps=100)
-    .sim(num_envs=8)
+    .sim(num_envs=8, seed=1)
 )
-fine = cfg.sim(dt=0.001)                 # a new config; cfg is unchanged; num_envs stays 8
-assert cfg.resolve().sim.dt == 0.002 and fine.resolve().sim.dt == 0.001 and fine.resolve().sim.num_envs == 8
-assert cfg.resolve().task.max_episode_steps == 100
+env_cfg = cfg.resolve()                                  # the frozen, validated EnvConfig
+assert isinstance(env_cfg, EnvConfig) and env_cfg.robot.n == 3 and env_cfg.sim.num_envs == 8
+assert base.resolve().robot.n == 1                       # every call returns a new config; the receiver is unchanged
 ```
 
-### `Chain`
+`cfg.build()` is `make_env(cfg.resolve())`: it is the only call that imports an engine.
 
-`Chain` is a frozen spec that mirrors `chain()` without `base_pose` (the mount belongs to the task): `n`, `axes`, `link_length` or
-`total_length`, `mass` or `total_mass`, `radius`, `damping`, `armature`, `frictionloss`, `effort_limit`, `range`, `home_qpos`, `end_effector`, `tool`,
-`label`. Every field is optional at the call; the base holds a complete `Chain`; `Chain.arm()` returns the `ParametricArm`; `chain()` stays the function.
+## Defaults
 
-- Writing one member of an exclusive pair (`link_length` / `total_length`, `mass` / `total_mass`) **clears the other**.
-- `n` and `axes` change together: one letter per joint, no cycling. A per-joint sequence must have `n` entries after the merge; otherwise `resolve()` reports
-  its path (`robot.axes`, `robot.radius`, ...).
+`BaseEnvConfig()` (defaults version 2). These are plain choices to start from, not recommendations, and none of them is hidden: each is listed here and in `src/robotdesigner/config/defaults.py`.
+
+| section | default |
+|---|---|
+| robot | `Chain(n=1, axes="z", total_length=0.5, total_mass=1.0, radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5))` |
+| control | `joint_pos_abs`, `FixedGains(kp=60.0, kd=6.0)`, `action_scale=None` |
+| task | `empty/idle`, `max_episode_steps=200`, no goal fields; the mount is the task's default mount |
+| sim | `mujoco`, 1 env, `cpu`, `dt=0.002`, `euler`, `control_freq=50.0`, `seed=0`, scene `empty`, the simulator's default options |
+
+Changing a default changes the `env_hash` of every config that relied on it, so `DEFAULTS_VERSION` is raised with it. The version is written into every file
+`to_dict()` makes, and loading a file from another version warns.
+
+## Refining: `robot`, `control`, `task`, `sim`
+
+Each section call takes either a whole object of that section or keyword fields, writes only what you give, and returns a **new** config.
+
+| call | takes | notes |
+|---|---|---|
+| `.robot(...)` | a `Chain`, a ready `ParametricArm`, or `Chain` fields as keywords | a `Chain` is merged field by field. Writing `total_length` clears `link_length` (and `total_mass` clears `mass`), and the other way round. A ready arm replaces the section; a later `.robot(n=...)` on it starts from the default chain again |
+| `.control(...)` | a `ControlConfig` or `mode`, `gains`, `action_scale` | switching to a scaled mode needs `action_scale=` in the same chain of calls, or `resolve()` reports it |
+| `.task(...)` | a provider's params object, a `TaskConfig`, or `max_episode_steps`, `success_tolerance`, `target_region`, `mount` | giving a params object of a **different class** resets `success_tolerance` and `target_region`, which belong to goal tasks, unless you write them |
+| `.sim(...)` | a `SimConfig` or any `SimConfig` field | changing `simulator` resets `options` to that simulator's `default()` unless `options=` is given |
+
+`Chain` is `chain()` with every argument optional (`NOT_SET` marks "not written"); `Chain.arm()` builds the arm and raises if a required value is missing.
 
 ```python
-three = cfg.robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0, damping=1.5))
-five = three.robot(Chain(n=5, axes="zyyyy"))          # lengths, masses and damping carry
-arm = five.resolve().robot
-assert arm.n == 5 and arm.segments[0].joint.damping == 1.5
-assert abs(sum(s.link.tip_offset[0] for s in arm.segments) - 0.9) < 1e-12
-
-short_links = three.robot(link_length=0.2)            # clears total_length
-assert short_links.resolve().robot.segments[0].link.tip_offset[0] == 0.2
-assert Chain(link_length=0.3).merge(Chain(total_length=1.0)).link_length is NOT_SET
+five = cfg.robot(Chain(n=5, axes="zyyyy"))                     # total_length and total_mass carry over
+assert five.resolve().robot.n == 5 and cfg.resolve().robot.n == 3
+swapped = cfg.robot(link_length=0.2)                           # the total is cleared: exactly one of the pair stays
+assert swapped.resolve().robot.segments[0].link.tip_offset[0] == 0.2
 ```
 
 ### The mount
 
-`mount` is "the task's default" until written: `resolve()` fills it from `TaskProvider.default_mount(name)` and the resolved value is what is
-hashed. `.task(mount=Pose(...))` pins it, and a pinned mount survives later task changes.
+Unless you pin one with `.task(mount=Pose(...))`, `resolve()` uses `default_mount(name)` of the task's provider, so the arm stands where the scene expects it.
+`to_dict()` leaves an unpinned mount out, which keeps a stored file valid when the provider's idea of the default changes. Pin it when the exact
+position matters to your result.
 
 ```python
-pin = Pose((0.3, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0))
-assert BaseEnvConfig().resolve().task.mount == Pose.identity()              # the empty task: the origin
-assert BaseEnvConfig().task(mount=pin).resolve().task.mount == pin
+pinned = cfg.task(mount=Pose((0.1, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0)))
+assert pinned.resolve().task.mount.pos == (0.1, 0.0, 0.0)
+assert "mount" not in cfg.to_dict()["task"] and "mount" in pinned.to_dict()["task"]
 ```
 
-### The simulator and its options
+## Checking: `validate`, `resolve`
 
-`.sim(simulator="other")` replaces `sim.options` with that simulator's defaults, because the options of one simulator cannot be kept for another;
-pass `options=` to give them. The defaults come from an optional `default()` classmethod on the options class (`MujocoOptions` has one);
-without it, `options=` is required. Staying on the same simulator keeps the options. `WarpOptions` has a `default()` too, so selecting the GPU simulator
-is three fields, and the same switch is a sweep axis together with `device`:
+`validate()` returns every problem of the config as `Problem(path, message)` without raising; `resolve()` raises one `ConfigError` that lists them all (`.problems` holds
+the list). Paths are dotted and rooted in the section: `robot.axes`, `control.action_scale`, `sim.control_freq`.
 
 ```python
-base = BaseEnvConfig().robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0))
-gpu = base.sim(simulator="warp", device="cuda:0", num_envs=4096).resolve()
-assert gpu.sim.simulator == "warp" and type(gpu.sim.options).__name__ == "WarpOptions"
-pair = base.sweep(paired={"sim.simulator": ["mujoco", "warp"], "sim.device": ["cpu", "cuda:0"]})
-assert len(pair.configs()) == 2 and len({c.env_hash for c in pair.configs()}) == 2
+bad = cfg.robot(axes="zy").control(mode="joint_vel").sim(control_freq=40.0)
+problems = bad.validate()
+assert {p.path for p in problems} == {"robot.axes", "control.action_scale", "sim.control_freq"}
+try:
+    bad.resolve()
+except ConfigError as e:
+    assert len(e.problems) == 3
 ```
 
-Building the `warp` item (`make_env`, `.build()`) needs an NVIDIA GPU and the `warp` extra.
+`validate` checks the config only. What the installed simulator or the task's provider cannot run is reported by `make_env` ([simulators](../simulators.md#capabilities-and-validation)).
 
-## Overrides by dotted path
+## Overrides by path
 
-`with_overrides` returns a new config and has the semantics of the section calls (they accumulate), with paths that reach nested fields:
-`sim.options.*`, `task.params.*`, `control.gains.*`, `robot.*`. It takes a mapping or a list of CLI strings `path=value`; the value is parsed as a
-JSON literal and kept as a string if it is not one (`64` is an int, `[-2.0, 2.0]` a list, `true` a bool, `null` is `None`, `zyy` and `rk4` are strings).
-
-- Each touched section is converted to a dict, edited, and rebuilt with its own `from_dict` and validation, so providers need no extra code. The rebuilt
-  section is validated at once: `{"sim.num_envs": 0}` raises `sim.num_envs`. Several edits of one call are applied before the section is rebuilt.
-- An unknown section or key raises `ConfigError` with the dotted path (`sim.options.zzz`, `task.params.zzz`, `robot.lenght`).
-- Writing one member of an exclusive pair clears the other (unless both are written in the same call, which `resolve()` reports).
-- `sim.simulator` resets `sim.options` to that simulator's defaults unless `sim.options.*` is given in the same call (the options then edit the new simulator's).
+`with_overrides` applies dotted paths with the semantics of the section calls (they accumulate, and each touched section is rebuilt and validated by its own classes).
+It takes a mapping or a list of `"path=value"` strings, which is what a command line gives you; the value is parsed as a JSON literal and kept as a string if it is not one.
+Paths reach nested fields: `sim.options.self_collision`, `task.params.<field>`, `control.gains.kp`, `robot.total_length`. An unknown key raises `ConfigError` with the path.
 
 ```python
-cfg = BaseEnvConfig().robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0))
-big = cfg.with_overrides({"sim.num_envs": 64, "sim.options.self_collision": True, "robot.total_length": 1.2})
-r = big.resolve()
-assert r.sim.num_envs == 64 and r.sim.options.self_collision is True and r.robot.n == 3    # the rest of each section stays
-assert abs(sum(s.link.tip_offset[0] for s in r.robot.segments) - 1.2) < 1e-12
-
-five = cfg.with_overrides(["sim.num_envs=64", "robot.n=5", "robot.axes=zyyyy", "sim.integrator=rk4"])   # CLI strings
-assert five.resolve().robot.n == 5 and five.resolve().sim.integrator == "rk4"
-assert five.with_overrides({"sim.num_envs": 64}) == five.with_overrides(["sim.num_envs=64"])
+big = cfg.with_overrides(["sim.num_envs=64", "sim.options.self_collision=true", "robot.axes=zyy"])
+assert big.resolve().sim.num_envs == 64 and big.resolve().sim.options.self_collision is True
+assert cfg.with_overrides({"robot.total_length": 1.2}).resolve().robot.segments[0].link.tip_offset[0] == 1.2 / 3
+try:
+    cfg.with_overrides(["sim.num_env=2"])
+except ConfigError as e:
+    assert e.path == "sim.num_env"
 ```
 
-## Sweeps
-
-`sweep(paired=, grid=)` expands a config into a family, one config (and one `env_hash`) per embodiment or setting. Keys are dotted paths with the semantics
-of `with_overrides`. `grid` axes form a Cartesian product; `paired` axes are zipped (equal lengths, otherwise an error) and the paired group multiplies
-with the grid. The order is deterministic: the paired group first, then the grid axes in the order given, the last one fastest.
-
-- Items whose resolved `env_hash` repeats are dropped, with a warning and an entry in `family.notes`, so a sweep never runs the same config twice.
-- An invalid item raises at expansion, with the path of the problem and the item index and overrides (for example `n` changed without `axes`, or a per-joint
-  `kp` of the wrong length).
-- Sweeping `sim.simulator` alone is fine: `sim.options` becomes that simulator's defaults; add `sim.options.*` axes to vary them.
-- `Family` is iterable (each item a `BaseEnvConfig`); `configs()` gives the `EnvConfig`s, `table()` one row per item (`index`, the override values, `env_hash`),
-  `overrides()` the overrides.
-- Jobs and workers should receive the resolved dict (`config.resolve().to_dict()`) and rebuild with `EnvConfig.from_dict`: the task and robot registries are
-  process-global. Launching the jobs is up to the project that uses the family; `examples/embodiment_sweep.ipynb` compares arms with 2 to 5 joints.
+## Families of embodiments: `sweep`
 
 ```python
-def error_of_sweep(build):
-    try:
-        build()
-    except ConfigError as e:
-        return e.path
-    raise AssertionError("no error")
-```
-
-```python
-family = cfg.sweep(                       # 4 embodiments x 3 seeds = 12 configs
-    paired={"robot.n": [2, 3, 4, 5], "robot.axes": ["zy", "zyy", "zyyy", "zyyyy"]},
-    grid={"sim.seed": range(3)},
+family = cfg.sweep(
+    paired={"robot.n": [2, 3, 4], "robot.axes": ["zy", "zyy", "zyyy"]},   # zipped: equal lengths, varied together
+    grid={"sim.seed": range(2)},                                           # Cartesian product, multiplied with the paired group
 )
-assert len(family) == 12 and len(family.configs()) == 12
-rows = family.table()
-assert [(r["robot.n"], r["sim.seed"]) for r in rows][:4] == [(2, 0), (2, 1), (2, 2), (3, 0)]    # the last axis is fastest
-assert len({r["env_hash"] for r in rows}) == 12                                                  # distinct
-assert all(isinstance(c, EnvConfig) for c in family.configs()) and family[0].resolve().robot.n == 2
-
-assert error_of_sweep(lambda: cfg.sweep(paired={"robot.n": [2, 3], "robot.axes": ["zy"]})) == "sweep.paired"   # unequal lengths
-assert error_of_sweep(lambda: cfg.sweep(paired={"robot.n": [2]})) == "robot.axes"                             # n without axes
+assert len(family) == 6
+assert [row["robot.n"] for row in family.table()][:2] == [2, 2]            # paired group first, the last grid axis fastest
+assert all(abs(sum(s.link.mass for s in e.robot.segments) - 3.0) < 1e-12 for e in family.configs())   # total mass is held fixed
 ```
 
-## Dict, JSON and YAML
+A `Family` is a list of `BaseEnvConfig` (`len`, iteration, indexing) with `configs()` (the resolved `EnvConfig`s), `overrides()` and `table()` (one row per item: index, the
+override values and `env_hash`). Items whose resolved `env_hash` repeats are dropped, and `Family.notes` says which. An invalid item raises at expansion and names its index and
+overrides. A sweep only **expands**: it launches nothing. Running a family on many processes or nodes is [cluster](../cluster.md).
 
-`to_dict()` holds every builder field and `defaults_version`; a mount that was not pinned is omitted (it is the task's default, applied by `resolve()`).
-`from_dict()` reads it back, takes the base's value for sections and keys left out (so a hand-written file can be short), and **warns when
-`defaults_version` differs** from the package's. `dump(path)` / `BaseEnvConfig.load(path)` write and read JSON; a `.yaml` / `.yml` path uses YAML,
-which needs the optional extra `pip install "robotdesigner[yaml]"` (without it the error names the extra; the base install stays numpy only).
+## Inspecting: `explain`, `diff`
 
-The record to keep with a run is still `resolve().to_dict()`: it holds every value, the mount included, and reproduces after the defaults change.
+`explain()` returns a table of every field with its value and where it came from (`set`, `default`, or `default (task)` for an unpinned mount). `diff()` returns
+`{path: (default, value)}` against a pristine `BaseEnvConfig()`.
 
 ```python
-import json, tempfile, pathlib
+assert set(cfg.diff()) >= {"robot.n", "robot.axes", "robot.total_length", "sim.num_envs", "sim.seed"}
+assert "robot.n" in cfg.explain() and "[set]" in cfg.explain()
+```
 
-d = cfg.sim(num_envs=8).to_dict()
-assert d["defaults_version"] == DEFAULTS_VERSION and "mount" not in d["task"]
-back = BaseEnvConfig.from_dict(json.loads(json.dumps(d)))
-assert back == cfg.sim(num_envs=8) and back.resolve().env_hash == cfg.sim(num_envs=8).resolve().env_hash
+## Files and reproducibility
 
-short = BaseEnvConfig.from_dict({"sim": {"num_envs": 4}, "robot": {"n": 2, "axes": "zy"}})   # the rest is the base
-assert short.resolve().sim.num_envs == 4 and short.resolve().sim.dt == 0.002
+`to_dict()` writes the builder's fields (with `defaults_version`); `from_dict` is the inverse and accepts **short** files: sections and keys left out take the default.
+`dump(path)` and `load(path)` use JSON, or YAML for `.yaml` / `.yml` with the `yaml` extra (`pip install "robotdesigner[yaml]"`).
 
-with tempfile.TemporaryDirectory() as tmp:
-    path = pathlib.Path(tmp) / "run.json"
+```python
+with tempfile.TemporaryDirectory() as d:
+    path = os.path.join(d, "run.json")
     cfg.dump(path)
-    assert BaseEnvConfig.load(path).resolve().env_hash == cfg.resolve().env_hash
+    assert BaseEnvConfig.load(path) == cfg
+assert BaseEnvConfig.from_dict({"sim": {"num_envs": 4}}).resolve().sim.num_envs == 4
 ```
 
-```python no-run
-cfg.dump("run.yaml")                     # needs the `yaml` extra
-cfg = BaseEnvConfig.load("run.yaml")
-```
-
-## Errors
-
-```python
-def error_of(build):
-    try:
-        build()
-    except ConfigError as e:
-        return e
-    raise AssertionError("no error")
-
-assert error_of(lambda: BaseEnvConfig().sim(num_env=2)).path == "sim.num_env"          # unknown field
-assert error_of(lambda: BaseEnvConfig().robot(3)).path == "robot"                       # not a Chain or an arm
-assert error_of(lambda: BaseEnvConfig().robot(n=3).resolve()).path == "robot.axes"      # three joints, one axis letter
-
-bad = BaseEnvConfig().robot(n=3).sim(num_envs=0).control(mode="warp")
-assert {p.path for p in bad.validate()} == {"robot.axes", "sim.num_envs", "control.mode"}   # all at once
-err = error_of(bad.resolve)
-assert err.path == "" and len(err.problems) == 3
-assert error_of(lambda: BaseEnvConfig().with_overrides({"sim.options.zzz": 1})).path == "sim.options.zzz"
-assert error_of(lambda: BaseEnvConfig().with_overrides(["nope.x=1"])).path == "nope"     # unknown section
-```
-
-## Looking at a config
-
-```python
-cfg = BaseEnvConfig().robot(n=2, axes="zy").sim(num_envs=8)
-assert cfg.diff() == {"robot.n": (1, 2), "robot.axes": ("z", "zy"), "sim.num_envs": (1, 8)}   # against the pristine base
-text = cfg.explain()
-assert "robot.n" in text and "2  [set]" in text and "[default (task)]" in text
-```
-
-- `explain()` lists every field with its value and its source: `set`, `default` or `default (task)` (the mount).
-- `diff()` returns `{path: (default, value)}` against the pristine `BaseEnvConfig()` of this defaults version; a field only one side has is `NOT_SET` on the other.
-
-## Building
-
-`build()` is a one-line delegate to `make_env(self.resolve())`; `make_env(cfg)` stays the one construction path and `EnvConfig` has no `make()`.
-
-```python no-run
-env = BaseEnvConfig().robot(Chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0)).sim(num_envs=8).build()
-```
-
-## The defaults of version 1
-
-The numbers are plain choices, not recommendations (the control and simulator numbers are the README quick start's):
-
-| section | value |
-|---|---|
-| robot | one `z` joint, 0.5 m, 1 kg, radius 0.03, damping 0.5, armature 0.01, friction loss 0, effort limit 50, range ±2.5 |
-| control | `joint_pos_abs`, `FixedGains(kp=60, kd=6)`, `action_scale=None` |
-| task | `empty/idle`, max_episode_steps 200, no tolerance or region, the provider's default mount |
-| sim | `mujoco` with `MujocoOptions.default()`, 1 env, `cpu`, `dt` 0.002, `euler`, 50 Hz control, seed 0, scene `empty` |
+**Store the resolved dict with every run.** `cfg.resolve().to_dict()` holds every value, rebuilds with `EnvConfig.from_dict`, and keeps meaning the same after a default
+changes; the builder file, being short, does not. The `env_hash` of the resolved config is the run's identity.

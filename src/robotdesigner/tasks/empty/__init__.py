@@ -1,7 +1,7 @@
 """``empty``: a placeholder task provider, shipped so that a default environment can run (``empty/idle``).
 
 The robot stands in the simulator's scene and nothing is asked of it. This is the one task the package names itself;
-see the decision log of ``docs/spec_robotconfig_env.md`` (the entry "the package ships one placeholder task"). The
+see ``docs/design.md`` (principle 7: the core names no task, except this placeholder). The
 namespace is unrelated to the ``empty`` scene preset of the simulator (``sim.scene``).
 """
 
