@@ -12,9 +12,9 @@ import warnings
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from ._canon import as_float, as_int, as_vector, check_keys, within
-from .errors import ConfigError
-from .robot import Pose
+from .._canon import as_float, as_int, as_vector, check_keys, within
+from ..errors import ConfigError
+from ..robot import Pose
 from .providers import get_task_provider, known_task_ids, list_task_providers
 
 

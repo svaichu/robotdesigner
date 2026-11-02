@@ -52,7 +52,7 @@ class ReachParams:
 ```
 
 `reset_noise` and `terminate_on_success` are the two params the environment itself looks for; everything else in the class is yours. For free-form
-mappings (keyword arguments of a library) use `robotdesigner.config._canon.freeze` and `thaw`, which make them immutable and hashable.
+mappings (keyword arguments of a library) use `robotdesigner._canon.freeze` and `thaw`, which make them immutable and hashable.
 
 ## 2. The provider object
 

@@ -8,7 +8,7 @@ import mujoco
 import numpy as np
 
 from ...config import EnvConfig, FixedGains, InertiaScaledGains, Pose
-from .arm_spec import add_arm
+from .arm_spec import add_arm, add_gripper
 from .scenes import apply_scene
 
 _INTEGRATORS = {
@@ -37,6 +37,20 @@ class RobotInterface:
     mount: Pose  # the robot base in the world, from the task
     kp: np.ndarray | None  # (n,) effective position gains; None for torque control
     kd: np.ndarray | None  # (n,) effective damping / velocity gains; None for torque control
+    # Gripper (``arm.gripper``); ``None`` / 0.0 when the arm has none. The actuator is the last one (``act_gripper``).
+    gripper_actuator_id: int | None = None
+    gripper_qpos_adr: np.ndarray | None = None  # (2,) int, the two finger joints
+    gripper_max_opening: float = 0.0  # metres, the control range of the actuator is [0, gripper_max_opening]
+    tcp_site_id: int | None = None
+
+    @property
+    def has_gripper(self) -> bool:
+        return self.gripper_actuator_id is not None
+
+    @property
+    def action_dim(self) -> int:
+        """Joint commands plus one gripper command when there is a gripper."""
+        return self.n + (1 if self.has_gripper else 0)
 
 
 @dataclass(frozen=True)
@@ -91,6 +105,8 @@ def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float], scene_hook=Non
     )
 
     parent, prev_tip = add_arm(base, arm, conaffinity=conaffinity)
+    if arm.gripper is not None:
+        add_gripper(parent, arm, prev_tip, conaffinity=conaffinity)
 
     # Pose(tip_offset, identity) composed with end_effector.
     parent.add_site(
@@ -126,6 +142,25 @@ def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float], scene_hook=Non
             act.ctrllimited = _UNLIMITED
         else:  # joint_torque
             act.ctrlrange = [-effort, effort]
+
+    g = arm.gripper
+    if g is not None:
+        # One degree of freedom: the two finger slides are tied together and driven through their sum (the opening).
+        eq = spec.add_equality(name="fingers_coupled")
+        eq.type = mujoco.mjtEq.mjEQ_JOINT
+        eq.name1, eq.name2 = "finger_joint_1", "finger_joint_0"
+        eq.data[:5] = [0.0, 1.0, 0.0, 0.0, 0.0]
+        tendon = spec.add_tendon(name="gripper_width")
+        tendon.wrap_joint("finger_joint_0", 1.0)
+        tendon.wrap_joint("finger_joint_1", 1.0)
+        act = spec.add_actuator(name="act_gripper", target="gripper_width", trntype=mujoco.mjtTrn.mjTRN_TENDON)
+        act.gainprm[0] = g.kp
+        act.biasprm[:3] = [0.0, -g.kp, -g.kd]
+        act.biastype = mujoco.mjtBias.mjBIAS_AFFINE
+        act.ctrllimited = _LIMITED
+        act.ctrlrange = [0.0, g.max_opening]
+        act.forcelimited = _LIMITED
+        act.forcerange = [-g.force_limit, g.force_limit]
     return spec
 
 
@@ -165,6 +200,15 @@ def compile_robot(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
     joint_range = np.empty((n, 2))
     for i, seg in enumerate(arm.segments):
         joint_range[i] = (-np.inf, np.inf) if seg.joint.range is None else seg.joint.range
+    gripper_fields = {}
+    if arm.gripper is not None:
+        fids = [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, f"finger_joint_{i}") for i in (0, 1)]
+        gripper_fields = dict(
+            gripper_actuator_id=mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "act_gripper"),
+            gripper_qpos_adr=model.jnt_qposadr[fids].astype(int),
+            gripper_max_opening=arm.gripper.max_opening,
+            tcp_site_id=mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tcp"),
+        )
     interface = RobotInterface(
         n=n,
         joint_names=tuple(f"joint_{i}" for i in range(n)),
@@ -180,5 +224,6 @@ def compile_robot(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
         mount=cfg.task.mount,
         kp=None if control.mode == "joint_torque" else np.array(kp),
         kd=None if control.mode == "joint_torque" else np.array(kd),
+        **gripper_fields,
     )
     return CompiledRobot(model=model, spec=spec, interface=interface)

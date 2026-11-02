@@ -5,7 +5,7 @@ from __future__ import annotations
 import mujoco
 import numpy as np
 
-from ...config import ParametricArm
+from ...robot import ParametricArm, TwoFingerGripper
 
 _LIMITED = mujoco.mjtLimited.mjLIMITED_TRUE
 _UNLIMITED = mujoco.mjtLimited.mjLIMITED_FALSE
@@ -64,3 +64,74 @@ def add_arm(parent, arm: ParametricArm, *, conaffinity: int):
         prev_tip = np.asarray(link.tip_offset, dtype=float)
         parent = body
     return parent, prev_tip
+
+
+def _quat_mul(a, b) -> list[float]:
+    aw, ax, ay, az = a
+    bw, bx, by, bz = b
+    return [
+        aw * bw - ax * bx - ay * by - az * bz,
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+    ]
+
+
+def _rotate(quat, v) -> np.ndarray:
+    w, x, y, z = quat
+    R = np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ]
+    )
+    return R @ np.asarray(v, dtype=float)
+
+
+def add_gripper(parent, arm: ParametricArm, tip: np.ndarray, *, conaffinity: int) -> None:
+    """Add the arm's ``TwoFingerGripper`` under the last link ``parent`` (``tip`` is that link's tip, as returned by
+    :func:`add_arm`).
+
+    Names: body ``gripper``, bodies ``finger_0`` / ``finger_1`` with slide joints ``finger_joint_0`` / ``finger_joint_1``
+    (coupled by an equality constraint), tendon ``gripper_width`` (the sum of both joints), actuator ``act_gripper`` and
+    site ``tcp``. The gripper frame is ``end_effector`` composed with ``gripper.mount``.
+    """
+    g: TwoFingerGripper = arm.gripper
+    ee = arm.end_effector
+    pos = tip + np.asarray(ee.pos) + _rotate(ee.quat, g.mount.pos)
+    base = parent.add_body(name="gripper", pos=list(pos), quat=_quat_mul(ee.quat, g.mount.quat))
+    r = g.finger_radius
+    # Palm: a box from the frame to ``palm_length`` along +x, wide enough to carry both fingers fully open.
+    base.add_geom(
+        name="palm",
+        type=mujoco.mjtGeom.mjGEOM_BOX,
+        pos=[g.palm_length / 2.0, 0.0, 0.0],
+        size=[g.palm_length / 2.0, g.stroke + 2.0 * r, r],
+        mass=g.palm_mass,
+        contype=ROBOT_CONTYPE,
+        conaffinity=conaffinity,
+    )
+    for i, side in enumerate((1.0, -1.0)):
+        finger = base.add_body(name=f"finger_{i}", pos=[g.palm_length, side * r, 0.0])
+        finger.add_joint(
+            name=f"finger_joint_{i}",
+            type=mujoco.mjtJoint.mjJNT_SLIDE,
+            axis=[0.0, side, 0.0],
+            limited=_LIMITED,
+            range=[0.0, g.stroke],
+            damping=0.0,
+        )
+        finger.add_geom(
+            name=f"finger_geom_{i}",
+            type=mujoco.mjtGeom.mjGEOM_CAPSULE,
+            fromto=[0.0, 0.0, 0.0, g.finger_length, 0.0, 0.0],
+            size=[r, 0.0, 0.0],
+            mass=g.finger_mass,
+            contype=ROBOT_CONTYPE,
+            # Fingers always collide with the scene and with each other's object; the palm and fingers never collide
+            # (siblings in the same chain are filtered by MuJoCo's parent-child rule only for direct parents).
+            conaffinity=conaffinity,
+            friction=[1.5, 0.005, 0.0001],
+        )
+    base.add_site(name="tcp", pos=list(g.tcp_offset))

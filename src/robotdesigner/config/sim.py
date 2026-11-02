@@ -11,8 +11,8 @@ import re
 from dataclasses import dataclass, fields
 from typing import Any, Mapping
 
-from ._canon import as_bool, as_float, as_int, as_str, check_keys, within
-from .errors import ConfigError
+from .._canon import as_bool, as_float, as_int, as_str, check_keys, within
+from ..errors import ConfigError
 
 INTEGRATORS = ("euler", "implicit", "implicitfast", "rk4")
 _DEVICE = re.compile(r"cpu|cuda:\d+")

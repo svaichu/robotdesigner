@@ -23,8 +23,8 @@ import pkgutil
 import re
 from typing import Any, Protocol, runtime_checkable
 
-from .errors import ConfigError, Problem
-from .robot import Pose
+from ..errors import ConfigError, Problem
+from ..robot import Pose
 
 __all__ = [
     "ENTRY_POINT_GROUP",

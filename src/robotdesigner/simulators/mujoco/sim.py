@@ -98,6 +98,12 @@ class BatchedSim:
         return np.stack([d.qvel[self.iface.qvel_adr] for d in self.data])
 
     @property
+    def gripper_opening(self) -> np.ndarray:
+        """The gap between the finger surfaces, ``(N, 1)`` metres (the sum of the two finger slides)."""
+        adr = self.iface.gripper_qpos_adr
+        return np.stack([d.qpos[adr].sum(keepdims=True) for d in self.data])
+
+    @property
     def actuator_force(self) -> np.ndarray:
         return np.stack([d.actuator_force[self.iface.actuator_ids] for d in self.data])
 

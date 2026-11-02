@@ -12,7 +12,7 @@ import warnings
 from typing import TYPE_CHECKING, Any, Iterator, Mapping
 
 from .env import EnvConfig
-from .errors import ConfigError
+from ..errors import ConfigError
 
 if TYPE_CHECKING:
     from .base_env import BaseEnvConfig

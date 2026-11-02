@@ -40,6 +40,8 @@ class MujocoEnv(SpacesMixin, EnvBase):
         self._renderer = None  # created by the first render()
         n = self._iface.n
         self._n = n
+        self._has_gripper = self._iface.has_gripper
+        m = self._iface.action_dim  # n joint commands, plus the gripper opening when there is a gripper
         task.bind(self._sim)
 
         # Action [-1, 1] -> actuator control: ctrl = action * scale + offset.
@@ -80,13 +82,14 @@ class MujocoEnv(SpacesMixin, EnvBase):
                 qpos=Unbounded(shape=(N, n), dtype=f32),
                 qvel=Unbounded(shape=(N, n), dtype=f32),
                 effort=Unbounded(shape=(N, n), dtype=f32),
+                **({"gripper": Unbounded(shape=(N, 1), dtype=f32)} if self._has_gripper else {}),
                 shape=(N,),
             ),
             success=Binary(shape=(N, 1), dtype=torch.bool),
             episode_step=Unbounded(shape=(N, 1), dtype=torch.int64),
             shape=(N,),
         )
-        self.action_spec = Bounded(low=-1.0, high=1.0, shape=(N, n), dtype=f32)
+        self.action_spec = Bounded(low=-1.0, high=1.0, shape=(N, m), dtype=f32)
         self.reward_spec = Unbounded(shape=(N, 1), dtype=f32)
         self.done_spec = Composite(
             done=Binary(shape=(N, 1), dtype=torch.bool),
@@ -130,6 +133,11 @@ class MujocoEnv(SpacesMixin, EnvBase):
                         "qpos": torch.from_numpy(s.qpos).to(torch.float32),
                         "qvel": torch.from_numpy(s.qvel).to(torch.float32),
                         "effort": torch.from_numpy(s.actuator_force).to(torch.float32),
+                        **(
+                            {"gripper": torch.from_numpy(s.gripper_opening).to(torch.float32)}
+                            if self._has_gripper
+                            else {}
+                        ),
                     },
                     batch_size=self.batch_size,
                 ),
@@ -180,13 +188,20 @@ class MujocoEnv(SpacesMixin, EnvBase):
 
     def _step(self, tensordict: TensorDictBase) -> TensorDictBase:
         action = tensordict.get("action").to(torch.float64).clamp(-1.0, 1.0).numpy()
+        n = self._n
+        arm_action = action[:, :n]
         if self._mode == "joint_pos_delta":
             self._q_target = np.clip(
-                self._q_target + action * self._scale, self._range[:, 0], self._range[:, 1]
+                self._q_target + arm_action * self._scale, self._range[:, 0], self._range[:, 1]
             )
-            self._sim.set_ctrl(self._q_target)
+            ctrl = self._q_target
         else:
-            self._sim.set_ctrl(action * self._scale + self._offset)
+            ctrl = arm_action * self._scale + self._offset
+        if self._has_gripper:
+            # The last action component is the opening, [-1, 1] -> [0, max_opening], in every control mode.
+            opening = (action[:, n:] + 1.0) / 2.0 * self._iface.gripper_max_opening
+            ctrl = np.concatenate([ctrl, opening], axis=1)
+        self._sim.set_ctrl(ctrl)
         self._sim.step()
         self._episode_step += 1
 

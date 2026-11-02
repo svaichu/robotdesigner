@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from ._canon import (
+from .._canon import (
     HASH_DISPLAY_LENGTH,
     as_float,
     as_vector,
@@ -15,48 +15,11 @@ from ._canon import (
     sha256_hex,
     within,
 )
-from .errors import ConfigError
+from ..errors import ConfigError
+from .gripper import TwoFingerGripper
+from .pose import Pose, _normalize_quat
 
 SUPPORTED_SCHEMA_VERSIONS = frozenset({1})
-
-
-def _normalize_quat(q: tuple[float, ...], path: str) -> tuple[float, ...]:
-    norm = math.sqrt(sum(c * c for c in q))
-    if norm == 0.0:
-        raise ConfigError(path, "must be non-zero")
-    q = tuple(c / norm for c in q)
-    # q and -q are the same rotation: make the first non-zero component positive.
-    for c in q:
-        if c != 0.0:
-            if c < 0.0:
-                q = tuple(-v for v in q)
-            break
-    return q
-
-
-@dataclass(frozen=True, slots=True)
-class Pose:
-    """Position (m) and orientation as a quaternion ``(w, x, y, z)``."""
-
-    pos: tuple[float, float, float]
-    quat: tuple[float, float, float, float]
-
-    def __post_init__(self):
-        object.__setattr__(self, "pos", as_vector(self.pos, 3, "pos"))
-        quat = as_vector(self.quat, 4, "quat")
-        object.__setattr__(self, "quat", _normalize_quat(quat, "quat"))
-
-    @classmethod
-    def identity(cls) -> "Pose":
-        return cls(pos=(0.0, 0.0, 0.0), quat=(1.0, 0.0, 0.0, 0.0))
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"pos": list(self.pos), "quat": list(self.quat)}
-
-    @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> "Pose":
-        check_keys(d, {"pos", "quat"}, "")
-        return cls(pos=d["pos"], quat=d["quat"])
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +209,8 @@ class ParametricArm:
 
     The MuJoCo simulator names the elements ``base``, ``link_{i}`` and ``joint_{i}``; the end effector is the ``ee``
     site.
+    ``gripper`` is a parametric two-finger gripper mounted on the end effector (built by the MuJoCo simulator, adds one
+    action dimension); ``tool`` is a named gripper that the simulator ignores. At most one of them is set.
     ``label`` is metadata and does not enter the hash.
     """
 
@@ -255,6 +220,7 @@ class ParametricArm:
     end_effector: Pose
     tool: ToolSpec | None
     label: str = ""
+    gripper: TwoFingerGripper | None = None
 
     def __post_init__(self):
         if isinstance(self.schema_version, bool) or self.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
@@ -275,6 +241,10 @@ class ParametricArm:
                 raise ConfigError(name, "expected a Pose")
         if self.tool is not None and not isinstance(self.tool, ToolSpec):
             raise ConfigError("tool", "expected a ToolSpec or None")
+        if self.gripper is not None and not isinstance(self.gripper, TwoFingerGripper):
+            raise ConfigError("gripper", "expected a TwoFingerGripper or None")
+        if self.gripper is not None and self.tool is not None:
+            raise ConfigError("gripper", "give a gripper or a tool, not both")
 
         home = as_vector(self.home_qpos, len(segments), "home_qpos")
         for i, (q, s) in enumerate(zip(home, segments)):
@@ -293,7 +263,7 @@ class ParametricArm:
     # --- serialization and hashing -------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "kind": "parametric_arm",
             "schema_version": self.schema_version,
             "segments": [s.to_dict() for s in self.segments],
@@ -302,6 +272,9 @@ class ParametricArm:
             "tool": None if self.tool is None else self.tool.to_dict(),
             "label": self.label,
         }
+        if self.gripper is not None:  # absent when None, so the hash of an arm without a gripper is unchanged
+            d["gripper"] = self.gripper.to_dict()
+        return d
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "ParametricArm":
@@ -309,7 +282,7 @@ class ParametricArm:
             d,
             {"kind", "schema_version", "segments", "home_qpos", "end_effector", "tool"},
             "",
-            optional={"label"},
+            optional={"label", "gripper"},
         )
         if d["kind"] != "parametric_arm":
             raise ConfigError("kind", f"expected 'parametric_arm', got {d['kind']!r}")
@@ -317,6 +290,7 @@ class ParametricArm:
         if isinstance(segs, (str, bytes)) or not hasattr(segs, "__iter__"):
             raise ConfigError("segments", "expected a sequence")
         tool = d["tool"]
+        gripper = d.get("gripper")
         return cls(
             schema_version=d["schema_version"],
             segments=tuple(within(f"segments[{i}]", Segment.from_dict, s) for i, s in enumerate(segs)),
@@ -324,6 +298,7 @@ class ParametricArm:
             end_effector=within("end_effector", Pose.from_dict, d["end_effector"]),
             tool=None if tool is None else within("tool", ToolSpec.from_dict, tool),
             label=d.get("label", ""),
+            gripper=None if gripper is None else within("gripper", TwoFingerGripper.from_dict, gripper),
         )
 
     def hash_dict(self) -> dict[str, Any]:

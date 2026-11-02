@@ -12,8 +12,8 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from robotdesigner.config.errors import Problem
-from robotdesigner.config.robot import Pose
+from robotdesigner.errors import Problem
+from robotdesigner.robot import Pose
 
 from .params import ReachParams
 
