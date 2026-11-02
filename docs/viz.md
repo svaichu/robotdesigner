@@ -12,7 +12,7 @@ clip.save("run.mp4")       # the format follows the suffix: .mp4 or .gif
 clip.show("gif")           # show inline in a chosen format
 ```
 
-Related pages: [simulators](simulators.md) (the env contract, `env.render`), [robosuite scenes](tasks/robosuite.md) (the arena cameras). The walkthrough is `examples/scene_viz.ipynb`; `examples/record_scene.py` is the same thing as a headless script.
+Related pages: [simulators](simulators.md) (the env contract, `env.render`), [robosuite scenes](tasks/robosuite.md) (the arena cameras). The walkthrough is `examples/scene_viz.ipynb`, which also runs headless (see below).
 
 ## Install and headless machines
 

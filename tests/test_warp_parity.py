@@ -90,7 +90,10 @@ def test_arm_pressed_onto_the_floor(device):
     actions = np.zeros((40, 4, 4))
     actions[:, :, 1], actions[:, :, 3] = 0.6, 0.3
     inject = {"qpos": np.zeros((4, 4)), "qvel": np.zeros((4, 4))}
-    cpu, gpu = assert_parity(cfg, device, actions, inject)
+    # Pressed on the floor the joints are not pinned down (four joints, a point contact): nudging the CPU simulator's own start state
+    # by 1e-8 moves qpos by 1.2e-4 and qvel by 1.1e-3 (by 1e-7: 1.6e-3 and 1.4e-2), while the tip moves by less than 1e-5. So the joint-space
+    # tolerances are looser here; the tip, the reward and the effort keep the strict ones.
+    cpu, gpu = assert_parity(cfg, device, actions, inject, tol=dict(TOL, qpos=1e-3, qvel=1e-2))
     rest_z = cpu["task/ee_pos"][-1][:, 2] + 0.3  # world height of the tip: held up by the floor (soft contact: ~3 mm in)
     assert ((rest_z > 0.02) & (rest_z < 0.04)).all()
     assert np.allclose(gpu["task/ee_pos"][-1][:, 2] + 0.3, rest_z, atol=1e-4)

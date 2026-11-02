@@ -73,8 +73,9 @@ def test_masked_reset_leaves_other_worlds_bitwise_unchanged(device):
     # injected values are read for the masked rows only
     inj = torch.full((4, 3), 0.25)
     sim.reset(mask=torch.tensor([False, True, False, False]), qpos=inj, qvel=inj)
-    assert torch.allclose(sim.qpos[1], inj[1]) and torch.allclose(sim.qvel[1], inj[1])
-    assert not torch.allclose(sim.qpos[2], inj[2])
+    want = inj.to(sim.qpos.device)  # the injection is a host tensor; the state it lands in lives on the simulator's device
+    assert torch.allclose(sim.qpos[1], want[1]) and torch.allclose(sim.qvel[1], want[1])
+    assert not torch.allclose(sim.qpos[2], want[2])
 
 
 def wp_torch(a):
@@ -88,7 +89,8 @@ def test_step_moves_the_arm_and_reads_need_no_synchronisation(device):
     sim, _ = make_sim(device)
     sim.set_ctrl(torch.full((4, sim.model.nu), 3.0))
     sim.step()
-    assert (sim.qvel.abs().sum(-1) > 0).all() and torch.allclose(sim.time, torch.full((4,), sim.control_dt), atol=1e-6)
+    expected_time = torch.full((4,), sim.control_dt, device=sim.time.device)   # reads are on the simulator's device
+    assert (sim.qvel.abs().sum(-1) > 0).all() and torch.allclose(sim.time, expected_time, atol=1e-6)
 
 
 @pytest.mark.parametrize("device", DEVICES)

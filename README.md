@@ -80,7 +80,7 @@ print(env.observation_space)    # {'task': {...}, 'proprio': {'qpos': torch.Size
 not Gymnasium `Space` objects); the batched shape is `env.batch_size + env.action_space`. The episode is truncated after `max_episode_steps` (Gymnasium's
 name for the time limit), so `env.rollout(500)` stops at that many steps.
 
-The full script is `examples/robosuite_scene.py` (headless; `python examples/robosuite_scene.py`). A walkthrough notebook is
+The full example is the notebook `examples/quickstart_cpu_mujoco.ipynb`; the examples are notebooks only. A walkthrough notebook is
 `examples/scene_walkthrough.ipynb` (embodiment comparison, control modes, rendering). Recording, saving and showing
 videos: `examples/scene_viz.ipynb`. Comparing embodiments with `sweep`: `examples/embodiment_sweep.ipynb`.
 
@@ -115,7 +115,7 @@ traj = env.rollout(50)                 # tensors on cuda:0, the same keys as the
 family = cfg.sweep(paired={"sim.simulator": ["mujoco", "warp"], "sim.device": ["cpu", "cuda:0"]})
 ```
 
-`examples/robosuite_scene_warp.py` is the headless GPU twin of `examples/robosuite_scene.py`. A scene with many contacts needs larger `WarpOptions`
+`examples/quickstart_gpu_warp.ipynb` is the GPU twin of `examples/quickstart_cpu_mujoco.ipynb`. A scene with many contacts needs larger `WarpOptions`
 capacities; a too-small allocation raises `CapacityError`, it is never silent.
 
 Step by hand:
@@ -151,8 +151,8 @@ clip.save("run.mp4")      # the format follows the suffix: .mp4 or .gif
 
 `env.render(env_index, camera=..., size=...)` returns one `uint8 (H, W, 3)` frame of the live state, so any step loop can collect its own frames;
 rendering never changes the simulation, and both simulators render (a Warp env renders from a host copy of one world). To compare embodiments give them one camera
-(`auto_camera(cfg_a, cfg_b)`, or a fixed arena camera such as `rs_sideview`): with the same seed they get the same scene. `examples/record_scene.py`
-records a four-env rollout to `scene.mp4` and `scene.gif`; the full guide is [docs/viz.md](docs/viz.md).
+(`auto_camera(cfg_a, cfg_b)`, or a fixed arena camera such as `rs_sideview`): with the same seed they get the same scene. `examples/scene_viz.ipynb`
+records rollouts (several envs tiled, several cameras) and saves them as `.mp4` and `.gif`; the full guide is [docs/viz.md](docs/viz.md).
 
 ## Layout
 

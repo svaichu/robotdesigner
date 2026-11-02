@@ -228,19 +228,6 @@ def test_control_modes_and_time_step_are_ours_not_robosuite_s():
     env.close()
 
 
-def test_example_smoke(capsys):
-    import importlib.util
-    import pathlib
-
-    path = pathlib.Path(__file__).parent.parent / "examples" / "robosuite_scene.py"
-    spec = importlib.util.spec_from_file_location("robosuite_scene", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    mod.main(num_envs=2, steps=4)
-    out = capsys.readouterr().out
-    assert "rollout batch shape: (2, 4)" in out and "cube_pos" in out and "env_hash=" in out
-
-
 def test_action_space_is_the_joint_count_for_a_robosuite_task():
     # robot.tool is ignored by the MuJoCo simulator, so no gripper dimensions are added to the n joint actions
     for n, axes in ((2, "zy"), (4, "zyyy")):

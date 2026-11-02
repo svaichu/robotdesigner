@@ -62,7 +62,10 @@ parameter, the robot config kept separate from the env. Do not overwrite the use
 - A pytest run from the repo root writes `MUJOCO_LOG.TXT` (git-ignored now). Read repo files with `git show` or `cat`.
 - Moving files to the cluster: one tar bundle of the changed files is far faster than file by file.
 - Notebooks (`examples/*.ipynb`) are stored with outputs, executed in a fresh kernel with `jupyter_client` on a login node; rerun them when an
-  API they use changes. Quiet robosuite's per-scene INFO line with `logging.getLogger("robosuite_logs").setLevel(logging.WARNING)`.
+  API they use changes. Examples are notebooks ONLY (user rule, 2026-11-02): no `.py` scripts in `examples/` (`tests/test_notebooks.py` checks it).
+  `tests/nbrun.py` executes a notebook's code cells in-process for the smoke tests (`-m robosuite`, `-m gpu` for the Warp one, `-m render` for
+  `scene_viz`). The runner that stores outputs needs no nbclient: `jupyter_client` start_new_kernel, execute each code cell, collect iopub
+  stream / display_data / execute_result / error messages. The Warp notebook sets `wp.config.log_level = wp.LOG_WARNING` (Warp >= 1.18; `wp.config.quiet` no longer exists there and assigning it is silently ignored) to keep the banner and compile lines out of the outputs. Quiet robosuite's per-scene INFO line with `logging.getLogger("robosuite_logs").setLevel(logging.WARNING)`.
 - Only the tip of a branch is tested; intermediate commits are topic splits and may not pass alone.
 
 ## robosuite facts and pitfalls (1.5.1 unless stated)
