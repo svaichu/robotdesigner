@@ -136,3 +136,42 @@ def test_check_model_supported():
     spec.option.enableflags |= int(mujoco.mjtEnableBit.mjENBL_FWDINV)
     problems = check_model_supported(spec.compile())
     assert len(problems) == 1 and "FWDINV" in problems[0].message
+
+
+GRAPH_OPTIONS = WarpOptions(njmax=64, nconmax=16, cuda_graph=True)
+needs_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+
+
+@pytest.mark.gpu
+@needs_cuda
+def test_cuda_graph_steps_like_the_eager_loop():
+    # CUDA graphs exist on CUDA only. Capturing used to fail with "unknown stream" because torch's current stream is the
+    # default stream, which CUDA cannot capture; nothing built a graph before this test.
+    eager, _ = make_sim("cuda:0")
+    graph, _ = make_sim("cuda:0", options=GRAPH_OPTIONS)
+    assert graph._graph is not None and eager._graph is None
+    gen = torch.Generator().manual_seed(0)
+    start = torch.rand(4, 3, generator=gen) - 0.5
+    for sim in (eager, graph):
+        sim.reset(qpos=start, qvel=torch.zeros(4, 3))
+    for _ in range(5):
+        ctrl = torch.rand(4, eager.model.nu, generator=gen) * 5
+        for sim in (eager, graph):
+            sim.set_ctrl(ctrl)
+            sim.step()
+    assert (graph.qvel.abs().sum(-1) > 0).all()
+    assert torch.allclose(graph.qpos, eager.qpos, atol=1e-5) and torch.allclose(graph.qvel, eager.qvel, atol=1e-4)
+    assert torch.allclose(graph.time, eager.time)
+
+
+@pytest.mark.gpu
+@needs_cuda
+def test_cuda_graph_can_be_captured_while_a_side_stream_is_current():
+    # the caller's stream is not the default one: the graph is still captured, and step() launches it on the caller's stream
+    side = torch.cuda.Stream(device="cuda:0")
+    with torch.cuda.stream(side):
+        sim, _ = make_sim("cuda:0", options=GRAPH_OPTIONS)
+        sim.set_ctrl(torch.full((4, sim.model.nu), 3.0))
+        sim.step()
+        moved = bool((sim.qvel.abs().sum(-1) > 0).all())  # a torch read right after step() needs no synchronisation, on that stream
+    assert sim._graph is not None and moved

@@ -139,12 +139,23 @@ class WarpBatchedSim:
         self._bR = torch.as_tensor(self._base_R64, **f32)
         self._bqi = torch.as_tensor(self._base_quat_inv64, **f32)
         if self.options.cuda_graph and dev.type == "cuda":
-            with self._scope():
-                with wp.ScopedCapture() as capture:
-                    for _ in range(self.n_substeps):
-                        mjw.step(self._mw, self._d)
-            self._graph = capture.graph
+            self._graph = self._capture_step_graph()
         self.reset()
+
+    def _capture_step_graph(self):
+        """Capture ``n_substeps`` physics steps as one CUDA graph.
+
+        CUDA cannot capture on the legacy default stream, which is torch's current stream unless the caller set another one
+        (``wp.stream_from_torch`` of it is what ``_scope`` activates), and Warp reports that as "unknown stream". So the capture
+        runs on Warp's own stream, after the work already queued on torch's stream (the writes to the arrays the graph reads)
+        has finished. ``step`` still launches the graph on torch's current stream, so reads after ``step()`` need no extra sync.
+        """
+        torch.cuda.current_stream(self.device).synchronize()
+        with wp.ScopedDevice(str(self.device)):
+            with wp.ScopedCapture() as capture:
+                for _ in range(self.n_substeps):
+                    mjw.step(self._mw, self._d)
+        return capture.graph
 
     def _require(self):
         if self._d is None:
