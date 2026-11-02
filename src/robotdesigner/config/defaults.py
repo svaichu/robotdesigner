@@ -9,7 +9,7 @@ class (see ``config.sim``).
 
 from __future__ import annotations
 
-DEFAULTS_VERSION = 1
+DEFAULTS_VERSION = 2   # 2: WarpOptions.default() turned the CUDA graph on (the options are part of the env_hash)
 
 DEFAULTS: dict[str, dict] = {
     # the arm: one yaw joint, 0.5 m long, 1 kg (the arguments of ``chain``, see ``specs.Chain``)

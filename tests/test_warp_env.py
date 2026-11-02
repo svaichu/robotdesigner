@@ -171,15 +171,14 @@ def test_render_matches_the_cpu_env_for_the_same_state(device):
     cpu.close()
 
 
-@pytest.mark.parametrize("device", DEVICES)
-def test_a_too_small_constraint_capacity_raises_capacity_error(device):
+def check_a_too_small_constraint_capacity_raises(device, cuda_graph):
     from robotdesigner.config import Pose, TaskConfig
     from robotdesigner.simulators.warp.sim import CapacityError
 
     cfg = make_cfg(n=4, num_envs=4, max_episode_steps=100)
     cfg = replace(cfg, task=replace(cfg.task, mount=Pose((0.0, 0.0, 0.3), (1.0, 0.0, 0.0, 0.0))))
     cfg = with_mode(replace(cfg, sim=replace(cfg.sim, scene="plain_floor")), "joint_torque")
-    env = warp_env(cfg, device, WarpOptions(njmax=1, nconmax=16, cuda_graph=False))
+    env = warp_env(cfg, device, WarpOptions(njmax=1, nconmax=16, cuda_graph=cuda_graph))
     td = env.reset()
     action = torch.zeros(4, 4, device=env.device)
     action[:, 1], action[:, 3] = 0.6, 0.3
@@ -188,3 +187,15 @@ def test_a_too_small_constraint_capacity_raises_capacity_error(device):
             td["action"] = action
             td = env.step(td)["next"]
     env.close()
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_a_too_small_constraint_capacity_raises_capacity_error(device):
+    check_a_too_small_constraint_capacity_raises(device, cuda_graph=False)
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_a_too_small_constraint_capacity_raises_capacity_error_with_a_cuda_graph():
+    # never silent, also when the step is replayed from a graph (the default)
+    check_a_too_small_constraint_capacity_raises("cuda:0", cuda_graph=True)

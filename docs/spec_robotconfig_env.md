@@ -158,7 +158,7 @@ At the last revision 163 tests without the `render` marker and 12 render tests p
 generated arm, and both example notebooks run every cell. Done: config layer and CPU simulator, the CPU TorchRL env, robosuite as a source of assets.
 Warp: built and tested on the Warp library's CPU device (parity with the CPU simulator within float32 tolerances in all four control modes, all four integrators, inertia-scaled gains and floor contact; `robosuite/Lift` and the other single-arm environments of the robosuite table). Shelved: Playground and JAX.
 
-Not done or not verified: Warp on CUDA (CUDA graph capture, stream sharing, solver determinism, parity tolerances re-measured on a GPU, the pixel tolerance of the Warp render test, the `gpu`-marked tests), the throughput benchmark and the final `WarpOptions.default()` numbers, per-world model fields; policy performance on any task; the throughput of the CPU simulator with many
+Not done or not verified: Warp on CUDA (stream sharing beyond the side-stream test, solver determinism, parity tolerances re-measured on a GPU, the pixel tolerance of the Warp render test, the `gpu`-marked tests), the throughput benchmark and the final `WarpOptions.default()` numbers, per-world model fields; policy performance on any task; the throughput of the CPU simulator with many
 envs; the robosuite 1.5.2 placement path (written, never run) and the `robosuite` CI job (added, not checked); an `ExternalRobot` baseline; a gripper (the
 MuJoCo simulator does not build `robot.tool`, so grasping tasks cannot be solved); lazy stacking of heterogeneous families.
 
@@ -191,6 +191,7 @@ such as `Lift`, with infeasibility separable from failures of learning; whether 
 | 2026-10-30 | the package ships one placeholder task, `empty/idle` (user, roadmap #32, issue #35); `tests/test_no_hardcoded_tasks.py` exempts the `empty` namespace | supersedes "the core names no task" (2026-10-29) and "the package ships no task of its own" (2026-10-30) for this one task: a default environment must run, so it needs a task. Every other namespace, task id and params class stays enforced; the `empty` scene preset of the simulator is unrelated |
 | 2026-10-30 | the robot mount moves from `ParametricArm.base_pose` to `TaskConfig.mount` (user, roadmap #32, issue #34); `TaskProvider.default_mount(name)`; the kinematics oracle takes the base as an argument | where an arm stands is a property of the scene: the same arm had a different `robot_hash` in every scene. **Every `robot_hash` and `env_hash` changes again** (the robot loses `base_pose`, the task gains `mount`); hashes from before this entry no longer match |
 | 2026-10-30 | "backend" becomes "simulator" everywhere, no aliases; options move into `SimConfig`, so `EnvConfig` has four fields (user) | "backend" is dependency vocabulary and `SimConfig` names a physics engine; two fields that must agree need a cross-check. Every `env_hash` changed, `robot_hash` did not |
+| 2026-11-02 | `WarpOptions.default()` turns the CUDA graph on and `DEFAULTS_VERSION` becomes 2 (user): capture used to fail on torch's default stream ("unknown stream") and now runs on Warp's own stream; graph and eager steps agree within 1e-5 on a GPU, and a step was 12 to 13 times faster in the Lift sweep on a busy node |
 
 ## Appendix A. robosuite as a task provider
 

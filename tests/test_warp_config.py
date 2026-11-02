@@ -19,7 +19,7 @@ def sim(**kw):
 def test_options_round_trip_and_validation():
     o = WarpOptions(njmax=64, nconmax=16, cuda_graph=False)
     assert WarpOptions.from_dict(o.to_dict()) == o
-    assert WarpOptions.default().njmax >= 1
+    assert WarpOptions.default().njmax >= 1 and WarpOptions.default().cuda_graph is True
     for bad, path in [
         (dict(njmax=0, nconmax=1, cuda_graph=True), "njmax"),
         (dict(njmax=True, nconmax=1, cuda_graph=True), "njmax"),

@@ -94,14 +94,14 @@ o = WarpOptions(njmax=64, nconmax=16, cuda_graph=True)
 assert WarpOptions.from_dict(o.to_dict()) == o
 assert SIMULATOR_OPTIONS["warp"] is WarpOptions
 assert WarpOptions.default().njmax >= 1     # provisional numbers, to be set from measurements
+assert WarpOptions.default().cuda_graph         # the CUDA graph is on by default
 ```
 
-`WarpOptions.default()` is `WarpOptions(njmax=128, nconmax=32, cuda_graph=False)`: plain choices, not recommendations. They come from the largest
+`WarpOptions.default()` is `WarpOptions(njmax=128, nconmax=32, cuda_graph=True)`: plain choices, not recommendations. They come from the largest
 per-world counts that `benchmarks/bench_warp.py` saw over a random-policy rollout (`robosuite/Lift`: 32 constraint rows and 8 contacts, `Stack`: 52 and 13;
-the counts do not depend on the device), with about 2.5x headroom. The CUDA graph is off by default; switch it on for throughput (CUDA only).
-It captures the physics sub-steps of one policy step, which removes the launch cost of every kernel in them; resets are not captured. In a `robosuite/Lift`
-sweep (3 joints, 64 to 4096 envs, `benchmarks/bench_warp.py`) a step was 12 to 13 times faster on a busy shared node, where launch cost is highest: measure on your
-own machine.
+the counts do not depend on the device), with about 2.5x headroom. The CUDA graph is on by default (the GPU simulator needs CUDA anyway). It captures the physics sub-steps of one policy step and replays them as one launch, which removes the
+launch cost of every kernel in them; resets are not captured. In a `robosuite/Lift` sweep (3 joints, 64 to 4096 envs, `benchmarks/bench_warp.py`) a step was 12 to 13 times
+faster than without it on a busy shared node, where launch cost is highest: measure on your own machine. Pass `cuda_graph=False` to step kernel by kernel (profiling, debugging).
 Scenes with many contacts need more (`NutAssembly`: 374 and 63; see [capacity overflow](../simulators.md#capacity-overflow)). The config side needs no GPU,
 torch or MuJoCo; building the environment (`make_env`) reports a missing CUDA device or library together with every other problem.
 

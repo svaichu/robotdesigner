@@ -32,7 +32,7 @@ Related pages: [EnvConfig](env.md), [RobotConfig](robot.md), [TaskConfig](task.m
 base = BaseEnvConfig()
 cfg = base.resolve()
 assert isinstance(cfg, EnvConfig) and cfg.robot.n == 1 and cfg.task.id == "empty/idle" and cfg.sim.scene == "empty"
-assert DEFAULTS_VERSION == 1 and DEFAULTS["sim"]["control_freq"] == 50.0
+assert DEFAULTS_VERSION == 2 and DEFAULTS["sim"]["control_freq"] == 50.0
 assert EnvConfig.from_dict(cfg.to_dict()).env_hash == cfg.env_hash      # the stored resolved dict reproduces
 ```
 
