@@ -26,6 +26,7 @@ pip install -e .                        # config layer only (numpy): write, vali
 pip install -e ".[env]"                 # + torch, TorchRL, MuJoCo: the CPU simulator
 pip install -e ".[env,robosuite]"       # + robosuite scenes as tasks
 pip install -e ".[env,warp]"            # + MuJoCo Warp: the GPU simulator (an NVIDIA GPU)
+pip install -e ".[menagerie]"            # + robots from MuJoCo Menagerie (Python >= 3.10.12)
 pip install -e ".[env,viz]"             # + GIF / MP4 output
 pip install -e ".[env,robosuite,viz,dev]"   # a development install; "yaml" adds YAML config files
 ```
