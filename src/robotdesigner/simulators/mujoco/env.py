@@ -53,12 +53,18 @@ class MujocoEnv(SpacesMixin, EnvBase):
             self._scale = np.full(n, cfg.control.action_scale)
             self._offset = np.zeros(n)
         elif self._mode == "joint_pos_abs":
-            lo, hi = self._iface.joint_range[:, 0], self._iface.joint_range[:, 1]
+            # [-1, 1] spans the actuator's ctrlrange (an external robot's own servo, which need not equal the joint range)
+            rng = self._iface.joint_range if self._iface.ctrl_range is None else self._iface.ctrl_range
+            lo, hi = rng[:, 0], rng[:, 1]
             finite = np.isfinite(lo) & np.isfinite(hi)
+            lo, hi = np.where(finite, lo, 0.0), np.where(finite, hi, 0.0)  # no inf - inf below
             self._scale = np.where(finite, (hi - lo) / 2.0, np.pi)
             self._offset = np.where(finite, (hi + lo) / 2.0, 0.0)
         else:  # joint_torque
             self._scale = self._iface.effort_limit.copy()
+            if self._iface.ctrl_range is not None:  # an external robot: the ends of the actuator's ctrlrange
+                top = np.abs(self._iface.ctrl_range).max(axis=1)
+                self._scale = np.where(np.isfinite(top), top, self._scale)
             self._offset = np.zeros(n)
 
         params = cfg.task.params

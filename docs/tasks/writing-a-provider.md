@@ -189,6 +189,8 @@ class ReachTask(BaseTask):
   to place a free body, `base_frame()` and `host_data(env_index)`. List in `SIMULATORS` every simulator you ran the task on.
 - **Fixtures.** All envs of a batch share one model, so a scene object without a free joint is placed once, at `bind`; per-env placement needs a free joint.
 - **Injected state.** `injected(key)` returns a tensor the caller put in the reset TensorDict (a replayed `target`), or `None`. Document the keys you accept.
+- **Robots without an end effector.** An `ExternalRobot` may have `end_effector=None` (a quadruped), and then `iface.ee_site_id` is `None`. A task that reads the end effector says so in
+  `validate`: `Problem("robot.end_effector", ...)` when `getattr(cfg.robot, "end_effector", True) is None`.
 - **Frames.** Observe positions in the robot's base frame (`"base"`), as the other providers do, so a task reads the same for every mount.
 
 ## 5. Test it

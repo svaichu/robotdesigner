@@ -39,6 +39,7 @@ silently substituted. The sources of problems are:
 | `ee_pos_delta`, `ee_pose_delta` | not implemented | not implemented |
 | integrators | `euler`, `implicit`, `implicitfast`, `rk4` | the same |
 | `TwoFingerGripper` | built; one extra action dimension | **rejected** (`robot.gripper`) |
+| robot kinds | `parametric`, `external` | `parametric` only |
 | devices | `cpu` | `cuda:N` |
 
 What the capabilities list is what the parity tests have shown to match, not what the engine could conceivably do.
@@ -118,7 +119,32 @@ Physics on the GPU is deterministic per device and library release but not bitwi
 - Worlds are stepped serially in the calling process: throughput scales with the speed of one core, not with `num_envs`. Use it for correctness, debugging and small studies; run several processes (see [cluster](cluster.md)), or use `warp`, for volume.
 - Float64 physics; observations are converted to float32.
 - Supports the gripper.
+- Runs an [`ExternalRobot`](configs/robot.md#externalrobot-a-model-that-lives-elsewhere), see below.
 
+### External robots on the CPU simulator
+
+The robot provider's `MjSpec` is attached to the scene and driven by **its own actuators** (`NativeGains`); the same environment, tasks and `SimView` run on it.
+
+- **Placement.** The compile adds an empty, welded body `base` at the mount (so `SimView`'s `"base"` frame works as for a `ParametricArm`) and attaches the model into a frame of the
+  world body at the same pose, with the prefix `ext_` (`ext_j1`, `ext_a1`, `ext_ee`). The model's own world frame is therefore the base frame: a fixed arm stands at the mount, and a
+  floating robot (a free root joint, which MuJoCo only allows on a direct child of the world) starts at the mount composed with `ExternalRobot.home_root`. New code reads the pose from
+  `iface.mount`.
+- **Joints and actuators.** `iface.joint_names`, `qpos_adr` and `qvel_adr` are the prefixed `robot.joints`, in order. Each driven joint has exactly one actuator with a joint
+  transmission, and `action_dim == n`. The other actuators (a gripper, a coupled finger) are **held** at the `ctrl` of the model keyframe named by `robot.keyframe` (zero when `None`) on every step.
+- **Reset.** `mj_resetData`, then the whole keyframe state (finger and passive joints get their model values), then the driven joints at `home_qpos` plus the reset noise (driven joints
+  only, clipped to their ranges), then the root pose of a free joint. A masked reset leaves the other envs, roots included, untouched.
+- **End effector.** `iface.ee_site_id` is the site named by `EndEffectorRef.site`, or a site `ee` added to `EndEffectorRef.body` at `offset`. It is `None` when the robot has no end effector.
+- **Native control.** The action in `[-1, 1]` maps to the actuator's `ctrlrange`, not to the joint range: the two are separate fields of a model and need not be equal. For a position
+  servo without a `ctrlrange` the joint range is used. `joint_pos_delta` accumulates a target clipped to the joint range, as for an arm; `joint_torque` scales by the ends of the actuator's
+  `ctrlrange`. `iface.kp` and `kd` are read from the model for position servos (`gainprm[0]` and `-biasprm[2]`) and are `None` otherwise. (Measured on MuJoCo Menagerie: the Panda's first
+  servo has gain 4500 and bias `(0, -4500, -450)`, the UR5e's shoulder servo gain 2000 and bias `(0, -2000, -400)`; for both, `ctrlrange` equals the joint range.)
+- **`dt` and the integrator** stay the authority of `SimConfig`: the scene carries them and the model's own are not used. A `sim.dt` more than twice the model's own `timestep` is reported
+  with a warning. The contact and solver options of the model (`cone`, `impratio`, solver, noslip) are the scene's: when the two differ, `MjSpec.attach` keeps the scene's value.
+- **Frame limitation.** `SimView(frame="base")` is the static mount frame, **not** the moving trunk of a floating robot. A `"root"` frame does not exist yet.
+- **Problems, not silent changes.** `make_env` reports, with the config path: a model with no actuators; driven actuators of another kind than `robot.actuator_kind`; a stale `robot.source`
+  (the provider's check: "the model changed since this config was written"); an unknown joint, entry or keyframe; a free root without `home_root`, or `home_root` without one.
+- **Kinematics.** `robotdesigner.simulators.mujoco.external.MujocoKinematics` is the host-side oracle that a MuJoCo-based robot provider returns from `RobotProvider.kinematics`
+  (`forward_ee_batch(q, base)` by `mj_kinematics`, `sample_joint_positions`), so `OwnReachable` targets and the camera framing of [viz](viz.md) work for external robots.
 ## GPU MuJoCo Warp specifics
 
 - Needs the `warp` extra, an NVIDIA GPU, and `mujoco` and `mujoco-warp` of **one release** (otherwise `make_env` reports it).
