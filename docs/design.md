@@ -72,3 +72,4 @@ Dated in the project history; here in outline.
 - `horizon` became `max_episode_steps` (Gymnasium's name for a time limit); the old key is still read, with a warning.
 - `env.observation_space` and `env.action_space` are per-env shapes derived from the TorchRL specs, not Gymnasium spaces.
 - `BaseEnvConfig` holds the defaults; changing one raises `DEFAULTS_VERSION` because it changes hashes.
+- The golden hashes in `tests/golden_hashes.json` pin `robot_hash` and `env_hash` of a fixed set of configs. A change that moves one is intended or a bug; if intended, regenerate the file with `python -m tests.test_golden_hashes` in the same pull request and add a row here.

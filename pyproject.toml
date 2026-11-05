@@ -19,6 +19,10 @@ env = [
 ]
 warp = ["robotdesigner[env]", "mujoco-warp>=3.13", "warp-lang>=1.15"]
 robosuite = ["robotdesigner[env]", "robosuite>=1.5,<1.6"]
+menagerie = [
+    "robotdesigner[env]",
+    "mujoco-menagerie>=2026.9.0; python_full_version >= '3.10.12'",
+]
 yaml = ["pyyaml"]
 viz = ["imageio", "imageio-ffmpeg", "pillow"]
 dev = ["pytest", "ruff", "pyyaml"]
@@ -32,4 +36,5 @@ markers = [
     "gpu: needs a CUDA device",
     "robosuite: needs the robosuite extra",
     "render: needs an OpenGL context",
+    "menagerie: needs the menagerie extra and a model download",
 ]

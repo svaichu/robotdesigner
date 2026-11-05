@@ -1,0 +1,30 @@
+{
+  "base_env_default": {
+    "env_hash": "9accd7651cbf883a1832a7bd8f194ff0d816e9dea6c7021b238b72992f67d85b",
+    "robot_hash": "59680fb15ecdfdd6fbc64746c4ca569caebe17f750aa591ebe6255bdbbcdff99"
+  },
+  "chain_n1": {
+    "env_hash": "da77315cad10769043229e96e7c47ff84abdf077ffbddabe0255749b946c17d5",
+    "robot_hash": "bfa3efac16df4d21321f08ca8bca41f3a3539bf710876b6c707b63eb21de1127"
+  },
+  "chain_n2": {
+    "env_hash": "7c0fba346fca39b9a662725152e89a457d51601193cda85c11a7851f2a40d437",
+    "robot_hash": "dfbaf7f2bc0eaa1a61e12125b0c95b13c4b1cb82562d29ae21e6e45350b8967d"
+  },
+  "chain_n5": {
+    "env_hash": "35f7aa3ecd368e528a95fbbcead5abfd88bd65604ab7a4c3a349cd3afa0ee717",
+    "robot_hash": "1ff81481bca987332334204072778b0282d2317ebed58d7afb3f4043f560923e"
+  },
+  "gripper": {
+    "env_hash": "0a9143c4df9ea7d0cbbc4f77e35bc0305ea4f061b60d5814b6e718c454977a49",
+    "robot_hash": "34c02b6e64b8cb891835dd3dfdedb3d15845ac11e970ef693477572f9582d280"
+  },
+  "inertia_scaled_gains": {
+    "env_hash": "4c51dfadfbac434a117e3c386645e9bd20bd6432068a10e2065b4ed66fd21c03",
+    "robot_hash": "1651cbeec80319c8cf8460dccca831a0bd49f81002eb2421c50cc123569bfb3e"
+  },
+  "mount": {
+    "env_hash": "df67f7bd8d235095febf524ac13090efb4ec0e415ab5e1394481fbe4a621f1fb",
+    "robot_hash": "1651cbeec80319c8cf8460dccca831a0bd49f81002eb2421c50cc123569bfb3e"
+  }
+}
