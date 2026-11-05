@@ -41,7 +41,7 @@ Comparisons across embodiments are easily confounded, so the framework makes the
   loop can drive.
 - **No job launcher.** `sweep` expands, you launch ([cluster](cluster.md)).
 - **robosuite is a source of assets, not a simulator.** Success, reward, control and physics settings are ours, so every task runs through the same simulation path.
-- **Only hinge joints and capsule links**, and one `ParametricArm` kind. Robot kinds are a capability of a simulator, so an external-description robot can be added without touching tasks.
+- **Only hinge joints and capsule links** in a `ParametricArm`. A robot that exists as a model elsewhere is an `ExternalRobot`, a reference with the numbers the config layer needs. Robot kinds are a capability of a simulator, so a new kind is added without touching tasks.
 - **Not yet:** end-effector control modes (`ee_pos_delta`, `ee_pose_delta` are reserved names that are rejected), grippers on the Warp simulator, a task that defines its own reward beyond the
   simple distance reward of the robosuite objectives.
 
@@ -55,6 +55,8 @@ The words are used with one meaning throughout; old commit messages and issues m
 | **simulator** | a physics engine realised as code (`robotdesigner.simulators.<name>`), named by `sim.simulator`: `mujoco`, `warp` |
 | **task** | `"<namespace>/<name>"`; defined by a params object of a provider |
 | **task provider** | the owner of a namespace; builds tasks for simulators |
+| **robot provider** | the owner of a robot namespace (`config.robot_providers`); reads a model, opens it as a spec and gives a kinematics oracle |
+| **external robot** | `ExternalRobot`: a reference to a model of a robot provider, plus joints, home posture and end effector as numbers; driven with `NativeGains` |
 | **scene** | `sim.scene`, a preset of the simulator (`empty`, `plain_floor`). A *robosuite scene* is an arena plus objects brought by a task |
 | **mount** | the pose of the robot base in the world, part of the task |
 | **options** | the settings of one simulator, in `sim.options` |
@@ -73,3 +75,4 @@ Dated in the project history; here in outline.
 - `env.observation_space` and `env.action_space` are per-env shapes derived from the TorchRL specs, not Gymnasium spaces.
 - `BaseEnvConfig` holds the defaults; changing one raises `DEFAULTS_VERSION` because it changes hashes.
 - The golden hashes in `tests/golden_hashes.json` pin `robot_hash` and `env_hash` of a fixed set of configs. A change that moves one is intended or a bug; if intended, regenerate the file with `python -m tests.test_golden_hashes` in the same pull request and add a row here.
+- A robot that exists as a model elsewhere is an `ExternalRobot` (a reference, hashed with the provider's content id), found through robot providers that mirror task providers. Until re-actuation exists it is driven with `NativeGains` only, so `FixedGains` and `InertiaScaledGains` are rejected with it.

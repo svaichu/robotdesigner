@@ -44,8 +44,8 @@ class Simulator(Protocol):
 
 
 def _robot_kind(robot: Any) -> str:
-    # Only the parametric arm exists so far; ExternalRobot will add "external".
-    return "parametric" if type(robot).__name__ == "ParametricArm" else type(robot).__name__
+    kinds = {"ParametricArm": "parametric", "ExternalRobot": "external"}
+    return kinds.get(type(robot).__name__, type(robot).__name__)
 
 
 def check_capabilities(cfg: Any, caps: Capabilities, simulator: str = "") -> list[Problem]:

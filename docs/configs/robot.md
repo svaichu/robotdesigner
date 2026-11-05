@@ -1,4 +1,4 @@
-# Robot: `ParametricArm`
+# Robot: `ParametricArm` and `ExternalRobot`
 
 A robot is a **frozen, validated, hashable value**. It has no pose and knows nothing about a simulator: where the base stands is
 `TaskConfig.mount`, and everything that changes how it is driven is in [`ControlConfig`](control.md) and [`SimConfig`](sim.md).
@@ -10,7 +10,8 @@ Everything on this page is numpy only (`robotdesigner.robot`, re-exported by `ro
 import numpy as np
 
 from robotdesigner.config import (
-    Capsule, ConfigError, JointSpec, LinkSpec, ParametricArm, Pose, Segment, TwoFingerGripper, chain, kinematics as kin,
+    Capsule, ConfigError, EndEffectorRef, ExternalJoint, ExternalRobot, JointSpec, LinkSpec, ParametricArm, Pose, Segment,
+    TwoFingerGripper, chain, kinematics as kin, register_robot_provider, robot_from_dict, unregister_robot_provider,
 )
 ```
 
@@ -138,6 +139,86 @@ assert kin.forward_ee_batch(arm, q).shape == (5, 3)
 
 Convention: `T_0 = base`; for each segment `F_i = T_i · joint_frame_i`, `L_i = F_i · Rot(axis_i, q_i)`, `tip_i = L_i · Pose(tip_offset_i)`, `T_{i+1} = tip_i`;
 `ee = T_n · end_effector`. Without `base` the poses are in the robot's base frame.
+
+## `ExternalRobot`: a model that lives elsewhere
+
+A `ParametricArm` is generated from numbers. An `ExternalRobot` **refers** to a model that already exists, for baselines such as a stock Panda
+from MuJoCo Menagerie. It holds no model, only what the config layer must know without opening one, so it stays numpy only, frozen, validated and hashable
+like the arm. Its dict has `"kind": "external_robot"`; `robot_from_dict` reads either kind.
+
+| field | meaning |
+|---|---|
+| `provider`, `name`, `entry` | the [robot provider](#robot-providers) (a namespace such as `menagerie`), the robot within it, the model file within the robot |
+| `source` | a content id the provider vouches for (Menagerie: the git tree id of the model directory). **Hashed**: a changed model is a different robot |
+| `joints` | the joints a `ControlConfig` drives, in order, each an `ExternalJoint(name, range, effort_limit)`; `n = len(joints)`. A joint the model has but `joints` omits (a finger) is not controlled |
+| `home_qpos` | one value per joint, inside its range |
+| `home_root` | for a model with a free root: the root body at home in the model's world frame; else `None` |
+| `keyframe` | the model keyframe that sets the state of the joints that are not driven, or `None` |
+| `end_effector` | an `EndEffectorRef`: an existing `site`, or a `body` plus an `offset`; exactly one of the two. `None` for a robot without one |
+| `actuator_kind` | the model's own actuators on `joints`: `position`, `torque`, `velocity` or `mixed` |
+| `label` | free text, **not** hashed |
+
+A provider's `describe` reads the model and returns these numbers; a config can also be written by hand, as here (the provider below is a stand-in, which
+is all the config side needs).
+
+```python
+from types import SimpleNamespace
+
+# a provider that only names a robot: enough for the config side (the engine-side methods are not called)
+stand_in = SimpleNamespace(names=lambda: ("arm",), describe=None, spec=None, validate=lambda robot, simulator: [], kinematics=None)
+register_robot_provider("demo", stand_in, replace=True)
+
+panda_like = ExternalRobot(
+    provider="demo", name="arm", entry="arm.xml", source="3f9a2c",
+    joints=(ExternalJoint("j1", (-2.9, 2.9), 87.0), ExternalJoint("j2", (-1.7, 1.7), 87.0)),
+    home_qpos=(0.0, -0.5), home_root=None, keyframe="home",
+    end_effector=EndEffectorRef(site="ee", body=None, offset=Pose.identity()), actuator_kind="position",
+)
+assert panda_like.n == 2
+assert robot_from_dict(panda_like.to_dict()) == panda_like                  # the kind picks the class
+assert ExternalRobot.from_dict(panda_like.to_dict()).full_hash == panda_like.full_hash
+changed = ExternalRobot.from_dict({**panda_like.to_dict(), "source": "7be104"})
+assert changed.config_hash != panda_like.config_hash                         # a changed model is another robot
+assert ExternalRobot.from_dict({**panda_like.to_dict(), "label": "baseline"}).config_hash == panda_like.config_hash
+```
+
+Validation raises `ConfigError` with a path, as for the arm: `provider` must be registered, `joints` non-empty with unique names, `home_qpos` inside the ranges,
+`actuator_kind` one of the four, `EndEffectorRef` with exactly one of `site` and `body` (and an identity `offset` for a site).
+
+```python
+def error_of(build):
+    try:
+        build()
+    except ConfigError as e:
+        return e
+    raise AssertionError("no error")
+
+assert error_of(lambda: ExternalRobot.from_dict({**panda_like.to_dict(), "provider": "nowhere"})).path == "provider"
+assert error_of(lambda: ExternalRobot.from_dict({**panda_like.to_dict(), "home_qpos": [0.0, 9.0]})).path == "home_qpos[1]"
+assert error_of(lambda: ExternalRobot.from_dict({**panda_like.to_dict(), "actuator_kind": "magic"})).path == "actuator_kind"
+assert error_of(lambda: EndEffectorRef(site="ee", body="hand", offset=Pose.identity())).reason == "give exactly one of site and body"
+assert error_of(lambda: robot_from_dict({"kind": "mystery"})).path == "kind"
+```
+
+What an `ExternalRobot` can do depends on its parts. It is driven with its own actuators and gains (`NativeGains`, see [control](control.md#gains)) and nothing else
+for now. A simulator must list the kind `external` among its capabilities. The CPU and Warp simulators do not yet, so `make_env` rejects it until they do.
+
+### Robot providers
+
+A robot provider owns a namespace, as a [task provider](../tasks/writing-a-provider.md) does. It is an object with five methods: `names()`; `describe(name, **options)`,
+which reads the model and returns an `ExternalRobot`; `spec(robot)`, which returns an editable `mujoco.MjSpec` after checking the model against `robot.source`;
+`validate(robot, simulator)`; and `kinematics(robot)`, which returns an oracle with `forward_ee_batch(q, base)` and `sample_joint_positions(num, rng)`. The last
+three and `describe` are engine side: importing the provider imports no engine. Providers are found lazily, in this order of precedence:
+`register_robot_provider(namespace, target)`, the entry-point group `robotdesigner.robot_providers`, then the subpackages of `robotdesigner.robot_providers`.
+`list_robot_providers()` loads nothing; `get_robot_provider(namespace)` loads one. The core names no provider.
+
+`config.kinematics.forward_ee_batch` and `sample_joint_positions` accept an `ExternalRobot` and ask its provider for the oracle; without the engine they raise a
+`ConfigError` that says what to install. `forward` (link frames) is for the `ParametricArm` only.
+
+```python
+unregister_robot_provider("demo")                                           # the stand-in was for this page
+assert error_of(lambda: ExternalRobot.from_dict(panda_like.to_dict())).path == "provider"
+```
 
 ## What the CPU MuJoCo simulator builds from it
 
