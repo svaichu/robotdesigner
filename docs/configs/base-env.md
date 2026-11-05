@@ -43,7 +43,7 @@ Each section call takes either a whole object of that section or keyword fields,
 
 | call | takes | notes |
 |---|---|---|
-| `.robot(...)` | a `Chain`, a ready `ParametricArm`, or `Chain` fields as keywords | a `Chain` is merged field by field. Writing `total_length` clears `link_length` (and `total_mass` clears `mass`), and the other way round. A ready arm replaces the section; a later `.robot(n=...)` on it starts from the default chain again |
+| `.robot(...)` | a `Chain`, a ready `ParametricArm` or `ExternalRobot`, or `Chain` fields as keywords | a `Chain` is merged field by field. Writing `total_length` clears `link_length` (and `total_mass` clears `mass`), and the other way round. A ready robot replaces the section (`Chain` fields cannot be combined with it); a later `.robot(n=...)` on it starts from the default chain again. With an `ExternalRobot`, `control.gains` that were not written resolve to `NativeGains`, and an unwritten `control.mode` is the default mode if it fits the robot's actuators, else the first mode that does; `explain()` shows these as `default (robot)` |
 | `.control(...)` | a `ControlConfig` or `mode`, `gains`, `action_scale` | switching to a scaled mode needs `action_scale=` in the same chain of calls, or `resolve()` reports it |
 | `.task(...)` | a provider's params object, a `TaskConfig`, or `max_episode_steps`, `success_tolerance`, `target_region`, `mount` | giving a params object of a **different class** resets `success_tolerance` and `target_region`, which belong to goal tasks, unless you write them |
 | `.sim(...)` | a `SimConfig` or any `SimConfig` field | changing `simulator` resets `options` to that simulator's `default()` unless `options=` is given |
@@ -67,6 +67,35 @@ position matters to your result.
 pinned = cfg.task(mount=Pose((0.1, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0)))
 assert pinned.resolve().task.mount.pos == (0.1, 0.0, 0.0)
 assert "mount" not in cfg.to_dict()["task"] and "mount" in pinned.to_dict()["task"]
+```
+
+### An external robot
+
+A ready `ExternalRobot` replaces the robot section like a ready arm. Its model has its own actuators, so unless you write `control.gains` they resolve to
+`NativeGains`, and the mode is the default one when it fits (else the first that does). `explain()` says where each value came from.
+
+```python
+from types import SimpleNamespace
+
+from robotdesigner.config import EndEffectorRef, ExternalJoint, ExternalRobot, FixedGains, register_robot_provider, unregister_robot_provider
+
+# a stand-in provider: the config side only needs a registered namespace
+register_robot_provider("demo", SimpleNamespace(names=lambda: ("hand",), describe=None, spec=None, validate=lambda r, s: [], kinematics=None), replace=True)
+ext = ExternalRobot(
+    provider="demo", name="hand", entry="hand.xml", source="3f9a2c", joints=(ExternalJoint("j1", (-1.0, 1.0), 10.0),),
+    home_qpos=(0.0,), home_root=None, keyframe=None, end_effector=EndEffectorRef(site="tip", body=None, offset=Pose.identity()),
+    actuator_kind="torque",
+)
+with_ext = BaseEnvConfig().robot(ext)
+resolved = with_ext.resolve()
+assert resolved.control.gains.to_dict() == {"kind": "native"} and resolved.control.mode == "joint_torque"
+assert any(line.endswith("[default (robot)]") for line in with_ext.explain().splitlines() if "control.gains" in line)
+assert BaseEnvConfig.from_dict(with_ext.to_dict()) == with_ext
+try:
+    with_ext.control(gains=FixedGains(60.0, 6.0)).resolve()      # re-actuation is not built yet
+except ConfigError as e:
+    assert e.path == "control.gains"
+unregister_robot_provider("demo")
 ```
 
 ## Checking: `validate`, `resolve`

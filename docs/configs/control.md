@@ -4,7 +4,7 @@
 embodiments is never partly a hidden difference in how they were driven.
 
 ```python
-from robotdesigner.config import CONTROL_MODES, ConfigError, ControlConfig, FixedGains, InertiaScaledGains
+from robotdesigner.config import CONTROL_MODES, ConfigError, ControlConfig, FixedGains, InertiaScaledGains, NativeGains
 
 pos = ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None)
 delta = ControlConfig("joint_pos_delta", FixedGains(kp=60.0, kd=6.0), action_scale=0.05)
@@ -51,6 +51,25 @@ assert scaled.to_dict()["gains"] == {"kind": "inertia_scaled", "bandwidth": 20.0
 per_joint = FixedGains(kp=(60.0, 40.0, 20.0), kd=6.0)          # kd is a scalar: it applies to every joint
 assert per_joint.kp == (60.0, 40.0, 20.0)
 ```
+
+`NativeGains()` has no fields: it says "drive the model with its own actuators and gains", and nothing is replaced. It belongs to an
+[`ExternalRobot`](robot.md#externalrobot-a-model-that-lives-elsewhere), and an `ExternalRobot` takes nothing else for now (`FixedGains` and `InertiaScaledGains` are
+rejected at `control.gains` until driving it with gains of this package, re-actuation, exists). The mode must fit the model's actuators, `robot.actuator_kind`:
+
+| `actuator_kind` | modes that fit |
+|---|---|
+| `position` | `joint_pos_abs`, `joint_pos_delta` |
+| `torque` | `joint_torque` |
+| `velocity` | `joint_vel` |
+| `mixed` | none: restrict `robot.joints` to joints with one kind of actuator |
+
+```python
+native = ControlConfig("joint_pos_abs", NativeGains(), action_scale=None)
+assert native.to_dict()["gains"] == {"kind": "native"}
+assert ControlConfig.from_dict(native.to_dict()) == native
+```
+
+The checks that need the robot (`NativeGains` with a `ParametricArm`; the mode against `actuator_kind`) are made by [`EnvConfig`](env.md#cross-part-checks).
 
 ## Errors
 

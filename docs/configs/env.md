@@ -57,7 +57,10 @@ in the process that parses it.
 
 ## Cross-part checks
 
-`EnvConfig` checks what no single part can: per-joint `kp` / `kd` sequences must have as many entries as the robot has joints.
+`EnvConfig` checks what no single part can: per-joint `kp` / `kd` sequences must have as many entries as the robot has joints, and the control must fit the robot kind.
+`NativeGains` needs an [`ExternalRobot`](robot.md#externalrobot-a-model-that-lives-elsewhere) (error at `control.gains` otherwise); an `ExternalRobot` takes only `NativeGains`
+for now (error at `control.gains`), and its `control.mode` must fit its `actuator_kind` (error at `control.mode` listing the modes that fit, see [control](control.md#gains)).
+`robot` is a `ParametricArm` or an `ExternalRobot`; `from_dict` reads either through `robot_from_dict`.
 
 ```python
 def error_of(build):
@@ -68,6 +71,9 @@ def error_of(build):
     raise AssertionError("no error")
 
 wrong_gains = ControlConfig("joint_pos_abs", FixedGains(kp=(60.0, 40.0), kd=6.0), action_scale=None)
+from robotdesigner.config import NativeGains
+native = ControlConfig("joint_pos_abs", NativeGains(), action_scale=None)
+assert error_of(lambda: dataclasses.replace(cfg, control=native)).path == "control.gains"   # a parametric arm has no actuators of its own
 assert error_of(lambda: dataclasses.replace(cfg, control=wrong_gains)).path == "control.gains.kp"
 assert error_of(lambda: EnvConfig(arm, cfg.control, cfg.task, "sim")).path == "sim"
 assert "unknown keys: extra" in str(error_of(lambda: EnvConfig.from_dict({**cfg.to_dict(), "extra": 1})))   # a typo is an error, not ignored

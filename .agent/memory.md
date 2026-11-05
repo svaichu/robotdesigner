@@ -28,7 +28,8 @@ parameter, the robot config kept separate from the env. Do not overwrite the use
   Git history, closed issues and old text say "backend": read it as "simulator". `build-backend` in `pyproject.toml` is packaging vocabulary.
 - **task provider**: owner of a task-id namespace (`robosuite`); **task**: `<namespace>/<name>`; **options**: the settings of one simulator,
   in `sim.options`. **config side / engine side**: numpy-only classes vs the code that needs torch and MuJoCo ("engine" = those libraries).
-- **embodiment**: a robot config (`ParametricArm`). **scene**: `sim.scene` is a preset of the simulator (`empty`, `plain_floor`); a
+- **embodiment**: a robot config (`ParametricArm`, or an `ExternalRobot`). **robot provider**: owner of a robot namespace (`config/robot_providers.py`, mirrors task providers);
+  **external robot**: a reference to a model of a robot provider (numbers only on the config side); `NativeGains` drives it with its own actuators. **scene**: `sim.scene` is a preset of the simulator (`empty`, `plain_floor`); a
   robosuite scene is an arena plus objects brought by a task.
 
 ## Why the project looks like this

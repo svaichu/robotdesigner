@@ -33,7 +33,7 @@ assert (env_cfg.robot.config_hash, env_cfg.env_hash) == (cfg.resolve().robot.con
 
 | page | covers |
 |---|---|
-| [Robot](configs/robot.md) | `ParametricArm`, `chain()`, the gripper, hashing, forward kinematics |
+| [Robot](configs/robot.md) | `ParametricArm`, `chain()`, the gripper, `ExternalRobot` and robot providers, hashing, forward kinematics |
 | [Control](configs/control.md) | `ControlConfig`: modes, gains, action scaling |
 | [Task](configs/task.md) | `TaskConfig`: params, episode length, mount, goal regions, where tasks come from |
 | [Simulation](configs/sim.md) | `SimConfig`, scenes, `MujocoOptions`, `WarpOptions` |
@@ -63,5 +63,6 @@ Runnable notebooks are in [`examples/`](../examples).
 ## Words used in these docs
 
 **embodiment**: a robot configuration. **simulator**: a physics engine (`mujoco`, `warp`). **task** / **task provider**: `"<namespace>/<name>"` and the owner of the namespace.
+**robot provider** / **external robot**: the owner of a robot namespace, and a reference to one of its models (`ExternalRobot`).
 **scene**: a simulator preset (`sim.scene`), or, for robosuite, an arena with objects. **mount**: the robot base's pose in the world. **resolve**: turn the builder into the frozen `EnvConfig`.
 **config side / engine side**: numpy-only code versus code that needs torch and MuJoCo. The full table is in [Design](design.md#vocabulary).
