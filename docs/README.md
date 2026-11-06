@@ -37,6 +37,7 @@ assert (env_cfg.robot.config_hash, env_cfg.env_hash) == (cfg.resolve().robot.con
 | [Control](configs/control.md) | `ControlConfig`: modes, gains, action scaling |
 | [Task](configs/task.md) | `TaskConfig`: params, episode length, mount, goal regions, where tasks come from |
 | [Simulation](configs/sim.md) | `SimConfig`, scenes, `MujocoOptions`, `WarpOptions` |
+| [Robot provider: menagerie](robots/menagerie.md) | MuJoCo Menagerie robots as `ExternalRobot`s: `describe`, cards, licences, which robots run |
 | [Environment](configs/env.md) | `EnvConfig`: the complete description, `env_hash`, serialization |
 | [Builder](configs/base-env.md) | `BaseEnvConfig`: defaults, refinement, overrides, `sweep`, files |
 | [Simulators and the environment contract](simulators.md) | `make_env`, capabilities, specs, reset, seeding, CPU and GPU specifics |

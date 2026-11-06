@@ -21,6 +21,7 @@ from .defaults import DEFAULTS, DEFAULTS_VERSION
 from .env import EnvConfig
 from ..errors import ConfigError, Problem
 from .providers import get_task_provider
+from .robot_providers import get_robot_provider
 from ..robot import ExternalRobot, ParametricArm, Pose, ToolSpec, TwoFingerGripper, robot_from_dict
 from .sim import SIMULATOR_OPTIONS, SimConfig
 from .specs import NOT_SET, Chain
@@ -520,10 +521,22 @@ class BaseEnvConfig:
         out += [(f"sim.{k}", self._sim[k], src(f"sim.{k}")) for k in _SIM_FIELDS]
         return out
 
+    def _robot_license(self) -> str | None:
+        """The licence of an external robot's model, if its provider reports one (``license(name)``)."""
+        if not isinstance(self._robot, ExternalRobot):
+            return None
+        try:
+            return getattr(get_robot_provider(self._robot.provider), "license")(self._robot.name)  # noqa: B009
+        except Exception:  # no such method, library missing, unknown robot: nothing to show
+            return None
+
     def explain(self) -> str:
         """Every field with its value and where it comes from: ``set``, ``default``, ``default (task)`` or, for an
         external robot, ``default (robot)``."""
         rows = self._fields(resolved_mount=True)
+        license_ = self._robot_license()
+        if license_ is not None:
+            rows.insert(1, ("robot.license", license_, "provider"))
         width = max(len(p) for p, _, _ in rows)
         head = f"BaseEnvConfig (defaults version {DEFAULTS_VERSION})"
         return "\n".join([head] + [f"  {p:<{width}}  {v!r}  [{s}]" for p, v, s in rows])
