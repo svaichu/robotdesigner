@@ -43,6 +43,8 @@ class ToyTasks:
             return [
                 Problem("sim.simulator", f"task {cfg.task.id!r} runs on {sorted(self.SIMULATORS)}, not on {simulator!r}")
             ]
+        if getattr(cfg.robot, "end_effector", True) is None:  # an ExternalRobot without an end effector
+            return [Problem("robot.end_effector", f"task {cfg.task.id!r} reads the end effector, the robot has none")]
         return []
 
     def build(self, cfg: Any, simulator: str) -> Any:

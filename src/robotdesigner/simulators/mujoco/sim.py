@@ -72,13 +72,25 @@ class BatchedSim:
         for i in np.flatnonzero(mask):
             d = self.data[i]
             mujoco.mj_resetData(self.model, d)
+            if iface.reset_qpos is not None:  # an external robot: the model's own state first, the driven joints on top
+                d.qpos[:] = iface.reset_qpos
             d.qpos[iface.qpos_adr] = iface.home_qpos if qpos is None else qpos[i]
+            if iface.root_qpos_adr is not None:
+                a = iface.root_qpos_adr
+                d.qpos[a : a + 7] = [*iface.home_root.pos, *iface.home_root.quat]
+            if iface.held_ctrl is not None:
+                d.ctrl[:] = iface.held_ctrl
             if qvel is not None:
                 d.qvel[iface.qvel_adr] = qvel[i]
             mujoco.mj_forward(self.model, d)
 
     def set_ctrl(self, ctrl) -> None:
         ctrl = np.asarray(ctrl, dtype=np.float64)
+        if self.iface.held_ctrl is not None and ctrl.shape == (self.num_envs, self.iface.n):
+            # An external robot: commands of the driven joints in joint order; the other actuators keep their ctrl.
+            full = np.tile(self.iface.held_ctrl, (self.num_envs, 1))
+            full[:, self.iface.actuator_ids] = ctrl
+            ctrl = full
         if ctrl.shape != (self.num_envs, self.model.nu):
             raise ValueError(f"ctrl must have shape ({self.num_envs}, {self.model.nu}), got {ctrl.shape}")
         for d, c in zip(self.data, ctrl):
@@ -113,6 +125,8 @@ class BatchedSim:
 
     def ee_pos_base(self) -> np.ndarray:
         """End-effector positions in the base frame, ``(N, 3)``."""
+        if self.iface.ee_site_id is None:
+            raise ValueError("this robot has no end effector")
         world = np.stack([d.site_xpos[self.iface.ee_site_id] for d in self.data])
         return (world - self._base_pos) @ self._base_R
 
