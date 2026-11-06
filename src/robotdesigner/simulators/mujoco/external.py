@@ -143,7 +143,8 @@ def problems_of(cfg: EnvConfig) -> list[Problem]:
     try:
         facts = _open(robot)
     except ConfigError as e:
-        return problems + [Problem(e.path or "robot", e.reason)]
+        found = Problem(e.path or "robot", e.reason)
+        return problems if found in problems else problems + [found]  # the provider's own check may have said it already
     problems += facts.problems
     own = facts.model.opt.timestep
     if cfg.sim.dt > 2.0 * own:

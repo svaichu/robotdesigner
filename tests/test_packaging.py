@@ -44,3 +44,20 @@ def test_every_provider_package_imports_without_an_engine():
         "for n in names: importlib.import_module('robotdesigner.tasks.' + n)\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_menagerie_provider_imports_without_an_engine_or_the_library():
+    code = (
+        "import sys\n"
+        f"for m in {BLOCKED + ['mujoco_menagerie']!r}: sys.modules[m] = None\n"
+        "import robotdesigner.config as c\n"
+        "from robotdesigner.robot_providers.menagerie import PROVIDER, cards\n"
+        "assert 'menagerie' in c.list_robot_providers() and PROVIDER.names() == () and len(cards()) > 20\n"
+        "try:\n"
+        "    PROVIDER.describe('franka_emika_panda')\n"
+        "except c.ConfigError as e:\n"
+        "    assert e.path == 'provider' and 'robotdesigner[menagerie]' in e.reason, str(e)\n"
+        "else:\n"
+        "    raise SystemExit('no error')\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)

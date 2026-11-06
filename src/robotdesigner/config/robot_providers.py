@@ -1,7 +1,7 @@
 """Robot providers: who owns which robot namespace. Imports no simulation engine and no torch.
 
 An :class:`~robotdesigner.robot.ExternalRobot` refers to a model that lives elsewhere. Its ``provider`` field is a
-namespace (``"menagerie"``), and the namespace selects a *provider*, which
+namespace, and the namespace selects a *provider*, which
 
 - lists its robots (``names``),
 - reads a model and returns the numbers a config needs (``describe``, engine side),
