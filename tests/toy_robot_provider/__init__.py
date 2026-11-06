@@ -22,7 +22,7 @@ ARM3 = """
   <worldbody>
     <body name="base">
       <body name="l1" pos="0 0 0.1">
-        <joint name="j1" type="hinge" axis="0 0 1" range="-2 2"/>
+        <joint name="j1" type="hinge" axis="0 0 1" range="-2 2" damping="0.5" armature="0.01"/>
         <geom type="capsule" fromto="0 0 0 0.3 0 0" size="0.02" mass="1"/>
         <body name="l2" pos="0.3 0 0">
           <joint name="j2" type="hinge" axis="0 1 0" range="-1.5 1.5"/>

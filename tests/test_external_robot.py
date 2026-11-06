@@ -198,9 +198,16 @@ def test_native_gains_mode_table(kind, mode):
 
 
 @pytest.mark.parametrize("gains", [FixedGains(10.0, 1.0), InertiaScaledGains(10.0, 1.0)])
-def test_an_external_robot_takes_only_native_gains_for_now(gains):
-    e = err(_env, ext(), "joint_pos_abs", gains)
-    assert e.path == "control.gains" and "control spike" in e.reason
+@pytest.mark.parametrize("kind", sorted(NATIVE_MODES))
+@pytest.mark.parametrize("mode", [m for m in CONTROL_MODES if not m.startswith("ee_")])
+def test_our_own_gains_fit_any_mode_and_any_actuator_kind(gains, kind, mode):
+    # the compile replaces the model's actuators with ours, so the model's kind does not matter
+    cfg = _env(ext(actuator_kind=kind), mode, gains, _scale(mode))
+    assert cfg.control.gains == gains
+
+
+def test_per_joint_gains_of_the_wrong_length_are_still_an_error():
+    assert err(_env, ext(), "joint_pos_abs", FixedGains((1.0, 2.0, 3.0), 1.0)).path == "control.gains.kp"
 
 
 def test_native_gains_round_trip():
@@ -243,11 +250,11 @@ def test_builder_keeps_a_written_mode_and_reports_a_misfit():
     assert [p.path for p in bad.validate()] == ["control.mode"]
 
 
-def test_builder_rejects_fixed_gains_written_later():
+def test_builder_takes_fixed_gains_written_later_and_native_gains_again():
     cfg = BaseEnvConfig().robot(ext()).control(gains=FixedGains(10.0, 1.0))
-    with pytest.raises(ConfigError, match="control.gains: an ExternalRobot takes only NativeGains"):
-        cfg.resolve()
+    assert cfg.resolve().control.gains == FixedGains(10.0, 1.0)
     assert BaseEnvConfig().robot(ext()).control(gains=NativeGains()).resolve().control.gains == NativeGains()
+    assert "[set]" in next(line for line in cfg.explain().splitlines() if "control.gains" in line)
 
 
 def test_builder_native_gains_with_a_chain_is_an_error():

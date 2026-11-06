@@ -13,10 +13,10 @@ import warnings
 import mujoco
 import numpy as np
 
-from ...config import EnvConfig, ExternalRobot, Pose, get_robot_provider
+from ...config import EnvConfig, ExternalRobot, FixedGains, InertiaScaledGains, Pose, get_robot_provider
 from ...config.kinematics import quat_to_matrix
 from ...errors import ConfigError, Problem
-from .compile import _INTEGRATORS, CompiledRobot, RobotInterface
+from .compile import _INTEGRATORS, _LIMITED, _UNLIMITED, SUPPORTED_MODES, CompiledRobot, RobotInterface, _per_joint, inertia_scaled_gains
 from .scenes import apply_scene
 
 PREFIX = "ext_"
@@ -66,13 +66,16 @@ def actuator_kind(model: mujoco.MjModel, a: int) -> str:
 class Facts:
     """What the model of an external robot looks like, read from a standalone compile of the provider's spec."""
 
-    def __init__(self, robot: ExternalRobot, model: mujoco.MjModel):
+    def __init__(self, robot: ExternalRobot, model: mujoco.MjModel, own_actuators: bool = False):
+        """``own_actuators``: the compile replaces the actuators of the driven joints with its own (``FixedGains`` or
+        ``InertiaScaledGains``), so the model's need not exist, nor match ``actuator_kind``."""
         self.model = model
         self.joint_ids: list[int | None] = []
         self.actuator_ids: list[int | None] = []
+        self.replaced: set[int] = set()  # the actuators on driven joints: the compile deletes them when it brings its own
         self.problems: list[Problem] = []
         m = model
-        if m.nu == 0:
+        if m.nu == 0 and not own_actuators:
             self.problems.append(Problem("robot", f"the model of {robot.provider}/{robot.name} has no actuators"))
         for i, j in enumerate(robot.joints):
             where = f"robot.joints[{i}]"
@@ -88,6 +91,9 @@ class Facts:
             acts = [
                 a for a in range(m.nu) if int(m.actuator_trntype[a]) == int(mujoco.mjtTrn.mjTRN_JOINT) and int(m.actuator_trnid[a, 0]) == jid
             ]
+            self.replaced.update(acts)
+            if own_actuators:
+                continue
             if len(acts) != 1:
                 self.problems.append(Problem(where, f"joint {j.name!r} has {len(acts)} actuators with a joint transmission, expected 1"))
                 continue
@@ -95,7 +101,7 @@ class Facts:
         driven = [a for a in self.actuator_ids if a is not None]
         kinds = {actuator_kind(m, a) for a in driven}
         found = next(iter(kinds)) if len(kinds) == 1 else "mixed" if kinds else None
-        if found is not None and found != robot.actuator_kind:
+        if found is not None and found != robot.actuator_kind and not own_actuators:
             self.problems.append(
                 Problem("robot.actuator_kind", f"the driven actuators of the model are {found!r}, the config says {robot.actuator_kind!r}")
             )
@@ -123,7 +129,7 @@ class Facts:
                 self.problems.append(Problem("robot.end_effector.body", f"the model has no body {ee.body!r}"))
 
 
-def _open(robot: ExternalRobot):
+def _open(robot: ExternalRobot, own_actuators: bool = False):
     """``(spec, facts)`` of the provider's model; ``ConfigError`` from the provider (a stale ``source``) is passed on."""
     provider = get_robot_provider(robot.provider)
     try:
@@ -132,7 +138,7 @@ def _open(robot: ExternalRobot):
         raise
     except Exception as e:  # a model that does not open or compile
         raise ConfigError("robot", f"the model of {robot.provider}/{robot.name} could not be opened: {type(e).__name__}: {e}") from e
-    return Facts(robot, model)
+    return Facts(robot, model, own_actuators)
 
 
 def problems_of(cfg: EnvConfig) -> list[Problem]:
@@ -141,7 +147,7 @@ def problems_of(cfg: EnvConfig) -> list[Problem]:
     provider = get_robot_provider(robot.provider)
     problems = list(provider.validate(robot, "mujoco"))
     try:
-        facts = _open(robot)
+        facts = _open(robot, isinstance(cfg.control.gains, (FixedGains, InertiaScaledGains)))
     except ConfigError as e:
         found = Problem(e.path or "robot", e.reason)
         return problems if found in problems else problems + [found]  # the provider's own check may have said it already
@@ -156,14 +162,38 @@ def problems_of(cfg: EnvConfig) -> list[Problem]:
     return problems
 
 
-def compile_external(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
-    robot: ExternalRobot = cfg.robot
-    control = cfg.control
-    facts = _open(robot)
-    if facts.problems:
-        raise ConfigError(facts.problems[0].path, "; ".join(f"{p.path}: {p.message}" for p in facts.problems))
-    provider = get_robot_provider(robot.provider)
+def _add_own_actuators(spec: mujoco.MjSpec, robot: ExternalRobot, control, kp: list[float], kd: list[float]) -> None:
+    """The actuators a ``ParametricArm`` gets (``act_i``: gains, ``forcerange`` from the effort limit, ``ctrlrange`` from the
+    joint range), on the driven joints of the attached model."""
+    for i, joint in enumerate(robot.joints):
+        effort = joint.effort_limit
+        act = spec.add_actuator(name=f"act_{i}", target=PREFIX + joint.name, trntype=mujoco.mjtTrn.mjTRN_JOINT)
+        act.forcelimited = _LIMITED
+        act.forcerange = [-effort, effort]
+        act.ctrllimited = _LIMITED
+        rng = joint.range
+        if control.mode in ("joint_pos_abs", "joint_pos_delta"):
+            act.gainprm[0] = kp[i]
+            act.biasprm[:3] = [0.0, -kp[i], -kd[i]]
+            act.biastype = mujoco.mjtBias.mjBIAS_AFFINE
+            if rng is not None:
+                act.ctrlrange = list(rng)
+            elif control.mode == "joint_pos_abs":
+                act.ctrlrange = [-np.pi, np.pi]
+            else:  # a delta target on an unlimited joint is not bounded
+                act.ctrllimited = _UNLIMITED
+        elif control.mode == "joint_vel":
+            act.gainprm[0] = kd[i]  # force = kd * (ctrl - qvel)
+            act.biasprm[:3] = [0.0, 0.0, -kd[i]]
+            act.biastype = mujoco.mjtBias.mjBIAS_AFFINE
+            act.ctrllimited = _UNLIMITED
+        else:  # joint_torque
+            act.ctrlrange = [-effort, effort]
 
+
+def _build_external_spec(cfg: EnvConfig, facts: Facts, scene_hook, own: tuple[list[float], list[float]] | None) -> mujoco.MjSpec:
+    """The scene with the model attached. ``own = (kp, kd)`` replaces the model's actuators on the driven joints."""
+    robot: ExternalRobot = cfg.robot
     mount = cfg.task.mount
     spec = mujoco.MjSpec()
     spec.compiler.degree = False  # all angles here are radians
@@ -174,28 +204,71 @@ def compile_external(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
         scene_hook(spec)
     spec.worldbody.add_body(name="base", pos=list(mount.pos), quat=list(mount.quat))
     frame = spec.worldbody.add_frame(pos=list(mount.pos), quat=list(mount.quat))
-    child = provider.spec(robot)
+    child = get_robot_provider(robot.provider).spec(robot)
     _model_options(facts.model, spec)
+    if own is not None:
+        # Removing an actuator breaks the keyframes' ctrl size; the keyframe state is read from the standalone compile.
+        for key in list(child.keys):
+            child.delete(key)
+        replaced = [a for k, a in enumerate(child.actuators) if k in facts.replaced]
+        for a in replaced:
+            child.delete(a)
     spec.attach(child, prefix=PREFIX, frame=frame)
-
     ee = robot.end_effector
     if ee is not None and ee.body is not None:
         body = spec.body(PREFIX + ee.body)
         body.add_site(name="ee", pos=list(ee.offset.pos), quat=list(ee.offset.quat))
-    model = spec.compile()
+    if own is not None:
+        _add_own_actuators(spec, robot, cfg.control, *own)
+    return spec
+
+
+def compile_external(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
+    robot: ExternalRobot = cfg.robot
+    control = cfg.control
+    own_actuators = isinstance(control.gains, (FixedGains, InertiaScaledGains))
+    if own_actuators and control.mode not in SUPPORTED_MODES:
+        raise NotImplementedError(f"control mode {control.mode!r} is not compiled")
+    facts = _open(robot, own_actuators)
+    if facts.problems:
+        raise ConfigError(facts.problems[0].path, "; ".join(f"{p.path}: {p.message}" for p in facts.problems))
     c = facts.model
+    n = robot.n
+    # With our own actuators the model's remaining ones come first among the attached ones, ours are the last n.
+    keep = [a for a in range(c.nu) if a not in facts.replaced] if own_actuators else list(range(c.nu))
+
+    own = None
+    if own_actuators:
+        gains = control.gains
+        if isinstance(gains, FixedGains):
+            own = (_per_joint(gains.kp, n), _per_joint(gains.kd, n))
+        else:
+            # Two passes: compile with placeholder gains, read M at home and the model's joint damping, build with the final gains.
+            first = _build_external_spec(cfg, facts, scene_hook, ([0.0] * n, [0.0] * n)).compile()
+            ids = [first.njnt - c.njnt + jc for jc in facts.joint_ids]
+            qpos_adr, qvel_adr = first.jnt_qposadr[ids], first.jnt_dofadr[ids]
+            kp_arr, kd_arr = inertia_scaled_gains(
+                first, np.array(robot.home_qpos), qpos_adr, qvel_adr, first.dof_damping[qvel_adr], gains
+            )
+            own = (list(kp_arr), list(kd_arr))
+    spec = _build_external_spec(cfg, facts, scene_hook, own)
+    model = spec.compile()
+    mount = cfg.task.mount
+    ee = robot.end_effector
 
     # The attached model's joints and actuators come last, in their own order: ids shift by what the scene has before them.
-    joff, aoff = model.njnt - c.njnt, model.nu - c.nu
-    n = robot.n
+    joff = model.njnt - c.njnt
+    aoff = model.nu - (n if own_actuators else 0) - len(keep)
     joint_ids = [joff + jc for jc in facts.joint_ids]
     for j, jid in zip(robot.joints, joint_ids):
         if _id(model, _OBJ.mjOBJ_JOINT, PREFIX + j.name) != jid:
             raise ConfigError("robot.joints", f"joint {j.name!r} did not keep its place when the model was attached")
-    act_ids = np.array([aoff + a for a in facts.actuator_ids], dtype=int)
+    act_ids = (
+        np.arange(model.nu - n, model.nu) if own_actuators else np.array([aoff + a for a in facts.actuator_ids], dtype=int)
+    )
 
     # The state at reset: the keyframe mapped onto this model, joint by joint, and the ctrl of the actuators not driven.
-    reset_qpos = held = None
+    reset_qpos = None
     if facts.key is not None:
         reset_qpos = model.qpos0.copy()
         for jc in range(c.njnt):
@@ -204,7 +277,8 @@ def compile_external(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
             reset_qpos[model.jnt_qposadr[jp] : model.jnt_qposadr[jp] + size] = c.key_qpos[facts.key][c.jnt_qposadr[jc] : c.jnt_qposadr[jc] + size]
     held = np.zeros(model.nu)
     if facts.key is not None:
-        held[aoff:] = c.key_ctrl[facts.key]
+        for k, a in enumerate(keep):
+            held[aoff + k] = c.key_ctrl[facts.key][a]
     held[act_ids] = 0.0
 
     root_adr = home_root = None
@@ -218,12 +292,16 @@ def compile_external(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
         model.actuator_ctrlrange[act_ids],
         np.array([-np.inf, np.inf]),
     )
-    if robot.actuator_kind == "position":
+    if own_actuators or robot.actuator_kind == "position":
         unlimited = ~model.actuator_ctrllimited[act_ids].astype(bool)
         ctrl_range[unlimited] = np.array([(-np.inf, np.inf) if j.range is None else j.range for j in robot.joints])[unlimited]
-    servo = control.mode in ("joint_pos_abs", "joint_pos_delta")
-    kp = model.actuator_gainprm[act_ids, 0].copy() if servo else None
-    kd = -model.actuator_biasprm[act_ids, 2].copy() if servo else None
+    if own_actuators:
+        kp = None if control.mode == "joint_torque" else np.array(own[0])
+        kd = None if control.mode == "joint_torque" else np.array(own[1])
+    else:
+        servo = control.mode in ("joint_pos_abs", "joint_pos_delta")
+        kp = model.actuator_gainprm[act_ids, 0].copy() if servo else None
+        kd = -model.actuator_biasprm[act_ids, 2].copy() if servo else None
 
     ee_site = None
     if ee is not None:

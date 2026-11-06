@@ -302,3 +302,147 @@ def test_parametric_compile_still_works_next_to_an_external_one(arm3):
     from tests.test_mujoco_env import make_cfg
 
     assert compile_robot(make_cfg()).interface.ctrl_range is None
+
+
+# --- our own actuators on an external robot (FixedGains, InertiaScaledGains) -------------------------------------------
+
+from robotdesigner.config import FixedGains, InertiaScaledGains  # noqa: E402
+
+
+def own_cfg(robot, gains, mode="joint_pos_abs", scale=None, num_envs=2, mount=Pose.identity()):
+    cfg = reach_cfg(robot, mount, num_envs=num_envs)  # native gains in a mode that fits; the control is replaced below
+    return replace(cfg, control=ControlConfig(mode, gains, scale))
+
+
+def actuator_names(env):
+    model = env._compiled.model
+    return [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, int(a)) for a in env.interface.actuator_ids]
+
+
+@pytest.mark.parametrize("mode,scale", [("joint_pos_abs", None), ("joint_pos_delta", 0.3), ("joint_vel", 1.0), ("joint_torque", None)])
+def test_the_four_modes_run_on_an_external_arm_with_our_gains(arm3, mode, scale):
+    env = make_env(own_cfg(arm3, FixedGains(80.0, 8.0), mode, scale))
+    check_env_specs(env)
+    assert actuator_names(env) == ["act_0", "act_1", "act_2"] and env.interface.n == 3
+    td = env.reset()
+    for _ in range(10):
+        td["action"] = env.action_spec.rand()
+        td = env.step(td)["next"]
+    assert torch.isfinite(td["proprio", "qpos"]).all()
+    if mode == "joint_torque":
+        assert env.interface.kp is None
+    else:
+        assert np.allclose(env.interface.kp, 80.0) and np.allclose(env.interface.kd, 8.0)
+
+
+def test_per_joint_gains_and_the_model_keeps_its_damping_armature_and_keyframe(arm3):
+    env = make_env(own_cfg(arm3, FixedGains((10.0, 20.0, 30.0), (1.0, 2.0, 3.0))))
+    assert np.allclose(env.interface.kp, [10, 20, 30]) and np.allclose(env.interface.kd, [1, 2, 3])
+    model = env._compiled.model
+    assert model.dof_damping[env.interface.qvel_adr[0]] == 0.5 and model.dof_armature[env.interface.qvel_adr[0]] == 0.01
+    assert model.nu == 3 and np.allclose(model.actuator_forcerange[env.interface.actuator_ids], [[-40, 40], [-30, 30], [-20, 20]])
+    env.reset()
+    assert np.allclose(env._sim.data[0].qpos[env.interface.qpos_adr], arm3.home_qpos)
+
+
+def test_actuators_that_are_not_driven_survive_and_are_held(armfinger):
+    env = make_env(own_cfg(armfinger, FixedGains(60.0, 6.0), num_envs=2))
+    model = env._compiled.model
+    finger = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "ext_af")
+    assert finger >= 0 and model.nu == 3 and env.interface.action_dim == 2
+    assert env.interface.held_ctrl[finger] == pytest.approx(0.03) and finger not in env.interface.actuator_ids
+    td = env.reset()
+    for _ in range(50):
+        td["action"] = env.action_spec.rand()
+        td = env.step(td)["next"]
+        assert all(d.ctrl[finger] == pytest.approx(0.03) for d in env._sim.data)
+    assert actuator_names(env) == ["act_0", "act_1"]
+
+
+def test_our_gains_equal_the_models_own_when_the_numbers_are_equal(arm3):
+    native = make_env(reach_cfg(arm3, num_envs=1))
+    own = make_env(own_cfg(arm3, FixedGains(100.0, 0.0), num_envs=1))
+    rng = np.random.default_rng(0)
+    acts = [torch.tensor(rng.uniform(-0.05, 0.05, (1, 3)), dtype=torch.float32) for _ in range(60)]
+    traces = []
+    for env in (native, own):
+        td = env.reset()
+        q = []
+        for a in acts:
+            td["action"] = a
+            td = env.step(td)["next"]
+            q.append(env._sim.data[0].qpos[env.interface.qpos_adr].copy())
+        traces.append(np.array(q))
+    assert np.abs(traces[0] - traces[1]).max() < 1e-9
+
+
+def test_inertia_scaled_gains_use_the_mass_matrix_and_the_damping_of_the_model(arm3):
+    w, zeta = 20.0, 1.0
+    env = make_env(own_cfg(arm3, InertiaScaledGains(w, zeta)))
+    model, iface = env._compiled.model, env.interface
+    data = mujoco.MjData(model)
+    data.qpos[iface.qpos_adr] = arm3.home_qpos
+    mujoco.mj_forward(model, data)
+    M = np.zeros((model.nv, model.nv))
+    try:  # newer MuJoCo: mj_fullM(model, data, dst); older: mj_fullM(model, dst, qM)
+        mujoco.mj_fullM(model, data, M)
+    except TypeError:
+        mujoco.mj_fullM(model, M, data.qM)
+    m_diag = M[iface.qvel_adr, iface.qvel_adr]
+    assert np.allclose(iface.kp, w**2 * m_diag, rtol=1e-9)
+    damping = model.dof_damping[iface.qvel_adr]
+    assert damping[0] == 0.5 and np.allclose(iface.kd, np.maximum(2 * zeta * np.sqrt(iface.kp * m_diag) - damping, 0.0))
+    assert np.allclose(model.actuator_gainprm[iface.actuator_ids, 0], iface.kp)
+
+
+def test_joint_torque_on_a_position_servo_arm_sags_and_is_clipped_by_the_effort_limit(arm3):
+    native = make_env(reach_cfg(arm3, num_envs=1))
+    torque = make_env(own_cfg(arm3, FixedGains(80.0, 8.0), "joint_torque", num_envs=1))
+    for env in (native, torque):
+        td = env.reset()
+        for _ in range(100):
+            td["action"] = torch.zeros(1, 3)
+            td = env.step(td)["next"]
+    q_native = native._sim.data[0].qpos[native.interface.qpos_adr]
+    q_torque = torque._sim.data[0].qpos[torque.interface.qpos_adr]
+    assert abs(q_native[1] - 0.0) < 0.2 and abs(q_torque[1] - arm3.home_qpos[1]) > 0.1  # one holds position, the other sags
+    td = torque.reset()
+    td["action"] = torch.ones(1, 3)
+    torque.step(td)
+    d = torque._sim.data[0]
+    assert np.allclose(d.ctrl[torque.interface.actuator_ids], [40, 30, 20])  # the ends of the ctrlrange are the effort limits
+    assert (np.abs(d.actuator_force[torque.interface.actuator_ids]) <= np.array([40, 30, 20]) + 1e-9).all()
+
+
+def test_our_gains_on_a_floating_robot(floater):
+    cfg = replace(idle_cfg(floater, ROTATED), control=ControlConfig("joint_torque", FixedGains(10.0, 1.0), None))
+    env = make_env(cfg)
+    td = env.reset()
+    a = env.interface.root_qpos_adr
+    want = compose(ROTATED, floater.home_root)
+    assert np.allclose(env._sim.data[0].qpos[a : a + 3], want.pos)
+    td["action"] = torch.ones(4, 2)
+    env.step(td)
+    assert actuator_names(env) == ["act_0", "act_1"] and env._compiled.model.nu == 2
+
+
+def test_the_stale_source_check_still_applies_with_our_own_gains(arm3):
+    msg = err_of(lambda: make_env(own_cfg(replace(arm3, source="stale"), FixedGains(60.0, 6.0))))
+    assert "robot.source: the model changed since this config was written" in msg
+
+
+def test_a_model_without_actuators_can_be_driven_with_our_gains():
+    from tests.toy_robot_provider import PASSIVE, source_of
+
+    robot = ExternalRobot(
+        provider="toyrobot", name="passive", entry="passive.xml", source=source_of(PASSIVE),
+        joints=(ExternalJoint("j1", (-2.0, 2.0), 10.0),), home_qpos=(0.0,), home_root=None, keyframe=None,
+        end_effector=None, actuator_kind="position",
+    )
+    assert "has no actuators" in err_of(lambda: make_env(idle_cfg(robot, Pose.identity())))  # native: refused
+    cfg = BaseEnvConfig().robot(robot).control(gains=FixedGains(60.0, 6.0)).sim(num_envs=2, scene="plain_floor").resolve()
+    env = make_env(cfg)
+    td = env.reset()
+    td["action"] = torch.ones(2, 1)
+    td = env.step(td)["next"]
+    assert torch.isfinite(td["proprio", "qpos"]).all() and env._compiled.model.nu == 1
