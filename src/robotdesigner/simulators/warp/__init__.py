@@ -24,12 +24,14 @@ class WarpSimulator:
         return Capabilities(
             control_modes=frozenset({"joint_pos_abs", "joint_pos_delta", "joint_torque", "joint_vel"}),
             devices=frozenset({"cuda"}),
-            robot_kinds=frozenset({"parametric"}),
+            robot_kinds=frozenset({"parametric", "external"}),
             integrators=frozenset({"euler", "implicit", "implicitfast", "rk4"}),
         )
 
     def validate(self, cfg: Any) -> list[Problem]:
         problems: list[Problem] = []
+        if type(cfg.robot).__name__ == "ExternalRobot":
+            problems.extend(self._external_problems(cfg))
         if getattr(cfg.robot, "gripper", None) is not None:
             problems.append(
                 Problem("robot.gripper", "the warp simulator does not build grippers yet; use the mujoco simulator")
@@ -55,6 +57,25 @@ class WarpSimulator:
                 problems.append(Problem("sim.scene", f"unknown scene {cfg.sim.scene!r}; available: {sorted(SCENES)}"))
         problems.extend(self._device_problems(cfg.sim.device))
         return problems
+
+    @staticmethod
+    def _external_problems(cfg: Any) -> list[Problem]:
+        """What the installed MuJoCo Warp does not run in the model of an external robot, at the path ``robot``. The
+        model is the robot provider's, attached to the scene preset: the task's own assets are checked at build time."""
+        try:
+            from ..mujoco.compile import compile_robot
+            from ..mujoco.external import problems_of
+            from .sim import check_model_supported
+        except ImportError:
+            return []  # a missing library is reported below
+        opened = problems_of(cfg)  # the provider's checks, as for the mujoco simulator
+        if opened:
+            return opened
+        try:
+            model = compile_robot(cfg).model
+        except Exception as e:  # not a feature of the robot: the other checks say what is wrong
+            return [Problem("robot", f"the model could not be compiled: {type(e).__name__}: {e}")]
+        return [Problem("robot", p.message) for p in check_model_supported(model)]
 
     @staticmethod
     def _device_problems(device: str) -> list[Problem]:
