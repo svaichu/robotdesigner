@@ -41,22 +41,19 @@ class EnvConfig:
     def _check_gains_against_robot(self) -> None:
         gains = self.control.gains
         if isinstance(self.robot, ExternalRobot):
-            if isinstance(gains, (FixedGains, InertiaScaledGains)):
-                raise ConfigError(
-                    "control.gains",
-                    f"an ExternalRobot takes only NativeGains for now, not {type(gains).__name__}: driving it with "
-                    "gains of this package (re-actuation) waits for the control spike",
-                )
-            fits = NATIVE_MODES[self.robot.actuator_kind]
-            if self.control.mode not in fits:
-                hint = (
-                    f"the modes that fit are {list(fits)}" if fits else
-                    "no mode fits: restrict robot.joints to joints with one kind of actuator"
-                )
-                raise ConfigError(
-                    "control.mode",
-                    f"mode {self.control.mode!r} does not fit the model's {self.robot.actuator_kind!r} actuators; {hint}",
-                )
+            # FixedGains and InertiaScaledGains replace the model's actuators with ours, so any mode fits; NativeGains
+            # drives the model's own actuators, so the mode must fit their kind.
+            if isinstance(gains, NativeGains):
+                fits = NATIVE_MODES[self.robot.actuator_kind]
+                if self.control.mode not in fits:
+                    hint = (
+                        f"the modes that fit are {list(fits)}" if fits else
+                        "no mode fits: restrict robot.joints to joints with one kind of actuator, or use FixedGains"
+                    )
+                    raise ConfigError(
+                        "control.mode",
+                        f"mode {self.control.mode!r} does not fit the model's {self.robot.actuator_kind!r} actuators; {hint}",
+                    )
         elif isinstance(gains, NativeGains):
             raise ConfigError("control.gains", "NativeGains drives a model's own actuators: it needs an ExternalRobot")
 

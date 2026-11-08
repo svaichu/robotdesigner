@@ -58,8 +58,7 @@ in the process that parses it.
 ## Cross-part checks
 
 `EnvConfig` checks what no single part can: per-joint `kp` / `kd` sequences must have as many entries as the robot has joints, and the control must fit the robot kind.
-`NativeGains` needs an [`ExternalRobot`](robot.md#externalrobot-a-model-that-lives-elsewhere) (error at `control.gains` otherwise); an `ExternalRobot` takes only `NativeGains`
-for now (error at `control.gains`), and its `control.mode` must fit its `actuator_kind` (error at `control.mode` listing the modes that fit, see [control](control.md#gains)).
+`NativeGains` needs an [`ExternalRobot`](robot.md#externalrobot-a-model-that-lives-elsewhere) (error at `control.gains` otherwise); an `ExternalRobot` takes any of the three kinds of gains. With `NativeGains` its `control.mode` must fit its `actuator_kind` (error at `control.mode` listing the modes that fit, see [control](control.md#gains)); with `FixedGains` or `InertiaScaledGains` every mode fits, because the actuators are ours.
 `robot` is a `ParametricArm` or an `ExternalRobot`; `from_dict` reads either through `robot_from_dict`.
 
 ```python

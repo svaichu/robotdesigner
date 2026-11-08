@@ -91,10 +91,9 @@ resolved = with_ext.resolve()
 assert resolved.control.gains.to_dict() == {"kind": "native"} and resolved.control.mode == "joint_torque"
 assert any(line.endswith("[default (robot)]") for line in with_ext.explain().splitlines() if "control.gains" in line)
 assert BaseEnvConfig.from_dict(with_ext.to_dict()) == with_ext
-try:
-    with_ext.control(gains=FixedGains(60.0, 6.0)).resolve()      # re-actuation is not built yet
-except ConfigError as e:
-    assert e.path == "control.gains"
+ours = with_ext.control(gains=FixedGains(60.0, 6.0), mode="joint_vel", action_scale=1.0)    # our actuators replace the model's: any mode fits
+assert ours.resolve().control.gains == FixedGains(60.0, 6.0) and ours.resolve().control.mode == "joint_vel"
+assert any("control.gains" in line and line.endswith("[set]") for line in ours.explain().splitlines())
 unregister_robot_provider("demo")
 ```
 

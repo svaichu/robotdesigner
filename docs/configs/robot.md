@@ -200,8 +200,7 @@ assert error_of(lambda: EndEffectorRef(site="ee", body="hand", offset=Pose.ident
 assert error_of(lambda: robot_from_dict({"kind": "mystery"})).path == "kind"
 ```
 
-What an `ExternalRobot` can do depends on its parts. It is driven with its own actuators and gains (`NativeGains`, see [control](control.md#gains)) and nothing else
-for now. A simulator must list the kind `external` among its capabilities: the CPU MuJoCo simulator does ([how it runs one](../simulators.md#external-robots-on-the-cpu-simulator)); Warp does not yet, so `make_env` rejects it there.
+What an `ExternalRobot` can do depends on its parts. By default it is driven with its own actuators and gains (`NativeGains`); `FixedGains` or `InertiaScaledGains` replace the actuators of the driven joints with ours (see [control](control.md#gains)). A simulator must list the kind `external` among its capabilities: the CPU MuJoCo simulator does ([how it runs one](../simulators.md#external-robots-on-the-cpu-simulator)); Warp does not yet, so `make_env` rejects it there.
 
 ### Robot providers
 
