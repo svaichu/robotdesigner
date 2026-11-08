@@ -135,6 +135,11 @@ class WarpBatchedSim:
         self._qvel_idx = torch.as_tensor(iface.qvel_adr, dtype=torch.long, device=dev)
         self._act_idx = torch.as_tensor(iface.actuator_ids, dtype=torch.long, device=dev)
         self._home = torch.as_tensor(iface.home_qpos, **f32)
+        # An external robot (see compile): the model's own state at reset, the root pose of a free joint, the ctrl of the
+        # actuators that are not driven. All None for a ParametricArm.
+        self._reset_q = None if iface.reset_qpos is None else torch.as_tensor(iface.reset_qpos, **f32)
+        self._root7 = None if iface.root_qpos_adr is None else torch.as_tensor([*iface.home_root.pos, *iface.home_root.quat], **f32)
+        self._held = None if iface.held_ctrl is None else torch.as_tensor(iface.held_ctrl, **f32)
         self._bp = torch.as_tensor(self._base_pos64, **f32)
         self._bR = torch.as_tensor(self._base_R64, **f32)
         self._bqi = torch.as_tensor(self._base_quat_inv64, **f32)
@@ -188,8 +193,16 @@ class WarpBatchedSim:
         d = self._d
         q, v = wp.to_torch(d.qpos), wp.to_torch(d.qvel)
         m = mask[:, None]
+        if self._reset_q is not None:  # the whole keyframe state first (finger and passive joints get their model values)
+            q[:] = torch.where(m, self._reset_q.expand_as(q), q)
         new_q = self._home.expand(N, n) if qpos is None else qpos.to(self.device, torch.float32)
         q[:, self._qpos_idx] = torch.where(m, new_q, q[:, self._qpos_idx])
+        if self._root7 is not None:
+            a = self.iface.root_qpos_adr
+            q[:, a : a + 7] = torch.where(m, self._root7.expand(N, 7), q[:, a : a + 7])
+        if self._held is not None:
+            c = wp.to_torch(d.ctrl)
+            c[:] = torch.where(m, self._held.expand_as(c), c)
         if qvel is not None:
             v[:, self._qvel_idx] = torch.where(m, qvel.to(self.device, torch.float32), v[:, self._qvel_idx])
         with self._scope():
@@ -198,6 +211,11 @@ class WarpBatchedSim:
     def set_ctrl(self, ctrl: torch.Tensor) -> None:
         self._require()
         ctrl = torch.as_tensor(ctrl)
+        if self._held is not None and tuple(ctrl.shape) == (self.num_envs, self.iface.n):
+            # An external robot: commands of the driven joints in joint order; the other actuators keep their ctrl.
+            full = self._held.expand(self.num_envs, -1).clone()
+            full[:, self._act_idx] = ctrl.to(self.device, torch.float32)
+            ctrl = full
         if tuple(ctrl.shape) != (self.num_envs, self.model.nu):
             raise ValueError(f"ctrl must have shape ({self.num_envs}, {self.model.nu}), got {tuple(ctrl.shape)}")
         wp.to_torch(self._d.ctrl).copy_(ctrl.to(self.device, torch.float32))
@@ -286,15 +304,15 @@ class WarpBatchedSim:
         nacon, naconmax = int(wp.to_torch(d.nacon).max()), int(d.naconmax)
         if nacon > naconmax:
             raise CapacityError(
-                f"the contacts ({nacon}) exceed the allocation of {naconmax} (nconmax={opts.nconmax} per world)"
+                f"the contacts ({nacon}) exceed the allocation of {naconmax}: raise sim.options.nconmax (now {opts.nconmax} per world)"
             )
         flags = int(np.bitwise_or.reduce(wp.to_torch(d.overflow).flatten().cpu().numpy()))
         if flags:
             names = [b.name for b in wtypes.OverflowType if b.name != "ALL" and flags & int(b)]
             nefc = int(wp.to_torch(d.nefc).max())
             raise CapacityError(
-                f"capacity exceeded: {', '.join(names)} (most constraint rows in a world: {nefc}, njmax={opts.njmax}; "
-                f"contacts: {nacon}, nconmax={opts.nconmax} per world)"
+                f"capacity exceeded: {', '.join(names)}: raise sim.options.njmax (constraint rows; the most in a world: {nefc}, "
+                f"njmax={opts.njmax}) or sim.options.nconmax (contacts: {nacon}, nconmax={opts.nconmax} per world)"
             )
 
     def capacity_usage(self) -> dict[str, int]:
