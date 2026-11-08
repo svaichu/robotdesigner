@@ -108,7 +108,7 @@ tensordict < 0.15, tensordict 0.15.3 needs torch >= 2.11: widen the pins only af
 2. The smallest `n` that can physically solve `Lift`; infeasibility must be separable from failures of learning. The MuJoCo simulator builds no
    gripper (`robot.tool` is ignored), so grasping tasks are out of reach.
 3. Reward shaping of the robosuite objectives is basic (negative distance); `Wipe` needs an objective of its own.
-4. An `ExternalRobot` baseline (the stock Panda) through the same contract: config side (#49) and the CPU MuJoCo compile (#50) exist; the menagerie provider (#51, `robot_providers/menagerie`, cards in `cards.json`, status in `tests/menagerie_expected.json`) exists; re-actuation (#52: `FixedGains` / `InertiaScaledGains` replace the model's actuators on the driven joints) exists; Warp does not.
+4. An `ExternalRobot` baseline (the stock Panda) through the same contract: config side (#49) and the CPU MuJoCo compile (#50) exist; the menagerie provider (#51, `robot_providers/menagerie`, cards in `cards.json`, status in `tests/menagerie_expected.json`) exists; re-actuation (#52: `FixedGains` / `InertiaScaledGains` replace the model's actuators on the driven joints) exists; Warp runs external robots too (#53), verified on Warp's CPU device only: **CUDA is not verified for external robots** (the `gpu` tests skip here).
 5. robosuite 1.5.2 placement path, robosuite throughput with many envs, and the `robosuite` CI job are unchecked.
 6. The user's idea list item "molvospaces": with the terms above that is a task provider (assets) or a simulator (physics): decide which.
 

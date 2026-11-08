@@ -304,15 +304,15 @@ class WarpBatchedSim:
         nacon, naconmax = int(wp.to_torch(d.nacon).max()), int(d.naconmax)
         if nacon > naconmax:
             raise CapacityError(
-                f"the contacts ({nacon}) exceed the allocation of {naconmax} (nconmax={opts.nconmax} per world)"
+                f"the contacts ({nacon}) exceed the allocation of {naconmax}: raise sim.options.nconmax (now {opts.nconmax} per world)"
             )
         flags = int(np.bitwise_or.reduce(wp.to_torch(d.overflow).flatten().cpu().numpy()))
         if flags:
             names = [b.name for b in wtypes.OverflowType if b.name != "ALL" and flags & int(b)]
             nefc = int(wp.to_torch(d.nefc).max())
             raise CapacityError(
-                f"capacity exceeded: {', '.join(names)} (most constraint rows in a world: {nefc}, njmax={opts.njmax}; "
-                f"contacts: {nacon}, nconmax={opts.nconmax} per world)"
+                f"capacity exceeded: {', '.join(names)}: raise sim.options.njmax (constraint rows; the most in a world: {nefc}, "
+                f"njmax={opts.njmax}) or sim.options.nconmax (contacts: {nacon}, nconmax={opts.nconmax} per world)"
             )
 
     def capacity_usage(self) -> dict[str, int]:

@@ -39,7 +39,7 @@ silently substituted. The sources of problems are:
 | `ee_pos_delta`, `ee_pose_delta` | not implemented | not implemented |
 | integrators | `euler`, `implicit`, `implicitfast`, `rk4` | the same |
 | `TwoFingerGripper` | built; one extra action dimension | **rejected** (`robot.gripper`) |
-| robot kinds | `parametric`, `external` | `parametric` only |
+| robot kinds | `parametric`, `external` | `parametric`, `external` |
 | devices | `cpu` | `cuda:N` |
 
 What the capabilities list is what the parity tests have shown to match, not what the engine could conceivably do.
@@ -155,6 +155,52 @@ The robot provider's `MjSpec` is attached to the scene and driven by **its own a
 - Rendering uses a host copy of one world's state, so it costs a device-to-host copy.
 - The model must be one the parity tests cover (`check_model_supported` lists what is not).
 - No gripper yet.
+
+### External robots on Warp
+
+An [`ExternalRobot`](configs/robot.md#externalrobot-a-model-that-lives-elsewhere) runs on Warp with the same compile as on the CPU simulator ([above](#external-robots-on-the-cpu-simulator)). The Warp
+reset writes the same state as the CPU reset: the model keyframe, the driven joints at `home_qpos` plus noise, the composed root pose of a free joint and the held `ctrl` of the actuators that are not driven,
+each per world and masked. `validate` runs `check_model_supported` on the compiled robot model and reports what the installed MuJoCo Warp does not run at the path `robot`; the provider's own checks
+(a stale `source`) are reported too. The action mapping is the CPU simulator's (the actuator's `ctrlrange`).
+
+**Parity** against the CPU simulator, Warp's CPU device, 4 envs, 30 policy steps of random actions of 0.05 of the action range, from the home state (largest absolute error; tolerances `qpos` 1e-4, `qvel` 1e-3,
+effort 1e-2, as in `tests/test_warp_parity.py`). Measured with warp-lang 1.18.0 and mujoco-warp 3.17.0. **These numbers are from Warp's CPU device; the CUDA path is not verified for external robots**
+(the `gpu`-marked copies of the tests are written and skip without a device).
+
+| robot | gains, mode | qpos | qvel | effort | within |
+|---|---|---|---|---|---|
+| Panda | ours (kp 60, kd 6), `joint_pos_abs` | 4.8e-7 | 9.2e-6 | 7.0e-5 | yes |
+| Panda | ours, `joint_vel` | 6.0e-7 | 1.7e-5 | 5.1e-5 | yes |
+| Panda | ours, `joint_torque` | 2.9e-6 | 1.4e-5 | 0 | yes |
+| Panda | native, `joint_pos_delta` | 6.7e-4 | 1.2e-1 | 13 | **no** |
+| Panda | native, `joint_pos_abs` | 3.9e-2 | 2.3 | 1.7e2 | **no** |
+| UR5e | native, `joint_pos_delta` | 6.0e-7 | 2.0e-5 | 3.3e-3 | yes |
+| UR5e | ours, `joint_vel` | 1.8e-6 | 3.9e-5 | 2.4e-4 | yes |
+| UR5e | ours, `joint_pos_abs` | 9.0e-3 | 2.6e-1 | 1.8 | **no** |
+| UR5e | ours, `joint_torque` | 1.6e-4 | 1.4e-3 | 0 | **no** (slightly) |
+| UR5e | native, `joint_pos_abs` | 1.5e-2 | 1.9 | 3.0e2 | **no** |
+| Go2 | native (`joint_torque`, plain motors) | 3.1e-6 | 4.8e-5 | 2.4e-7 | yes |
+| Go2 | ours, `joint_pos_abs` | 9.5e-7 | 1.6e-5 | 1.5e-4 | yes |
+| Go2 | ours, `joint_vel` | 2.9e-6 | 6.1e-5 | 4.0e-4 | yes |
+
+Where it is outside the tolerances, the two simulators agree until something amplifies float32 rounding, which is a property of the case, not a unit mismatch:
+
+- **Stiff native servos (Panda).** Its native gains are kp 4500 and kd 450. With no contact at all, the error grows from 2e-7 at the first step to 9e-3 by step 6. The same model with kp 60 agrees to 5e-7.
+- **Mesh contacts (UR5e).** With our gains the trajectory agrees to 5e-7 until the arm touches the floor or itself (step 15), and then differs by 1e-3 to 5e-3; the contact sets differ (for example 2 contacts on the CPU, 1 on Warp).
+  `joint_pos_abs` of a native robot also starts by moving to the middle of the range, which causes such contacts.
+- **A body thrown onto the floor.** A free root in free fall agrees (tested), but once a box and two capsules land and tumble the two simulators diverge: a chaotic contact case.
+- **An undamped servo arm.** A toy arm with kp 100, kd 0 and no armature differs by 3e-2 in 20 steps; adding armature and damping brings it to 3e-7. Parity needs a model that is not marginally stable.
+
+**Capacities** (`WarpOptions`; the default is `njmax=128`, `nconmax=32` per world; the numbers are the most constraint rows / the most contacts in one world, native control, 8 envs, plain floor):
+
+| robot | at home | random actions, 0.5 of the range | random actions, full range |
+|---|---|---|---|
+| Panda | 3 / 0 | 53 / 13 | 419 / 104 |
+| UR5e | 20 / 5 | 28 / 7 | 36 / 9 |
+| Go2 | 92 / 14 | 72 / 11 | 108 / 20 |
+
+The defaults fit the UR5e and the Go2, and the Panda unless it is driven through its whole range, where its self-contacts need `njmax` of about 512 and `nconmax` of about 128. `CapacityError` says which option to raise
+(`sim.options.njmax` for constraint rows, `sim.options.nconmax` for contacts). `WarpOptions.default()` is unchanged.
 
 ```python no-run
 cfg = cfg.sim(simulator="warp", device="cuda:0", num_envs=4096)     # options become WarpOptions.default()

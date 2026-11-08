@@ -119,8 +119,17 @@ PASSIVE = """
 </mujoco>
 """
 
+# The same arm with damped servos (kv): the dynamics are not chaotic, which the CPU-versus-Warp parity tests need.
+ARM3D = (
+    ARM3.replace('model="arm3"', 'model="arm3d"')
+    .replace(' damping="0.5" armature="0.01"', "")
+    .replace('type="hinge"', 'type="hinge" damping="0.5" armature="0.01"')
+    .replace('kp="100"', 'kp="100" kv="10"')
+)
+
 MODELS = {
     "arm3": ("arm3.xml", ARM3),
+    "arm3d": ("arm3d.xml", ARM3D),
     "floater": ("floater.xml", FLOATER),
     "armfinger": ("armfinger.xml", ARMFINGER),
     "passive": ("passive.xml", PASSIVE),
