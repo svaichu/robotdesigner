@@ -123,7 +123,7 @@ Physics on the GPU is deterministic per device and library release but not bitwi
 
 ### External robots on the CPU simulator
 
-The robot provider's `MjSpec` is attached to the scene and driven by **its own actuators** (`NativeGains`); the same environment, tasks and `SimView` run on it.
+The robot provider's `MjSpec` is attached to the scene and driven by **its own actuators** (`NativeGains`) or, with `FixedGains` / `InertiaScaledGains`, by ours in their place ([control](configs/control.md#our-gains-on-an-external-robot)); the same environment, tasks and `SimView` run on it.
 
 - **Placement.** The compile adds an empty, welded body `base` at the mount (so `SimView`'s `"base"` frame works as for a `ParametricArm`) and attaches the model into a frame of the
   world body at the same pose, with the prefix `ext_` (`ext_j1`, `ext_a1`, `ext_ee`). The model's own world frame is therefore the base frame: a fixed arm stands at the mount, and a

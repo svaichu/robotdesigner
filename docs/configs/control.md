@@ -53,8 +53,7 @@ assert per_joint.kp == (60.0, 40.0, 20.0)
 ```
 
 `NativeGains()` has no fields: it says "drive the model with its own actuators and gains", and nothing is replaced. It belongs to an
-[`ExternalRobot`](robot.md#externalrobot-a-model-that-lives-elsewhere), and an `ExternalRobot` takes nothing else for now (`FixedGains` and `InertiaScaledGains` are
-rejected at `control.gains` until driving it with gains of this package, re-actuation, exists). The mode must fit the model's actuators, `robot.actuator_kind`:
+[`ExternalRobot`](robot.md#externalrobot-a-model-that-lives-elsewhere) and is its default. The mode must fit the model's actuators, `robot.actuator_kind`:
 
 | `actuator_kind` | modes that fit |
 |---|---|
@@ -70,6 +69,22 @@ assert ControlConfig.from_dict(native.to_dict()) == native
 ```
 
 The checks that need the robot (`NativeGains` with a `ParametricArm`; the mode against `actuator_kind`) are made by [`EnvConfig`](env.md#cross-part-checks).
+
+### Our gains on an external robot
+
+`FixedGains` and `InertiaScaledGains` are also accepted with an `ExternalRobot`, so that a library arm can be compared with a `ParametricArm` under one control law. The simulator then **deletes the model's
+actuators on the driven joints** and adds the actuators an arm gets (`act_i`: `kp` / `kd`, a force range from `ExternalJoint.effort_limit`, a control range from the joint range), in any of the modes
+`joint_pos_abs`, `joint_pos_delta`, `joint_vel` and `joint_torque`, whatever the model's `actuator_kind`. What is not replaced stays: the model's joint `damping`, `armature` and `frictionloss`, its
+other actuators (held at the keyframe's control, as with `NativeGains`) and its keyframe. `InertiaScaledGains` reads each driven joint's `damping` from the compiled model.
+
+One difference remains between the two ways of driving a model. With `NativeGains`, `joint_pos_abs` maps the action in `[-1, 1]` onto the actuator's `ctrlrange`; with our gains it maps onto the joint range.
+The two are separate fields of a model and a library may round them differently (the UR5e: 6.2831 against 6.28319), so equal actions give slightly different targets. With equal targets and the model's own
+`kp` and `kd`, the trajectories are identical.
+
+```python
+fixed = ControlConfig("joint_pos_abs", FixedGains(kp=(4500.0, 4500.0, 3500.0), kd=(450.0, 450.0, 350.0)), action_scale=None)
+assert fixed.to_dict()["gains"]["kind"] == "fixed" and fixed.gains.kp[2] == 3500.0     # per joint, as for an arm
+```
 
 ## Errors
 
