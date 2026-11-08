@@ -140,6 +140,25 @@ The robot provider's `MjSpec` is attached to the scene and driven by **its own a
   servo has gain 4500 and bias `(0, -4500, -450)`, the UR5e's shoulder servo gain 2000 and bias `(0, -2000, -400)`; for both, `ctrlrange` equals the joint range.)
 - **`dt` and the integrator** stay the authority of `SimConfig`: the scene carries them and the model's own are not used. A `sim.dt` more than twice the model's own `timestep` is reported
   with a warning. The contact and solver options of the model (`cone`, `impratio`, solver, noslip) are the scene's: when the two differ, `MjSpec.attach` keeps the scene's value.
+- **Spawn pose.** The mount is where the model's world frame goes (above), so it is the spawn pose: a fixed arm stands at the mount, and a floating robot starts at the mount composed with
+  `home_root`. Tested on the UR5e at a yawed and shifted mount; on Go1 and Go2 at the default mount, at a mount rotated 90° about z and shifted in x and y (in the base frame the robot starts at its
+  model's home root), and at a mount 0.3 m up (they start above the floor, fall and land, and never go through it); and on TidyBot, whose base is made of joints (two slides and a hinge) under position
+  servos and which has no free joint: a constant `joint_pos_delta` action on its base x slide moves the base along the mount's x axis.
+- **Option policy: the scene's options win.** `MjSpec.attach` keeps the scene's value where the model's own `<option>` differs (the legged robots: `cone` elliptic and `impratio` 100 against the scene's
+  pyramidal cone and `impratio` 1). `external.CARRY_MODEL_OPTIONS` (`_model_options`) can carry them over; the default is not to. Measured with `benchmarks/menagerie_options.py` (2 s from the reset
+  pose, `joint_pos_delta`, zero action):
+
+  | robot | model's options carried | `sim.dt` | root drift | tilt | max penetration | mean contacts |
+  |---|---|---|---|---|---|---|
+  | Go1 | no | 0.002 (own) / 0.004 | -0.003 m | 0.26° | 0.014 m | 4.0 |
+  | Go1 | yes | 0.002 (own) / 0.004 | -0.005 m | 0.18° | 0.015 m | 4.0 |
+  | A1 | no | 0.002 (own) / 0.004 | -0.019 m | 0.43° | 0.010 m | 4.2 |
+  | A1 | yes | 0.002 (own) / 0.004 | -0.019 m | 0.23° | 0.012 m | 7.9 |
+
+  Both stand, with the same drift and under a degree of tilt; carrying the options gives a little less tilt, and doubling `dt` changes nothing visible. Carrying them is not worth what it costs: the solver
+  options are then different for every robot, so the same task (the cube of `robosuite/Lift`, a table) would be simulated with a different friction cone for each embodiment, which is what a comparison of
+  embodiments must not do. The scene's options stay, `sim.dt` and the integrator stay `SimConfig`'s, and no field was added to `ExternalRobot`. The test pins the default (Go1 drifts less than 1 cm and A1 less than
+  3 cm, both tilt under 1°). MuJoCo's "Attach conflict" warning about the dropped options is silenced in the compile, because it is the policy.
 - **Frame limitation.** `SimView(frame="base")` is the static mount frame, **not** the moving trunk of a floating robot. A `"root"` frame does not exist yet.
 - **Problems, not silent changes.** `make_env` reports, with the config path: a model with no actuators; driven actuators of another kind than `robot.actuator_kind`; a stale `robot.source`
   (the provider's check: "the model changed since this config was written"); an unknown joint, entry or keyframe; a free root without `home_root`, or `home_root` without one.

@@ -77,6 +77,9 @@ env = cfg.build()
 - **Randomness.** The scene is built once, with robosuite's own construction-time draws (the size of the `Lift` cube) seeded from `sim.seed`. Objects with a free joint are placed by robosuite's
   sampler at every reset, from the task's own stream, so the **same seed and `num_envs` give every embodiment the same placements**, whatever its number of joints, and `env.set_seed` reproduces episodes.
   Objects without a free joint (the door of `Door`, the bins of `PickPlace`) are *fixtures*: all envs share one model, so they are placed once when the environment is built and then stay put.
+- **A robot from a library.** A Menagerie arm works as it is: `BaseEnvConfig().robot(PROVIDER.describe("franka_emika_panda")).task(RobosuiteParams("Lift", ...), mount=default_mount("Lift"))` builds, steps and places
+  the cube exactly as for a `ParametricArm` at the same mount and seed. `ee_pos` is the robot's end effector. The CPU simulator builds no gripper action for an external robot, so the fingers are held
+  and `Lift` cannot be solved; it runs. A robot with `end_effector=None` (a quadruped) is refused with a `Problem` at `robot.end_effector`. See [the robot provider](../robots/menagerie.md).
 - **Cameras.** The arena's cameras are in the model with the prefix `rs_`: `env.render(camera="rs_agentview")`.
 - **Names.** Everything attached from the scene starts with `rs_` in the compiled model.
 

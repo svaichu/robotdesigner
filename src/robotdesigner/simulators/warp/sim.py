@@ -304,7 +304,7 @@ class WarpBatchedSim:
         nacon, naconmax = int(wp.to_torch(d.nacon).max()), int(d.naconmax)
         if nacon > naconmax:
             raise CapacityError(
-                f"the contacts ({nacon}) exceed the allocation of {naconmax}: raise sim.options.nconmax (now {opts.nconmax} per world)"
+                f"the contacts ({nacon}) exceed the allocation of {naconmax}: raise sim.options.nconmax (nconmax={opts.nconmax} per world)"
             )
         flags = int(np.bitwise_or.reduce(wp.to_torch(d.overflow).flatten().cpu().numpy()))
         if flags:
