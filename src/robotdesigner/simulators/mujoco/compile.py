@@ -7,8 +7,9 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from ...config import EnvConfig, FixedGains, InertiaScaledGains, Pose, world_mount
+from ...config import EnvConfig, FixedGains, InertiaScaledGains, Pose
 from .arm_spec import add_arm, add_gripper
+from .mount import resolve_world_mount
 from .scenes import apply_scene
 
 _INTEGRATORS = {
@@ -34,7 +35,7 @@ class RobotInterface:
     joint_range: np.ndarray  # (n, 2); -inf / +inf where unlimited
     effort_limit: np.ndarray  # (n,)
     home_qpos: np.ndarray  # (n,)
-    mount: Pose  # the robot base in the world, from the task
+    mount: Pose  # the robot base in the world: the scene's mount marker (or frame) composed with the task's mount
     kp: np.ndarray | None  # (n,) effective position gains; None for torque control
     kd: np.ndarray | None  # (n,) effective damping / velocity gains; None for torque control
     # Gripper (``arm.gripper``); ``None`` / 0.0 when the arm has none. The actuator is the last one (``act_gripper``).
@@ -91,7 +92,7 @@ def inertia_scaled_gains(model: mujoco.MjModel, iface_home: np.ndarray, qpos_adr
     return kp, kd
 
 
-def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float], scene_hook=None) -> mujoco.MjSpec:
+def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float], scene_hook=None, mount: Pose | None = None) -> mujoco.MjSpec:
     arm = cfg.robot
     control = cfg.control
 
@@ -106,7 +107,6 @@ def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float], scene_hook=Non
     self_collision = bool(getattr(cfg.sim.options, "self_collision", False))
     conaffinity = 1 if self_collision else 0
 
-    mount = world_mount(cfg)
     base = spec.worldbody.add_body(
         name="base", pos=list(mount.pos), quat=list(mount.quat)
     )
@@ -171,25 +171,27 @@ def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float], scene_hook=Non
     return spec
 
 
-def compile_robot(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
-    """Compile ``cfg.robot`` into a model. ``scene_hook(spec)``, if given, adds the task's scene elements to the spec."""
+def compile_robot(cfg: EnvConfig, scene_hook=None, mount_site: str | None = None) -> CompiledRobot:
+    """Compile ``cfg.robot`` into a model. ``scene_hook(spec)``, if given, adds the task's scene elements to the spec;
+    ``mount_site`` names the marker it adds for the scene's mount frame (``TaskImpl.mount_site()``), where the base is snapped."""
     if type(cfg.robot).__name__ == "ExternalRobot":
         from .external import compile_external
 
-        return compile_external(cfg, scene_hook)
+        return compile_external(cfg, scene_hook, mount_site)
     arm = cfg.robot
     n = arm.n
     control = cfg.control
     if control.mode not in SUPPORTED_MODES:
         raise NotImplementedError(f"control mode {control.mode!r} is not compiled")
 
+    mount = resolve_world_mount(cfg, scene_hook, mount_site)
     gains = control.gains
     if isinstance(gains, FixedGains):
         kp, kd = _per_joint(gains.kp, n), _per_joint(gains.kd, n)
     else:
         # Two passes: compile with placeholder gains, read M at home, then build with the final gains.
         assert isinstance(gains, InertiaScaledGains)
-        first = _build_spec(cfg, [0.0] * n, [0.0] * n, scene_hook).compile()
+        first = _build_spec(cfg, [0.0] * n, [0.0] * n, scene_hook, mount).compile()
         ids = [mujoco.mj_name2id(first, mujoco.mjtObj.mjOBJ_JOINT, f"joint_{i}") for i in range(n)]
         kp_arr, kd_arr = inertia_scaled_gains(
             first,
@@ -201,7 +203,7 @@ def compile_robot(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
         )
         kp, kd = list(kp_arr), list(kd_arr)
 
-    spec = _build_spec(cfg, kp, kd, scene_hook)
+    spec = _build_spec(cfg, kp, kd, scene_hook, mount)
     model = spec.compile()
 
     def jid(i):
@@ -232,7 +234,7 @@ def compile_robot(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
         joint_range=joint_range,
         effort_limit=np.array([s.joint.effort_limit for s in arm.segments]),
         home_qpos=np.array(arm.home_qpos),
-        mount=world_mount(cfg),
+        mount=mount,
         kp=None if control.mode == "joint_torque" else np.array(kp),
         kd=None if control.mode == "joint_torque" else np.array(kd),
         **gripper_fields,

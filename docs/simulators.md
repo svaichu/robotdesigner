@@ -108,11 +108,21 @@ Physics on the GPU is deterministic per device and library release but not bitwi
 | | |
 |---|---|
 | `env.cfg`, `env.robot_hash`, `env.env_hash` | the resolved config and its identity |
+| `env.world_mount` | the robot base in the world as the compile placed it: the scene's mount marker (or the provider's frame, when the task has no marker) composed with `task.mount`. Record it with `env_hash` |
 | `env.interface` | `RobotInterface`: joint names and addresses, ranges, effort limits, `home_qpos`, mount, effective `kp` / `kd`, gripper fields |
 | `env.task` | the engine side of the task |
 | `env.q_target` | position targets `[N, n]`, meaningful in `joint_pos_delta` |
 | `env.render(env_index=0, *, camera=None, size=(240, 320), overlays=True)` | one `uint8 (H, W, 3)` frame of the live state; see [viz](viz.md) |
 | `env.close()` | frees the renderer (and the Warp allocation) |
+
+## The mount marker
+
+The scene owns the robot's mount frame ([task](configs/task.md#mount)). A task whose scene has one adds a **marker** in `attach(spec)`, a site in a static place (not under a moving body), and names it with
+`mount_site()` ([writing a provider](tasks/writing-a-provider.md#the-hooks)). The compile builds the scene alone, runs `mj_forward` and reads the marker's world pose, so the nesting and the prefix
+of the marker do not matter, then creates the `base` body at `marker @ mount` (`Mount.offset`, or the `MobileMount` spawn and heading). That pose is `iface.mount`, `SimView`'s `"base"` frame and
+`env.world_mount`; robot element names do not change. The provider's `mount_frame(params)` is what `viz` and the kinematics oracle use, so the two must agree: the compile raises a `ConfigError` that
+names both poses when they differ by more than `1e-6`, and one that names the site when the scene has no such site. A task without a marker (`mount_site()` returns `None`: the simulator presets,
+`empty/idle`) uses the provider's frame, the world origin for those. The marker is a site, so it is in no observation and no action. Both simulators use the same compile.
 
 ## CPU MuJoCo specifics
 

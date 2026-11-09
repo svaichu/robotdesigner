@@ -21,7 +21,6 @@ from ...config import (
     InertiaScaledGains,
     Pose,
     get_robot_provider,
-    world_mount,
 )
 from ...config.kinematics import quat_to_matrix
 from ...errors import ConfigError, Problem
@@ -35,6 +34,7 @@ from .compile import (
     _per_joint,
     inertia_scaled_gains,
 )
+from .mount import resolve_world_mount
 from .scenes import apply_scene
 
 PREFIX = "ext_"
@@ -227,10 +227,11 @@ def _add_own_actuators(spec: mujoco.MjSpec, robot: ExternalRobot, control, kp: l
             act.ctrlrange = [-effort, effort]
 
 
-def _build_external_spec(cfg: EnvConfig, facts: Facts, scene_hook, own: tuple[list[float], list[float]] | None) -> mujoco.MjSpec:
+def _build_external_spec(
+    cfg: EnvConfig, facts: Facts, scene_hook, own: tuple[list[float], list[float]] | None, mount: Pose
+) -> mujoco.MjSpec:
     """The scene with the model attached. ``own = (kp, kd)`` replaces the model's actuators on the driven joints."""
     robot: ExternalRobot = cfg.robot
-    mount = world_mount(cfg)
     spec = mujoco.MjSpec()
     spec.compiler.degree = False  # all angles here are radians
     spec.option.timestep = cfg.sim.dt
@@ -284,13 +285,14 @@ def _scene_options_win():
         mujoco.set_mju_user_warning(previous)
 
 
-def compile_external(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
+def compile_external(cfg: EnvConfig, scene_hook=None, mount_site: str | None = None) -> CompiledRobot:
     with _scene_options_win():
-        return _compile_external(cfg, scene_hook)
+        return _compile_external(cfg, scene_hook, mount_site)
 
 
-def _compile_external(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
+def _compile_external(cfg: EnvConfig, scene_hook=None, mount_site: str | None = None) -> CompiledRobot:
     robot: ExternalRobot = cfg.robot
+    mount = resolve_world_mount(cfg, scene_hook, mount_site)
     control = cfg.control
     own_actuators = isinstance(control.gains, (FixedGains, InertiaScaledGains))
     if own_actuators and control.mode not in SUPPORTED_MODES:
@@ -310,16 +312,15 @@ def _compile_external(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
             own = (_per_joint(gains.kp, n), _per_joint(gains.kd, n))
         else:
             # Two passes: compile with placeholder gains, read M at home and the model's joint damping, build with the final gains.
-            first = _build_external_spec(cfg, facts, scene_hook, ([0.0] * n, [0.0] * n)).compile()
+            first = _build_external_spec(cfg, facts, scene_hook, ([0.0] * n, [0.0] * n), mount).compile()
             ids = [first.njnt - c.njnt + jc for jc in facts.joint_ids]
             qpos_adr, qvel_adr = first.jnt_qposadr[ids], first.jnt_dofadr[ids]
             kp_arr, kd_arr = inertia_scaled_gains(
                 first, np.array(robot.home_qpos), qpos_adr, qvel_adr, first.dof_damping[qvel_adr], gains
             )
             own = (list(kp_arr), list(kd_arr))
-    spec = _build_external_spec(cfg, facts, scene_hook, own)
+    spec = _build_external_spec(cfg, facts, scene_hook, own, mount)
     model = spec.compile()
-    mount = world_mount(cfg)
     ee = robot.end_effector
 
     # The attached model's joints and actuators come last, in their own order: ids shift by what the scene has before them.

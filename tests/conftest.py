@@ -4,4 +4,6 @@ until a test builds or parses a ``toy/...`` task."""
 from robotdesigner.config import register_robot_provider, register_task_provider
 
 register_task_provider("toy", "tests.toy_provider:PROVIDER", replace=True)
+register_task_provider("framed", "tests.toy_provider.framed:PROVIDER", replace=True)
+register_task_provider("framed_bad", "tests.toy_provider.framed:BAD_PROVIDER", replace=True)
 register_robot_provider("toyrobot", "tests.toy_robot_provider:PROVIDER", replace=True)

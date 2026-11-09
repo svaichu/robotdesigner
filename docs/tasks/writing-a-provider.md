@@ -173,6 +173,7 @@ class ReachTask(BaseTask):
 | hook | when | what you do |
 |---|---|---|
 | `attach(spec)` | before the model compiles | add bodies and geoms to the `mujoco.MjSpec` (robosuite's provider attaches an arena and objects under a prefix) |
+| `mount_site()` | before the model compiles | return the name of the **marker** site `attach` added for the scene's mount frame, or `None` (the default of `BaseTask`) when the scene has no marker. The marker must sit in a static place, not under a moving body, and its world pose must equal `mount_frame(params)`: the compile snaps the robot base onto it and raises, naming both poses, when they differ |
 | `bind(sim)` | once, after compilation | resolve names to ids, allocate per-env state; the **last** point at which the host model `sim.model` may be edited |
 | `observation_spec(num_envs)` | at construction | the TorchRL `Composite` of the `task` group, batch shape `(num_envs,)` |
 | `reset(sim, mask, rand, injected)` | after the robot is reset | set the task state of the masked envs |

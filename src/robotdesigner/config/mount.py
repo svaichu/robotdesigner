@@ -20,7 +20,7 @@ from .._canon import as_float, as_vector, check_keys, within
 from ..errors import ConfigError
 from ..robot import ExternalRobot, Pose
 
-__all__ = ["MobileMount", "Mount", "is_mobile", "mount_from_dict", "mount_pose", "snapped", "world_mount"]
+__all__ = ["MobileMount", "Mount", "is_mobile", "mount_from_dict", "mount_in", "mount_pose", "scene_frame", "snapped", "world_mount"]
 
 _MIGRATION = (
     "mounts are relative to the scene's mount frame now: write Mount(offset=Pose(...)) for a fixed-base arm "
@@ -151,11 +151,21 @@ def mount_pose(mount: Mount | MobileMount) -> Pose:
     return Pose(mount.spawn, (math.cos(h), 0.0, 0.0, math.sin(h)))
 
 
-def world_mount(cfg: Any) -> Pose:
-    """The robot base in the world: the scene's mount frame composed with the mount. ``cfg`` is an ``EnvConfig`` or a
-    ``TaskConfig``. The only place that composes them."""
+def scene_frame(cfg: Any) -> Pose:
+    """The scene's mount frame, as the task provider names it (a world pose). ``cfg`` is an ``EnvConfig`` or a ``TaskConfig``."""
     from .providers import get_task_provider
 
     task = getattr(cfg, "task", cfg)
-    frame = get_task_provider(task.params.provider).mount_frame(task.params)
-    return compose(frame, mount_pose(task.mount))
+    return get_task_provider(task.params.provider).mount_frame(task.params)
+
+
+def mount_in(frame: Pose, mount: Mount | MobileMount) -> Pose:
+    """The robot base in the world, given the mount frame (the one the engine read from the model, or the provider's)."""
+    return compose(frame, mount_pose(mount))
+
+
+def world_mount(cfg: Any) -> Pose:
+    """The robot base in the world: the scene's mount frame composed with the mount. ``cfg`` is an ``EnvConfig`` or a
+    ``TaskConfig``. This is the config-side pose (what ``viz`` and the kinematics oracle use); the simulator reads the
+    frame from the model's marker and checks that it agrees (``simulators.mujoco.mount``)."""
+    return mount_in(scene_frame(cfg), getattr(cfg, "task", cfg).mount)

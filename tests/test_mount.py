@@ -16,35 +16,11 @@ from robotdesigner.config import (
     Pose,
     TaskConfig,
     kinematics as kin,
-    register_task_provider,
-    unregister_task_provider,
     world_mount,
 )
 from robotdesigner.config.mount import compose, mount_from_dict
-from tests.toy_provider import PROVIDER as TOY, ReachParams, ToyTasks
-
-FRAME = Pose((0.3, -0.2, 0.1), (math.cos(math.pi / 8), 0.0, 0.0, math.sin(math.pi / 8)))  # yawed 45 degrees
-
-
-class FramedParams(ReachParams):
-    provider = "framed"
-
-
-class FramedTasks(ToyTasks):
-    """A toy provider whose scene frame is not the identity, so a test can tell the frame from the offset."""
-
-    TASKS = {"reach": (FramedParams, "tests.toy_provider.reach:ReachTask")}
-
-    def mount_frame(self, params):
-        return FRAME
-
-
-@pytest.fixture
-def framed():
-    register_task_provider("framed", FramedTasks(), replace=True)
-    yield
-    unregister_task_provider("framed")
-
+from tests.toy_provider import ReachParams
+from tests.toy_provider.framed import FRAME, FramedParams
 
 def make_task(provider_params, mount):
     from robotdesigner.config import OwnReachable
@@ -94,7 +70,7 @@ def test_the_old_absolute_forms_are_rejected_with_the_replacement():
 # --- the frame and the composition ---------------------------------------------------------------------------------------
 
 
-def test_world_mount_is_the_frame_applied_to_the_offset(framed):
+def test_world_mount_is_the_frame_applied_to_the_offset():
     offset = Pose((0.5, 0.0, 0.2), (1, 0, 0, 0))
     t = make_task(FramedParams("reach", 0.0, False), Mount(offset))
     T = kin.pose_to_matrix(FRAME)
@@ -104,11 +80,11 @@ def test_world_mount_is_the_frame_applied_to_the_offset(framed):
     assert np.allclose(kin.pose_to_matrix(got), T @ kin.pose_to_matrix(offset))
 
 
-def test_default_mount_snaps_onto_the_frame(framed):
+def test_default_mount_snaps_onto_the_frame():
     assert world_mount(make_task(FramedParams("reach", 0.0, False), Mount())) == FRAME
 
 
-def test_world_end_effector_is_world_mount_applied_to_the_base_frame_one(framed):
+def test_world_end_effector_is_world_mount_applied_to_the_base_frame_one():
     arm = BaseEnvConfig().resolve().robot
     t = make_task(FramedParams("reach", 0.0, False), Mount(Pose((0.1, 0.2, 0.0), (1, 0, 0, 0))))
     q = np.array(arm.home_qpos)
@@ -118,7 +94,7 @@ def test_world_end_effector_is_world_mount_applied_to_the_base_frame_one(framed)
     assert np.allclose(world, T[:3, :3] @ base + T[:3, 3])
 
 
-def test_mobile_mount_is_a_yaw_and_a_translation_in_the_frame(framed):
+def test_mobile_mount_is_a_yaw_and_a_translation_in_the_frame():
     t = make_task(FramedParams("reach", 0.0, False), MobileMount((1.0, 0.5, 0.2), math.pi / 2))
     got = kin.pose_to_matrix(world_mount(t))
     local = np.eye(4)
