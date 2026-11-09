@@ -348,3 +348,29 @@ def test_describe_of_the_toy_provider_matches_a_hand_written_robot():
     assert floater.home_root == Pose((0.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0)) and floater.end_effector is None
     assert floater.actuator_kind == "torque"
     assert BaseEnvConfig().robot(floater).resolve().control.mode == "joint_torque"
+
+
+# --- discovery: the entry-point group and the shipped package ---------------------------------------------------------
+
+
+def test_the_entry_point_group_adds_providers(monkeypatch):
+    import importlib.metadata
+
+    from robotdesigner.config import robot_providers
+
+    assert robot_providers.ENTRY_POINT_GROUP == "robotdesigner.robot.providers"
+    ep = importlib.metadata.EntryPoint(name="viaep", value="tests.toy_robot_provider:PROVIDER", group=robot_providers.ENTRY_POINT_GROUP)
+    monkeypatch.setattr(
+        importlib.metadata, "entry_points", lambda **kw: [ep] if kw.get("group") == robot_providers.ENTRY_POINT_GROUP else []
+    )
+    saved = (dict(robot_providers._REGISTRY), set(robot_providers._EXPLICIT), robot_providers._STATE["discovered"])
+    try:
+        robot_providers._STATE["discovered"] = False
+        assert "viaep" in list_robot_providers() and "menagerie" in list_robot_providers()  # the group and the shipped package
+        assert isinstance(get_robot_provider("viaep"), ToyRobots)
+    finally:
+        robot_providers._REGISTRY.clear()
+        robot_providers._REGISTRY.update(saved[0])
+        robot_providers._EXPLICIT.clear()
+        robot_providers._EXPLICIT.update(saved[1])
+        robot_providers._STATE["discovered"] = saved[2]

@@ -12,7 +12,7 @@ namespace, and the namespace selects a *provider*, which
 This mirrors task providers (``config/providers.py``). The core knows no namespace. Providers are found lazily, from
 
 1. the subpackages of ``robotdesigner.robot.providers``: the subpackage name is the namespace and it exposes ``PROVIDER``;
-2. the entry-point group ``robotdesigner.robot_providers``: the entry-point name is the namespace, the value ``"module:attr"``;
+2. the entry-point group ``robotdesigner.robot.providers``: the entry-point name is the namespace, the value ``"module:attr"``;
 3. :func:`register_robot_provider`, which takes precedence over both.
 
 Answering ``list_robot_providers`` loads nothing; a provider module is imported when the provider is first used.
@@ -37,7 +37,7 @@ __all__ = [
     "unregister_robot_provider",
 ]
 
-ENTRY_POINT_GROUP = "robotdesigner.robot_providers"
+ENTRY_POINT_GROUP = "robotdesigner.robot.providers"
 _NAMESPACE = re.compile(r"[a-z][a-z0-9_]*")
 
 
