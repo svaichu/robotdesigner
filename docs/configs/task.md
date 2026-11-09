@@ -5,8 +5,8 @@ never by the core package. `TaskConfig` never mentions the number of joints or l
 
 ```python
 from robotdesigner.config import (
-    ConfigError, FixedBox, MobileMount, Mount, OwnReachable, Pose, TaskConfig, get_task_provider, list_task_providers,
-    world_mount,
+    BaseEnvConfig, ConfigError, FixedBox, MobileMount, Mount, OwnReachable, Pose, TaskConfig, get_task_provider, list_task_providers,
+    snapped, world_mount,
 )
 from robotdesigner.tasks.empty import EmptyParams
 ```
@@ -45,6 +45,8 @@ config puts any embodiment in the same place in every scene:
   (a yaw in radians about the frame's +z; 0 faces the frame's +x). `spawn` may also be `(x, y, z)`: `z` is added to the robot's own home height, so the robot
   can start in the air. A `Mount` on a floating-base robot, or a `MobileMount` on a fixed-base one, is an error at `task.mount`.
 
+`snapped(robot)` is the mount that fits a robot (`Mount()` or `MobileMount()`): `.task(mount=snapped(robot))` is what a script over many robots writes.
+
 `world_mount(cfg)` (`cfg` an `EnvConfig` or a `TaskConfig`) is the only place that composes them: `T_world_base = T_frame @ T_mount`. The simulators, `viz` and the
 kinematics oracle all use it. A `Pose` at `task.mount` (the old absolute form) is rejected with a message that shows the replacement; it cannot be converted without
 the scene.
@@ -53,6 +55,7 @@ the scene.
 box_task = TaskConfig(EmptyParams("idle"), 10, None, None, Mount(offset=Pose((0.1, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0))))
 assert world_mount(box_task) == Pose((0.1, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0))   # the empty scene's frame is the origin
 assert MobileMount(spawn=(1.0, 2.0), heading=1.0).spawn == (1.0, 2.0, 0.0)
+assert snapped(BaseEnvConfig().resolve().robot) == Mount()          # a fixed-base arm; a legged robot gets MobileMount()
 ```
 
 ### Goal tasks

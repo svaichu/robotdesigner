@@ -16,7 +16,7 @@ mujoco = pytest.importorskip("mujoco")
 torch = pytest.importorskip("torch")
 pytest.importorskip("torchrl")
 
-from robotdesigner.config import BaseEnvConfig, ConfigError, Mount, Pose
+from robotdesigner.config import BaseEnvConfig, ConfigError, Mount, Pose, snapped
 from robotdesigner.config import kinematics as kin
 from robotdesigner.robot.providers.menagerie import PROVIDER, cards
 
@@ -55,7 +55,8 @@ def test_ur5e_has_six_and_go2_twelve_with_a_home_root():
 
 @pytest.mark.parametrize("name", ["franka_emika_panda", "universal_robots_ur5e", "unitree_go2"])
 def test_make_env_runs_the_survey_robots(name):
-    env = BaseEnvConfig().robot(PROVIDER.describe(name)).sim(num_envs=2, scene="plain_floor").build()
+    robot = PROVIDER.describe(name)
+    env = BaseEnvConfig().robot(robot).task(mount=snapped(robot)).sim(num_envs=2, scene="plain_floor").build()
     td = env.reset()
     for _ in range(5):
         td["action"] = env.action_spec.rand()
@@ -195,7 +196,7 @@ def status_of(name: str) -> str:
         except ConfigError as e:
             return "refused: needs effort_limit" if e.path == "effort_limit" else f"refused: describe: {e.reason}"
         try:
-            env = BaseEnvConfig().robot(robot).sim(num_envs=2, scene="plain_floor").build()
+            env = BaseEnvConfig().robot(robot).task(mount=snapped(robot)).sim(num_envs=2, scene="plain_floor").build()
         except ConfigError as e:
             return "refused: mixed actuators" if "no mode fits" in str(e) else f"refused: make_env: {e}"
         td = env.reset()

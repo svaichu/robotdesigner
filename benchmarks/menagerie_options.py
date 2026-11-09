@@ -15,7 +15,7 @@ import mujoco
 import numpy as np
 import torch
 
-from robotdesigner.config import BaseEnvConfig
+from robotdesigner.config import BaseEnvConfig, snapped
 from robotdesigner.envs import make_env
 from robotdesigner.robot.providers.menagerie import PROVIDER
 from robotdesigner.simulators.mujoco import external
@@ -26,7 +26,7 @@ def stand(name: str, carry: bool, dt_factor: float, seconds: float = 2.0) -> dic
     robot = PROVIDER.describe(name)
     dt = external._open(robot).model.opt.timestep * dt_factor
     cfg = (
-        BaseEnvConfig().robot(robot).control(mode="joint_pos_delta", action_scale=0.05)
+        BaseEnvConfig().robot(robot).task(mount=snapped(robot)).control(mode="joint_pos_delta", action_scale=0.05)
         .sim(num_envs=1, scene="plain_floor", dt=dt, control_freq=50.0).resolve()
     )
     env = make_env(cfg)

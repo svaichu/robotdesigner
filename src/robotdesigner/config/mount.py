@@ -20,7 +20,7 @@ from .._canon import as_float, as_vector, check_keys, within
 from ..errors import ConfigError
 from ..robot import ExternalRobot, Pose
 
-__all__ = ["MobileMount", "Mount", "is_mobile", "mount_from_dict", "mount_pose", "world_mount"]
+__all__ = ["MobileMount", "Mount", "is_mobile", "mount_from_dict", "mount_pose", "snapped", "world_mount"]
 
 _MIGRATION = (
     "mounts are relative to the scene's mount frame now: write Mount(offset=Pose(...)) for a fixed-base arm "
@@ -98,6 +98,12 @@ def is_mobile(robot: Any) -> bool:
     """Whether ``robot`` has a floating base (a model with a free joint, ``home_root`` set). A planar base built from
     slide joints is part of the model's own joints and is not detected."""
     return isinstance(robot, ExternalRobot) and robot.home_root is not None
+
+
+def snapped(robot: Any) -> Mount | MobileMount:
+    """The mount that snaps ``robot`` onto the scene's mount frame: ``Mount()`` for a fixed-base robot,
+    ``MobileMount()`` (spawn at the frame, heading 0) for a floating-base one."""
+    return MobileMount() if is_mobile(robot) else Mount()
 
 
 def check_mount_fits_robot(mount: Mount | MobileMount, robot: Any) -> None:

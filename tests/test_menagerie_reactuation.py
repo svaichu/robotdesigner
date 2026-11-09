@@ -12,7 +12,7 @@ pytest.importorskip("mujoco")
 torch = pytest.importorskip("torch")
 pytest.importorskip("torchrl")
 
-from robotdesigner.config import BaseEnvConfig, FixedGains, InertiaScaledGains
+from robotdesigner.config import BaseEnvConfig, FixedGains, InertiaScaledGains, snapped
 from robotdesigner.robot.providers.menagerie import PROVIDER
 
 pytestmark = pytest.mark.menagerie
@@ -20,7 +20,7 @@ EXPECTED = json.loads(Path(__file__).with_name("menagerie_expected.json").read_t
 
 
 def _base(robot):
-    return BaseEnvConfig().robot(robot).sim(num_envs=1, scene="plain_floor")
+    return BaseEnvConfig().robot(robot).task(mount=snapped(robot)).sim(num_envs=1, scene="plain_floor")
 
 
 @pytest.mark.parametrize("name", ["franka_emika_panda", "universal_robots_ur5e"])
