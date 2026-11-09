@@ -41,9 +41,27 @@ def compose(a: Pose, b: Pose) -> Pose:
     return Pose(tuple(float(x) for x in pos), tuple(float(x) for x in quat))
 
 
+# The solver and contact options of a model's own ``<option>`` (never ``timestep`` or ``integrator``, which ``SimConfig`` owns).
+OPTION_FIELDS = (
+    "cone", "impratio", "solver", "iterations", "ls_iterations", "noslip_iterations", "noslip_tolerance", "tolerance",
+    "ls_tolerance",
+)
+OVERRIDE_FIELDS = ("o_margin", "o_solref", "o_solimp", "o_friction")
+CARRY_MODEL_OPTIONS = False  # the policy of ``_model_options``; see docs/simulators.md
+
+
 def _model_options(child: mujoco.MjModel, scene: mujoco.MjSpec) -> None:
-    """The one place where the contact and solver options of the model (``cone``, ``impratio``, solver, noslip) would be
-    carried over to the scene. For now the scene's win, which is what ``MjSpec.attach`` does by itself."""
+    """The one place where the contact and solver options of the model are, or are not, carried over to the scene.
+    ``MjSpec.attach`` keeps the scene's value where the two differ; with ``CARRY_MODEL_OPTIONS`` the model's are copied
+    onto the scene first (``SimConfig`` still owns ``timestep`` and ``integrator``)."""
+    if not CARRY_MODEL_OPTIONS:
+        return
+    for name in OPTION_FIELDS:
+        setattr(scene.option, name, getattr(child.opt, name))
+    if int(child.opt.enableflags) & int(mujoco.mjtEnableBit.mjENBL_OVERRIDE):
+        scene.option.enableflags |= int(mujoco.mjtEnableBit.mjENBL_OVERRIDE)
+        for name in OVERRIDE_FIELDS:
+            setattr(scene.option, name, getattr(child.opt, name))
 
 
 def _id(model, kind, name) -> int:
@@ -224,6 +242,14 @@ def _build_external_spec(cfg: EnvConfig, facts: Facts, scene_hook, own: tuple[li
 
 
 def compile_external(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
+    with warnings.catch_warnings():
+        # MuJoCo warns when the model's own option differs from the scene's and the scene's value is kept. That is the
+        # policy (CARRY_MODEL_OPTIONS, docs/simulators.md), not news on every build.
+        warnings.filterwarnings("ignore", message="Attach conflict")
+        return _compile_external(cfg, scene_hook)
+
+
+def _compile_external(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
     robot: ExternalRobot = cfg.robot
     control = cfg.control
     own_actuators = isinstance(control.gains, (FixedGains, InertiaScaledGains))

@@ -446,3 +446,19 @@ def test_a_model_without_actuators_can_be_driven_with_our_gains():
     td["action"] = torch.ones(2, 1)
     td = env.step(td)["next"]
     assert torch.isfinite(td["proprio", "qpos"]).all() and env._compiled.model.nu == 1
+
+
+# --- rendering (needs an OpenGL context; MUJOCO_GL=egl on a headless machine) ---------------------------------------
+
+from tests.test_render import needs_gl  # noqa: E402
+
+
+@pytest.mark.render
+@needs_gl
+def test_an_external_robot_renders_a_frame_that_is_not_blank(arm3, floater):
+    for robot, env in ((arm3, make_env(reach_cfg(arm3, ROTATED, num_envs=1))), (floater, make_env(idle_cfg(floater, ROTATED, num_envs=1)))):
+        env.reset()
+        frame = env.render(0, size=(96, 128))
+        assert frame.shape == (96, 128, 3) and frame.dtype == np.uint8
+        assert np.ptp(frame.reshape(-1, 3), axis=0).max() > 20, f"{robot.name}: the frame is blank"
+        env.close()
