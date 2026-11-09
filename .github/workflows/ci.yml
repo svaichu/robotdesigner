@@ -20,7 +20,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Run tests
-        run: uv run --python ${{ matrix.python-version }} --extra env --extra viz --extra dev pytest -v -m "not gpu and not robosuite and not render"
+        run: uv run --python ${{ matrix.python-version }} --extra env --extra viz --extra dev pytest -v -m "not gpu and not robosuite and not render and not menagerie"
 
   robosuite:
     # robosuite 1.5.x needs the compat layer on current MuJoCo; these tests notice when either side changes.
@@ -34,3 +34,22 @@ jobs:
       - name: Run robosuite tests
         # The runner has no display and no GPU: the render and gpu tests (also marked robosuite) are not selected here, as in the test job.
         run: uv run --python 3.12 --extra robosuite --extra dev pytest -v -m "robosuite and not gpu and not render"
+
+  menagerie:
+    # Robots from MuJoCo Menagerie: the model archives are downloaded on first use and cached between runs.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Cache menagerie models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mujoco_menagerie  # the library's default cache directory on Linux
+          # Keep in step with the pin in pyproject.toml (extra "menagerie").
+          key: menagerie-2026.9.0
+
+      - name: Run menagerie tests
+        run: uv run --python 3.12 --extra menagerie --extra dev pytest -v -m menagerie

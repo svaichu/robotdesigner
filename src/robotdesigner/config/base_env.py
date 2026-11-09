@@ -16,12 +16,13 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .._canon import check_keys, within
-from .control import ControlConfig, FixedGains
+from .control import CONTROL_MODES, NATIVE_MODES, ControlConfig, FixedGains, NativeGains
 from .defaults import DEFAULTS, DEFAULTS_VERSION
 from .env import EnvConfig
 from ..errors import ConfigError, Problem
 from .providers import get_task_provider
-from ..robot import ParametricArm, Pose, ToolSpec, TwoFingerGripper
+from .robot_providers import get_robot_provider
+from ..robot import ExternalRobot, ParametricArm, Pose, ToolSpec, TwoFingerGripper, robot_from_dict
 from .sim import SIMULATOR_OPTIONS, SimConfig
 from .specs import NOT_SET, Chain
 from .task import TaskConfig, migrate_task_dict
@@ -59,6 +60,7 @@ def _default_options(simulator: str) -> Any:
 
 
 _SECTIONS = ("robot", "control", "task", "sim")
+_READY = (ParametricArm, ExternalRobot)  # a ready robot: it replaces the section, no Chain fields apply to it
 _CHAIN_FIELDS = tuple(f.name for f in fields(Chain))
 _PAIRS = (("link_length", "total_length"), ("mass", "total_mass"))
 
@@ -106,7 +108,7 @@ class BaseEnvConfig:
         d = DEFAULTS
         provider, name = d["task"]["provider"], d["task"]["name"]
         params_cls = get_task_provider(provider).params_class(name)
-        self._robot: Chain | ParametricArm = Chain(**d["robot"])
+        self._robot: Chain | ParametricArm | ExternalRobot = Chain(**d["robot"])
         self._control = {"mode": d["control"]["mode"], "gains": FixedGains(d["control"]["kp"], d["control"]["kd"]),
                          "action_scale": d["control"]["action_scale"]}
         self._task = {"params": params_cls(name=name), "max_episode_steps": d["task"]["max_episode_steps"], "success_tolerance": None,
@@ -130,17 +132,18 @@ class BaseEnvConfig:
 
     def robot(self, robot: Any = NOT_SET, **fields_: Any) -> "BaseEnvConfig":
         """Refine the robot. ``robot`` is a :class:`Chain` (written fields change, the rest carries), a ready
-        ``ParametricArm`` (a fixed robot: it replaces the section) or omitted; keywords are fields of ``Chain``."""
+        ``ParametricArm`` or ``ExternalRobot`` (a fixed robot: it replaces the section) or omitted; keywords are fields
+        of ``Chain``."""
         allowed = [f.name for f in fields(Chain)]
         _check_keys("robot", fields_, allowed)
         written = set(self._written)
-        if isinstance(robot, ParametricArm):
+        if isinstance(robot, _READY):
             if fields_:
-                raise ConfigError("robot", "a ready ParametricArm cannot be combined with Chain fields")
+                raise ConfigError("robot", f"a ready {type(robot).__name__} cannot be combined with Chain fields")
             written = {w for w in written if not w.startswith("robot")} | {"robot"}
             return self._copy(robot=robot, written=frozenset(written))
         if robot is not NOT_SET and not isinstance(robot, Chain):
-            raise ConfigError("robot", f"expected a Chain or a ParametricArm, got {type(robot).__name__}")
+            raise ConfigError("robot", f"expected a Chain, a ParametricArm or an ExternalRobot, got {type(robot).__name__}")
         if isinstance(self._robot, Chain):
             base = self._robot
         else:  # a fixed robot is replaced by the default chain with the written fields on top
@@ -201,6 +204,20 @@ class BaseEnvConfig:
 
     # --- resolution ------------------------------------------------------------------
 
+    def _resolved_control(self) -> tuple[dict[str, Any], dict[str, str]]:
+        """The control values and, for those the robot decided, the source ``default (robot)``. An external robot whose
+        gains were not written is driven by its own actuators (``NativeGains``), and an unwritten mode is the default
+        mode when it fits the actuators, else the first mode that does."""
+        values, sources = dict(self._control), {}
+        if not isinstance(self._robot, ExternalRobot):
+            return values, sources
+        if "control.gains" not in self._written:
+            values["gains"], sources["gains"] = NativeGains(), "default (robot)"
+            fits = NATIVE_MODES[self._robot.actuator_kind]
+            if "control.mode" not in self._written and fits and values["mode"] not in fits:
+                values["mode"], sources["mode"] = next(m for m in CONTROL_MODES if m in fits), "default (robot)"
+        return values, sources
+
     def _default_mount(self) -> Pose:
         params = self._task["params"]
         try:
@@ -221,8 +238,8 @@ class BaseEnvConfig:
             except (TypeError, ValueError, AttributeError) as e:
                 problems.append(Problem(section, f"{type(e).__name__}: {e}"))
 
-        attempt("robot", lambda: self._robot if isinstance(self._robot, ParametricArm) else self._robot.arm())
-        attempt("control", lambda: ControlConfig(**self._control))
+        attempt("robot", lambda: self._robot if isinstance(self._robot, _READY) else self._robot.arm())
+        attempt("control", lambda: ControlConfig(**self._resolved_control()[0]))
 
         def task():
             t = dict(self._task)
@@ -275,7 +292,7 @@ class BaseEnvConfig:
     def to_dict(self) -> dict[str, Any]:
         """Every builder field as plain data, with ``defaults_version``. A mount that was not pinned is omitted: it is
         the task's default, applied by ``resolve()``. The record to keep with a run is ``resolve().to_dict()``."""
-        robot = (self._robot.to_dict() if isinstance(self._robot, ParametricArm)
+        robot = (self._robot.to_dict() if isinstance(self._robot, _READY)
                  else {"kind": "chain", **{n: _jsonable(getattr(self._robot, n)) for n in self._robot.written()}})
         t = self._task
         task = {"provider": t["params"].provider, "params": t["params"].to_dict(), "max_episode_steps": t["max_episode_steps"],
@@ -327,11 +344,13 @@ class BaseEnvConfig:
     def _with_section(self, section: str, d: Mapping[str, Any], merge_chain: bool = False) -> "BaseEnvConfig":
         """The config with ``section`` replaced by what the dict ``d`` says (validated by the section's own classes)."""
         if section == "robot":
-            if d.get("kind", "chain") == "parametric_arm":
-                return self._copy(robot=within("robot", ParametricArm.from_dict, d))
+            if d.get("kind", "chain") in ("parametric_arm", "external_robot"):
+                return self._copy(robot=within("robot", robot_from_dict, d))
             check_keys(d, set(), "robot", optional={"kind", *_CHAIN_FIELDS})
             if d.get("kind", "chain") != "chain":
-                raise ConfigError("robot.kind", f"expected 'chain' or 'parametric_arm', got {d['kind']!r}")
+                raise ConfigError(
+                    "robot.kind", f"unknown kind {d['kind']!r}; expected 'chain', 'parametric_arm' or 'external_robot'"
+                )
             given = {}
             for k, v in d.items():
                 if k == "kind":
@@ -487,11 +506,12 @@ class BaseEnvConfig:
         w = self._written
         src = lambda path: "set" if path in w else "default"  # noqa: E731
         out: list[tuple[str, Any, str]] = []
-        if isinstance(self._robot, ParametricArm):
+        if isinstance(self._robot, _READY):
             out.append(("robot", self._robot, "set"))
         else:
             out += [(f"robot.{n}", getattr(self._robot, n), src(f"robot.{n}")) for n in self._robot.written()]
-        out += [(f"control.{k}", self._control[k], src(f"control.{k}")) for k in _CONTROL_FIELDS]
+        control, by_robot = self._resolved_control() if resolved_mount else (self._control, {})
+        out += [(f"control.{k}", control[k], by_robot.get(k) or src(f"control.{k}")) for k in _CONTROL_FIELDS]
         out.append(("task.params", self._task["params"], src("task.params")))
         for k in _TASK_FIELDS:
             v, s = self._task[k], src(f"task.{k}")
@@ -501,9 +521,22 @@ class BaseEnvConfig:
         out += [(f"sim.{k}", self._sim[k], src(f"sim.{k}")) for k in _SIM_FIELDS]
         return out
 
+    def _robot_license(self) -> str | None:
+        """The licence of an external robot's model, if its provider reports one (``license(name)``)."""
+        if not isinstance(self._robot, ExternalRobot):
+            return None
+        try:
+            return getattr(get_robot_provider(self._robot.provider), "license")(self._robot.name)  # noqa: B009
+        except Exception:  # no such method, library missing, unknown robot: nothing to show
+            return None
+
     def explain(self) -> str:
-        """Every field with its value and where it comes from: ``set``, ``default`` or ``default (task)``."""
+        """Every field with its value and where it comes from: ``set``, ``default``, ``default (task)`` or, for an
+        external robot, ``default (robot)``."""
         rows = self._fields(resolved_mount=True)
+        license_ = self._robot_license()
+        if license_ is not None:
+            rows.insert(1, ("robot.license", license_, "provider"))
         width = max(len(p) for p, _, _ in rows)
         head = f"BaseEnvConfig (defaults version {DEFAULTS_VERSION})"
         return "\n".join([head] + [f"  {p:<{width}}  {v!r}  [{s}]" for p, v, s in rows])

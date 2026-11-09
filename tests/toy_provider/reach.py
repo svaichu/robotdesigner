@@ -96,7 +96,7 @@ class ReachTask(BaseTask):
         add_geom(scene, mujoco.mjtGeom.mjGEOM_SPHERE, [max(tol, 0.01), 0.0, 0.0], center, np.eye(3), color)
         # The sphere (radius = tolerance) sits inside the arm tip once the target is reached, so add a cross-hair
         # that sticks out past the arm: the red -> green change stays visible.
-        arm_radius = max(seg.link.geometry.radius for seg in self.cfg.robot.segments)
+        arm_radius = max((seg.link.geometry.radius for seg in getattr(self.cfg.robot, "segments", ())), default=0.03)  # an ExternalRobot has no capsules
         reach = 2.5 * max(tol, arm_radius)
         for axis in np.eye(3):
             add_line(scene, center - reach * axis, center + reach * axis, color)

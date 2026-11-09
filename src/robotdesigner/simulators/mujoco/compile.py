@@ -30,7 +30,7 @@ class RobotInterface:
     qpos_adr: np.ndarray  # (n,) int
     qvel_adr: np.ndarray  # (n,) int
     actuator_ids: np.ndarray  # (n,) int
-    ee_site_id: int
+    ee_site_id: int | None  # None for an external robot without an end effector
     joint_range: np.ndarray  # (n, 2); -inf / +inf where unlimited
     effort_limit: np.ndarray  # (n,)
     home_qpos: np.ndarray  # (n,)
@@ -42,6 +42,12 @@ class RobotInterface:
     gripper_qpos_adr: np.ndarray | None = None  # (2,) int, the two finger joints
     gripper_max_opening: float = 0.0  # metres, the control range of the actuator is [0, gripper_max_opening]
     tcp_site_id: int | None = None
+    # External robots (``ExternalRobot``); ``None`` for a ``ParametricArm``. The Warp simulator ignores them.
+    ctrl_range: np.ndarray | None = None  # (n, 2) ctrlrange of the driven actuators; -inf / +inf where unlimited
+    root_qpos_adr: int | None = None  # first of the 7 qpos of a free root joint
+    home_root: Pose | None = None  # the root body at home in the world: mount composed with ``ExternalRobot.home_root``
+    reset_qpos: np.ndarray | None = None  # (nq,) the state of the model at reset: the keyframe, mapped onto this model
+    held_ctrl: np.ndarray | None = None  # (nu,) ctrl of the actuators that are not driven (the keyframe's), 0 where driven
 
     @property
     def has_gripper(self) -> bool:
@@ -166,6 +172,10 @@ def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float], scene_hook=Non
 
 def compile_robot(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
     """Compile ``cfg.robot`` into a model. ``scene_hook(spec)``, if given, adds the task's scene elements to the spec."""
+    if type(cfg.robot).__name__ == "ExternalRobot":
+        from .external import compile_external
+
+        return compile_external(cfg, scene_hook)
     arm = cfg.robot
     n = arm.n
     control = cfg.control

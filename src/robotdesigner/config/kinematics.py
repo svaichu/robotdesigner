@@ -1,5 +1,8 @@
 """Pure-numpy forward kinematics of a ``ParametricArm``: the engine-independent oracle.
 
+A robot of kind ``ExternalRobot`` has no model here: ``forward_ee_batch`` and ``sample_joint_positions`` ask its robot
+provider for an oracle (engine side, imported lazily) and fail with a ``ConfigError`` when the engine is missing.
+
 Convention: ``T_0 = base`` (the robot base in the world: the task's ``mount``; identity when not given); for each segment ``F_i = T_i . joint_frame_i``,
 ``L_i = F_i . Rot(axis_i, q_i)``, ``tip_i = L_i . Pose(tip_offset_i, identity)``,
 ``T_{i+1} = tip_i``; ``ee = T_n . end_effector``.
@@ -11,7 +14,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..robot import ParametricArm, Pose
+from ..errors import ConfigError
+from ..robot import ExternalRobot, ParametricArm, Pose
 
 
 @dataclass(frozen=True)
@@ -70,9 +74,26 @@ def _forward_batch(arm: ParametricArm, q: np.ndarray, base: Pose | None = None):
     return np.stack(links, axis=1), np.stack(tips, axis=1), ee
 
 
+def _oracle(robot: ExternalRobot):
+    from .robot_providers import get_robot_provider
+
+    try:
+        return get_robot_provider(robot.provider).kinematics(robot)
+    except ImportError as e:
+        raise ConfigError(
+            "robot",
+            f"the kinematics of robot {robot.provider}/{robot.name} need the simulation engine "
+            f"({e.name or type(e).__name__} is missing): install the extra of robot provider {robot.provider!r} "
+            "or robotdesigner[env]",
+        ) from e
+
+
 def forward(arm: ParametricArm, q, base: Pose | None = None) -> FK:
     """Forward kinematics for one joint configuration ``q`` of shape ``(n,)``. Poses are in the frame the robot base
-    ``base`` is given in (the task's ``mount``: the world); the base frame itself when ``base`` is ``None``."""
+    ``base`` is given in (the task's ``mount``: the world); the base frame itself when ``base`` is ``None``.
+    ``ParametricArm`` only: an ``ExternalRobot`` has no link frames here."""
+    if not isinstance(arm, ParametricArm):
+        raise TypeError(f"forward() needs a ParametricArm, got {type(arm).__name__}: it has no link frames here")
     q = np.asarray(q, dtype=float)
     if q.shape != (arm.n,):
         raise ValueError(f"q must have shape ({arm.n},), got {q.shape}")
@@ -80,14 +101,19 @@ def forward(arm: ParametricArm, q, base: Pose | None = None) -> FK:
     return FK(link_frames=links[0], tip_frames=tips[0], ee=ee[0])
 
 
-def forward_ee_batch(arm: ParametricArm, q_batch, base: Pose | None = None) -> np.ndarray:
+def forward_ee_batch(arm: ParametricArm | ExternalRobot, q_batch, base: Pose | None = None) -> np.ndarray:
     """End-effector positions, ``(B, n) -> (B, 3)``: in the world frame when ``base`` is the mount of the robot, in the
-    robot's base frame when it is ``None``."""
+    robot's base frame when it is ``None``. An ``ExternalRobot`` answers through its robot provider."""
+    if isinstance(arm, ExternalRobot):
+        return np.asarray(_oracle(arm).forward_ee_batch(q_batch, base), dtype=float)
     return _forward_batch(arm, q_batch, base)[2][:, :3, 3]
 
 
-def sample_joint_positions(arm: ParametricArm, num: int, rng: np.random.Generator) -> np.ndarray:
-    """``(num, n)`` samples, uniform in each joint range and in ``[-pi, pi]`` for unlimited joints."""
+def sample_joint_positions(arm: ParametricArm | ExternalRobot, num: int, rng: np.random.Generator) -> np.ndarray:
+    """``(num, n)`` samples, uniform in each joint range and in ``[-pi, pi]`` for unlimited joints. An
+    ``ExternalRobot`` answers through its robot provider."""
+    if isinstance(arm, ExternalRobot):
+        return np.asarray(_oracle(arm).sample_joint_positions(num, rng), dtype=float)
     lo = np.empty(arm.n)
     hi = np.empty(arm.n)
     for i, seg in enumerate(arm.segments):

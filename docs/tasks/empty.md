@@ -1,45 +1,29 @@
-# The `empty` placeholder task
+# `empty/idle`: the placeholder task
 
-`empty/idle` is a **placeholder**, shipped so that a default environment can run: the robot stands in the simulator's scene and nothing
-is asked of it. It is the one task the package names itself (decision log of the [design spec](../spec_robotconfig_env.md#9-decision-log)); real tasks come from
-providers such as [robosuite](robosuite.md), or your own ([writing a task provider](writing-a-provider.md)).
+The package names exactly one task of its own, `empty/idle`, so that a default environment can run without any provider installed: the robot stands in the
+simulator's scene and nothing is asked of it. It is the task of `BaseEnvConfig()`. Any real task comes from another provider
+([robosuite](robosuite.md), [writing a provider](writing-a-provider.md)); `tests/test_no_hardcoded_tasks.py` keeps the rest of the core free of task names.
 
 ```python
-from robotdesigner.config import Pose, TaskConfig, get_task_provider
+from robotdesigner.config import BaseEnvConfig, TaskConfig, get_task_provider
+from robotdesigner.config import Pose
 from robotdesigner.tasks.empty import EmptyParams
-```
 
-Related pages: [TaskConfig](../configs/task.md), [simulators](../simulators.md).
-
-## `EmptyParams(name)`
-
-| field | type | rule |
-|---|---|---|
-| `name` | str | `"idle"`, the only task |
-
-`uses_goal` is false, so `TaskConfig` takes `success_tolerance=None` and `target_region=None`. `max_episode_steps` is the episode length; the mount
-defaults (provider side) to the origin with the identity quaternion.
-
-```python
-task = TaskConfig(
-    params=EmptyParams(name="idle"), max_episode_steps=100, success_tolerance=None, target_region=None, mount=Pose.identity(),
-)
+task = TaskConfig(EmptyParams(name="idle"), max_episode_steps=100, success_tolerance=None, target_region=None, mount=Pose.identity())
 assert task.id == "empty/idle"
-assert task.to_dict()["provider"] == "empty" and task.to_dict()["params"] == {"name": "idle"}
-assert TaskConfig.from_dict(task.to_dict()) == task
 assert get_task_provider("empty").default_mount("idle") == Pose.identity()
+assert BaseEnvConfig().resolve().task.id == "empty/idle"
 ```
 
-## What the task does
+| | |
+|---|---|
+| params | `EmptyParams(name)`; `name` must be `"idle"`. No other fields, so no `reset_noise` and no `terminate_on_success` (the environment reads them when a params class has them) |
+| goal | none: `success_tolerance` and `target_region` must be `None` |
+| mount | the origin |
+| simulators | `mujoco`, `warp` |
+| `task` observations | none (the group is empty); the `proprio`, `success` and `episode_step` entries are present as for every task |
+| success, reward | success is always `False`, reward always `0.0` |
+| scene objects | none; draws nothing from the task's random stream |
 
-- **Scene:** adds nothing. Whatever `sim.scene` provides is all there is.
-- **Observations:** the `task` group is empty; the robot's own observations are unchanged.
-- **Reward** is 0, success is never set and `terminated` never fires; `truncated` fires at `max_episode_steps`.
-- **Randomness:** draws nothing from the task's random stream.
-- **Simulators:** `mujoco` and `warp`.
-
-## Not the `empty` scene
-
-`sim.scene = "empty"` is a preset of the simulator (no floor, no objects); `empty/idle` is a task owned by a provider. The names coincide
-and nothing else does: a robosuite task needs the `empty` scene, `empty/idle` runs on any scene. The test that keeps the core free of
-task names exempts this one namespace for that reason.
+Use it to check an embodiment on its own: how it falls under gravity, how a control mode and gains respond to a step in `joint_pos_abs`, how the cost per step scales with `n`.
+The `empty` *provider* is unrelated to the `empty` *scene* of `sim.scene` (a preset of the simulator, see [sim](../configs/sim.md#scenes)).

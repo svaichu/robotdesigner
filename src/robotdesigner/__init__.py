@@ -3,7 +3,7 @@
 ``env = robotdesigner.make_env(env_config)`` is the single way to get an environment from an ``EnvConfig``.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.2.0"
 
 __all__ = ["__version__", "make_env"]
 

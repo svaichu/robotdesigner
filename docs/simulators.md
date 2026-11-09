@@ -1,171 +1,234 @@
 # Simulators and the environment contract
 
-Related pages: [SimConfig](configs/sim.md), [TaskConfig](configs/task.md), [EnvConfig](configs/env.md), [writing a task provider](tasks/writing-a-provider.md), [viz](viz.md).
+`env = make_env(cfg)` turns an [`EnvConfig`](configs/env.md) into a batched [TorchRL](https://github.com/pytorch/rl) environment. The **simulator** named by `cfg.sim.simulator` is the physics engine; the **task** comes
+from a [provider](configs/task.md#where-tasks-come-from) and is written against an engine-neutral view of the simulation, so one task runs on every simulator.
 
-A **simulator** is a physics engine realized as code: `robotdesigner.simulators.<name>`, loaded by name when `sim.simulator`
-names it. It turns an [`EnvConfig`](configs/env.md) into a batched TorchRL environment. The config says
-what to run; the simulator and the task's provider decide whether they can, and build it. Tasks are not part of a simulator:
-they come from [task providers](configs/task.md#where-tasks-come-from) and run on any simulator their provider accepts.
+| simulator | engine | devices | environment class | extra |
+|---|---|---|---|---|
+| `mujoco` | MuJoCo on the CPU: the reference and debugging simulator. The `num_envs` worlds are stepped one after another in one Python process | `cpu` | `MujocoEnv` | `env` |
+| `warp` | MuJoCo Warp on a CUDA GPU: all worlds in one device allocation, tensors stay on the device | `cuda:N` | `WarpEnv` | `warp` |
 
-```python no-run
-from robotdesigner import make_env
-env = make_env(cfg)        # cfg.sim.simulator picks the simulator, cfg.task.params the provider that supplies the task
+Both build the *same* compiled MuJoCo model of the robot and run the same control law, resets and seeding. The CPU simulator is the reference: parity tests compare the GPU one against it.
+
+```python
+from robotdesigner.config import BaseEnvConfig
+from robotdesigner.simulators import check_capabilities, get_simulator, list_simulators
+
+assert list_simulators() == ("mujoco", "warp")
+caps = get_simulator("warp").capabilities()                    # importing these checks needs neither torch nor MuJoCo
+assert caps.devices == frozenset({"cuda"}) and "joint_torque" in caps.control_modes
+
+cfg = BaseEnvConfig().control(mode="ee_pos_delta").sim(simulator="warp", device="cpu").resolve()
+problems = check_capabilities(cfg, caps, "warp")
+assert {p.path for p in problems} == {"control.mode", "sim.device"}
 ```
 
-| simulator | what it is | needs |
-|---|---|---|
-| `mujoco` | CPU MuJoCo: a model compiled from the config (robot, a scene preset, the task's assets). The reference and debugging simulator | `[env]` extra |
-| `warp` | the same compiled models on an NVIDIA GPU, `num_envs` worlds in one allocation (MuJoCo Warp). Same environment contract, tensors on `cuda:N`. Runs `empty/idle`, [`robosuite` tasks](tasks/robosuite.md#which-environments-work) and any task written against `SimView` | `[env,warp]` extra, an NVIDIA GPU, matching `mujoco` and `mujoco-warp` releases |
+## Capabilities and validation
 
-Where a task's scene comes from is a provider matter: [robosuite scenes](tasks/robosuite.md) load a robosuite arena and
-its objects into the MuJoCo model; a task that needs no assets adds none and runs on `sim.scene`.
+`make_env(cfg)` collects **every** reason the config cannot run and raises one `ConfigError` listing all of them, each with the config path to change. Nothing is approximated or
+silently substituted. The sources of problems are:
 
-## Protocol and registry
-
-```python no-run
-class Simulator(Protocol):
-    name: str
-    def capabilities(self) -> Capabilities: ...   # what it can run
-    def validate(self, cfg) -> list[Problem]: ... # engine-specific checks, before anything is built
-    def make_env(self, cfg): ...                  # a torchrl EnvBase
-```
-
-- `robotdesigner.simulators` is a registry: `register_simulator(name, target)`, `get_simulator(name)`, `list_simulators()`.
-  `target` is a simulator instance or a lazy `"module:attr"` string, resolved on first use, so importing
-  `robotdesigner.simulators` never imports MuJoCo, torch or robosuite. An unknown name raises `ConfigError` with path
-  `sim.simulator`.
-- `Problem(path, message)` names the config field at fault, like `ConfigError.path`.
-
-## Capabilities
-
-`Capabilities` lists what a simulator supports: `control_modes`, `devices`, `robot_kinds`, `integrators`. A device entry
-`"cuda"` matches any `cuda:N`. A simulator never lists tasks.
-
-`make_env(cfg)` collects problems from three places and raises one `ConfigError` that lists **every** one:
-
-1. the config against the simulator's capabilities (control mode, integrator, robot kind, device);
-2. `simulator.validate(cfg)` (engine-specific checks, for example the scene preset);
-3. `provider.validate(cfg, simulator.name)`: the task's own checks against this simulator.
-
-Nothing is built, approximated or silently changed.
-
-```text
-simulator 'mujoco' cannot run this config (3 problems):
-  - control.mode: simulator 'mujoco' does not support control mode 'ee_pos_delta'; supported: ['joint_pos_abs', ...]
-  - sim.device: simulator 'mujoco' does not support device 'cuda:0'; supported: ['cpu']
-  - sim.scene: must be 'empty' for robosuite tasks: the arena brings its own floor
-```
+1. the simulator's **capabilities**: control modes, devices, integrators, robot kinds (`check_capabilities`);
+2. the simulator's own checks (`Simulator.validate`): `mujoco` checks that the scene exists; `warp` checks that `mujoco-warp` is installed and has the same release as `mujoco`, that CUDA
+   and the device index are available, that the robot has no gripper, and that the scene exists;
+3. the task provider's checks (`TaskProvider.validate`): the task runs on this simulator, the scene the task needs, the assets exist, and so on.
 
 | | `mujoco` | `warp` |
 |---|---|---|
-| control modes | `joint_pos_abs`, `joint_pos_delta`, `joint_torque`, `joint_vel` | the same four |
-| gains | `FixedGains`, `InertiaScaledGains` | the same (computed on the host model) |
-| device | `cpu` | `cuda:N` |
-| integrators | `euler`, `implicit`, `implicitfast`, `rk4` | the same four |
-| time step `dt` | any (`1 / (control_freq · dt)` must be an integer) | the same |
-| scenes | `empty`, `plain_floor` (a task's own scene is added on top) | the same |
-| robot kinds | `parametric` | `parametric` |
-| `robot.tool` | ignored | ignored |
-| `sim.options` | `MujocoOptions` | `WarpOptions` |
-| state precision | float64 | float32 |
+| control modes | `joint_pos_abs`, `joint_pos_delta`, `joint_vel`, `joint_torque` | the same four |
+| `ee_pos_delta`, `ee_pose_delta` | not implemented | not implemented |
+| integrators | `euler`, `implicit`, `implicitfast`, `rk4` | the same |
+| `TwoFingerGripper` | built; one extra action dimension | **rejected** (`robot.gripper`) |
+| robot kinds | `parametric`, `external` | `parametric`, `external` |
+| devices | `cpu` | `cuda:N` |
 
-The `warp` column is what the CPU-versus-Warp parity tests (`tests/test_warp_parity.py`) showed to match the CPU simulator
-within float32 tolerances: they were measured on the Warp library's CPU device, and are to be re-measured on a CUDA device.
-Nothing is approximated: a control mode, integrator, scene or model feature that Warp does not run is reported as a
-`Problem` before anything is built (`check_model_supported` lists every unsupported element of the compiled model at once).
-`make_env` on a machine without CUDA, or without `mujoco-warp`, or with a `mujoco-warp` release that differs from `mujoco`,
-lists those problems together with the others.
-
-### Capacity overflow
-
-`WarpOptions.njmax` and `nconmax` are allocated **per world**. MuJoCo Warp does not fail when a capacity is too small: it clips
-the contacts and constraints and sets an overflow flag. `WarpEnv` checks the counters after every policy step and raises
-`CapacityError` (a `RuntimeError`) naming the capacity and the counts, so a too-small allocation is never silent:
+What the capabilities list is what the parity tests have shown to match, not what the engine could conceivably do.
 
 ```text
-CapacityError: capacity exceeded: NEFC (most constraint rows in a world: 340, njmax=256; contacts: 113, nconmax=64 per world)
+ConfigError: simulator 'warp' cannot run this config (2 problems):
+  - control.mode: simulator 'warp' does not support control mode 'ee_pos_delta'; supported: [...]
+  - sim.device: simulator 'warp' does not support device 'cpu'; supported: ['cuda']
 ```
 
-Raise the options (`.sim(options=WarpOptions(njmax=512, nconmax=128, cuda_graph=True))`). A scene with many contacts, such as
-`NutAssembly`, needs more than a free arm. `benchmarks/bench_warp.py` prints the counts a rollout used (`max_nefc`, `max_contacts_per_world`) next to its throughput, so the capacities can be chosen from a measurement.
+## The environment
 
-## The environment contract
+Every environment is a TorchRL `EnvBase` with `batch_size = [num_envs]` and `batch_locked = True`. Specs below are for `N = num_envs` and an arm with `n` joints.
 
-Every simulator returns a TorchRL `EnvBase` with these properties, whatever the task.
+**Action.** `action_spec` is `Bounded(-1, 1)` of shape `[N, n]` (`[N, n + 1]` with a gripper, the last component being the opening). How it becomes a command: [control](configs/control.md#modes).
 
-- `batch_size = [num_envs]`, batch-locked, on `sim.device` (`cpu` for `mujoco`, `cuda:N` for `warp`): every tensor of the environment lives there.
-- **No autoreset.** `step` never resets an environment. Reset chosen rows with a boolean mask `td["_reset"]` of shape
-  `[num_envs, 1]` (absent: reset all), or use `env.step_and_maybe_reset(td)` to let the driver do it from the done keys.
-- **Step** reads `td["action"]`, shape `[num_envs, n]` in `[-1, 1]` (one value per joint), and returns the outputs under
-  `("next", ...)`.
-- **Done keys:** `done`, `terminated`, `truncated`, each `[num_envs, 1]` bool. `truncated` is the time limit: it is set once `episode_step >= max_episode_steps`
-  (Gymnasium's name for it). `env.rollout(500)` therefore returns after `max_episode_steps` steps, because TorchRL stops at the first env that is done.
-- **Reward:** `[num_envs, 1]` float32, from the task.
-- **Always present** in the observation: `success` `[num_envs, 1]` bool and `episode_step` `[num_envs, 1]` int64, a
-  `task` group (whatever the task observes) and a `proprio` group with `qpos`, `qvel` and `effort`, each `[num_envs, n]`.
-- **Injected state:** the reset TensorDict may carry `qpos` and `qvel`, and whatever the task accepts (a task
-  documents its own keys, for example a goal point), which override the random initialization. This is how two
-  simulators are compared from the same start, or an episode is replayed.
-- **Seeding:** `env.set_seed(seed)`. The same simulator, device and seed give the same episodes. The reset noise of the
-  robot and the draws of the task come from two separate streams, both seeded from `sim.seed`: what a task draws (an
-  object's placement, a goal) is the same for every embodiment run with the same seed and `num_envs`.
-- **Spaces:** `env.action_space` is the shape of one env's action, a `torch.Size([n])`; `env.observation_space` is a nested dict of `torch.Size` with the same
-  keys as `observation_spec` (`{"task": {...}, "proprio": {"qpos": torch.Size([n]), ...}, "success": torch.Size([1]), ...}`; nothing is flattened). They are
-  per env, without the batch dimension: the batched shape is `env.batch_size + env.action_space`. They are *shapes*, not Gymnasium `Space` objects (dtype and
-  bounds stay in `action_spec` / `observation_spec`), derived from the specs in one place (`robotdesigner.envs.spaces.SpacesMixin`), so every simulator's
-  environment has them. The MuJoCo simulator ignores `robot.tool`, so the action is `n` joint values also for robosuite tasks.
-- **Attributes:** `env.cfg` (the resolved config), `env.robot_hash`, `env.env_hash`, `env.task` (the task's engine side),
-  `env.interface` (a `RobotInterface`, below), `env.q_target` (position targets in `joint_pos_delta` mode, a host float64 array).
-- `env.render(...)` returns an RGB frame of the live state, with the overlays the task draws; see [viz](viz.md).
-- `check_env_specs(env)` passes for every task (the tests run it).
+**Observation** (nested; nothing is flattened):
 
-`proprio/effort` is the actuator force (N·m) at the last physics sub-step of the step. The action's meaning is the
-control mode (see [ControlConfig](configs/control.md#modes)). The keys of the `task` group are the task's own and are
-documented on its page.
+| key | shape, dtype | content |
+|---|---|---|
+| `task/...` | provider's | the task's group, e.g. `ee_pos`, `<object>_pos` ([robosuite](tasks/robosuite.md)); empty for `empty/idle` |
+| `proprio/qpos` | `[N, n]` f32 | joint positions (rad) |
+| `proprio/qvel` | `[N, n]` f32 | joint velocities |
+| `proprio/effort` | `[N, n]` f32 | actuator forces |
+| `proprio/gripper` | `[N, 1]` f32 | opening (m), only with a gripper |
+| `success` | `[N, 1]` bool | the task's success test on the current state |
+| `episode_step` | `[N, 1]` i64 | steps since the env's last reset |
 
-## `RobotInterface`
+`env.observation_space` and `env.action_space` are plain **per-env shapes**: a nested dict of `torch.Size` mirroring the observation, and a `torch.Size`. They are not Gymnasium `Space`
+objects; dtypes and bounds stay in `observation_spec` / `action_spec`, and the batched shape is `env.batch_size + env.action_space`.
 
-What tasks and wrappers need to know about a compiled robot, without engine-specific names:
+**Step output** (under `("next", ...)` in a TorchRL step): the observation, `reward` `[N, 1]` f32, and `done`, `terminated`, `truncated` `[N, 1]` bool.
+`truncated` is set once `episode_step >= max_episode_steps`; `terminated` is `success` if the task's params have `terminate_on_success = True`, else `False`; `done = terminated | truncated`.
 
-| field | meaning |
+**Reset.** The environment **never autoresets**. Reset only some rows with the `_reset` mask; unselected rows are untouched.
+
+```python no-run
+td = env.reset()                               # every row
+td["action"] = env.action_spec.rand()          # [N, n] in [-1, 1]
+td = env.step(td)                              # outputs under ("next", ...)
+
+# driver-side autoreset: rows that are done are reset by the caller, never by the env
+data, td = env.step_and_maybe_reset(td)
+
+# reset rows 0 and 3 only, and inject a posture and a task value for them
+td_reset = env.reset(TensorDict({"_reset": mask, "qpos": q0}, batch_size=env.batch_size))
+traj = env.rollout(50)                         # TorchRL's rollout with a random policy; `traj.shape == [N, 50]`
+```
+
+A reset can inject `qpos` and `qvel` (`[N, n]`, read for the masked rows) and whatever the task documents (`injected(key)`). Without injection the robot goes to `home_qpos` plus uniform noise of
+`reset_noise` (when the task's params have it), clipped to the joint ranges.
+
+### Seeding
+
+There are two seeded streams, both set from `sim.seed` and by `env.set_seed(seed)`:
+
+- the **robot's** stream draws the reset noise (its shape depends on `n`);
+- the **task's** stream (`rand` in `TaskImpl.reset`) is derived from the seed by a fixed offset and **does not depend on the robot**.
+
+So with the same seed and `num_envs`, every embodiment sees the same task draws (the same cube positions, the same targets): that is what makes a comparison across
+embodiments a comparison. The Warp simulator draws from the same CPU generators and moves the result to the device, so a seed gives the same draws on both simulators.
+Physics on the GPU is deterministic per device and library release but not bitwise (the contact solver), so compare trajectories with tolerances.
+
+### Attributes and methods
+
+| | |
 |---|---|
-| `n`, `joint_names` | number of joints and their names |
-| `qpos_adr`, `qvel_adr`, `actuator_ids` | indices into the simulation arrays, `(n,)` |
-| `ee_site_id` | the end-effector site |
-| `joint_range` | `(n, 2)`, `-inf`/`+inf` where unlimited |
-| `effort_limit`, `home_qpos` | `(n,)` |
-| `mount` | the base pose in the world (`task.mount`) |
-| `kp`, `kd` | effective gains `(n,)`; `None` for torque control |
+| `env.cfg`, `env.robot_hash`, `env.env_hash` | the resolved config and its identity |
+| `env.interface` | `RobotInterface`: joint names and addresses, ranges, effort limits, `home_qpos`, mount, effective `kp` / `kd`, gripper fields |
+| `env.task` | the engine side of the task |
+| `env.q_target` | position targets `[N, n]`, meaningful in `joint_pos_delta` |
+| `env.render(env_index=0, *, camera=None, size=(240, 320), overlays=True)` | one `uint8 (H, W, 3)` frame of the live state; see [viz](viz.md) |
+| `env.close()` | frees the renderer (and the Warp allocation) |
 
-## How an environment is put together
+## CPU MuJoCo specifics
 
+- Worlds are stepped serially in the calling process: throughput scales with the speed of one core, not with `num_envs`. Use it for correctness, debugging and small studies; run several processes (see [cluster](cluster.md)), or use `warp`, for volume.
+- Float64 physics; observations are converted to float32.
+- Supports the gripper.
+- Runs an [`ExternalRobot`](configs/robot.md#externalrobot-a-model-that-lives-elsewhere), see below.
+
+### External robots on the CPU simulator
+
+The robot provider's `MjSpec` is attached to the scene and driven by **its own actuators** (`NativeGains`) or, with `FixedGains` / `InertiaScaledGains`, by ours in their place ([control](configs/control.md#our-gains-on-an-external-robot)); the same environment, tasks and `SimView` run on it.
+
+- **Placement.** The compile adds an empty, welded body `base` at the mount (so `SimView`'s `"base"` frame works as for a `ParametricArm`) and attaches the model into a frame of the
+  world body at the same pose, with the prefix `ext_` (`ext_j1`, `ext_a1`, `ext_ee`). The model's own world frame is therefore the base frame: a fixed arm stands at the mount, and a
+  floating robot (a free root joint, which MuJoCo only allows on a direct child of the world) starts at the mount composed with `ExternalRobot.home_root`. New code reads the pose from
+  `iface.mount`.
+- **Joints and actuators.** `iface.joint_names`, `qpos_adr` and `qvel_adr` are the prefixed `robot.joints`, in order. Each driven joint has exactly one actuator with a joint
+  transmission, and `action_dim == n`. The other actuators (a gripper, a coupled finger) are **held** at the `ctrl` of the model keyframe named by `robot.keyframe` (zero when `None`) on every step.
+- **Reset.** `mj_resetData`, then the whole keyframe state (finger and passive joints get their model values), then the driven joints at `home_qpos` plus the reset noise (driven joints
+  only, clipped to their ranges), then the root pose of a free joint. A masked reset leaves the other envs, roots included, untouched.
+- **End effector.** `iface.ee_site_id` is the site named by `EndEffectorRef.site`, or a site `ee` added to `EndEffectorRef.body` at `offset`. It is `None` when the robot has no end effector.
+- **Native control.** The action in `[-1, 1]` maps to the actuator's `ctrlrange`, not to the joint range: the two are separate fields of a model and need not be equal. For a position
+  servo without a `ctrlrange` the joint range is used. `joint_pos_delta` accumulates a target clipped to the joint range, as for an arm; `joint_torque` scales by the ends of the actuator's
+  `ctrlrange`. `iface.kp` and `kd` are read from the model for position servos (`gainprm[0]` and `-biasprm[2]`) and are `None` otherwise. (Measured on MuJoCo Menagerie: the Panda's first
+  servo has gain 4500 and bias `(0, -4500, -450)`, the UR5e's shoulder servo gain 2000 and bias `(0, -2000, -400)`; for both, `ctrlrange` equals the joint range.)
+- **`dt` and the integrator** stay the authority of `SimConfig`: the scene carries them and the model's own are not used. A `sim.dt` more than twice the model's own `timestep` is reported
+  with a warning. The contact and solver options of the model (`cone`, `impratio`, solver, noslip) are the scene's: when the two differ, `MjSpec.attach` keeps the scene's value.
+- **Spawn pose.** The mount is where the model's world frame goes (above), so it is the spawn pose: a fixed arm stands at the mount, and a floating robot starts at the mount composed with
+  `home_root`. Tested on the UR5e at a yawed and shifted mount; on Go1 and Go2 at the default mount, at a mount rotated 90° about z and shifted in x and y (in the base frame the robot starts at its
+  model's home root), and at a mount 0.3 m up (they start above the floor, fall and land, and never go through it); and on TidyBot, whose base is made of joints (two slides and a hinge) under position
+  servos and which has no free joint: a constant `joint_pos_delta` action on its base x slide moves the base along the mount's x axis.
+- **Option policy: the scene's options win.** `MjSpec.attach` keeps the scene's value where the model's own `<option>` differs (the legged robots: `cone` elliptic and `impratio` 100 against the scene's
+  pyramidal cone and `impratio` 1). `external.CARRY_MODEL_OPTIONS` (`_model_options`) can carry them over; the default is not to. Measured with `benchmarks/menagerie_options.py` (2 s from the reset
+  pose, `joint_pos_delta`, zero action):
+
+  | robot | model's options carried | `sim.dt` | root drift | tilt | max penetration | mean contacts |
+  |---|---|---|---|---|---|---|
+  | Go1 | no | 0.002 (own) / 0.004 | -0.003 m | 0.26° | 0.014 m | 4.0 |
+  | Go1 | yes | 0.002 (own) / 0.004 | -0.005 m | 0.18° | 0.015 m | 4.0 |
+  | A1 | no | 0.002 (own) / 0.004 | -0.019 m | 0.43° | 0.010 m | 4.2 |
+  | A1 | yes | 0.002 (own) / 0.004 | -0.019 m | 0.23° | 0.012 m | 7.9 |
+
+  Both stand, with the same drift and under a degree of tilt; carrying the options gives a little less tilt, and doubling `dt` changes nothing visible. Carrying them is not worth what it costs: the solver
+  options are then different for every robot, so the same task (the cube of `robosuite/Lift`, a table) would be simulated with a different friction cone for each embodiment, which is what a comparison of
+  embodiments must not do. The scene's options stay, `sim.dt` and the integrator stay `SimConfig`'s, and no field was added to `ExternalRobot`. The test pins the default (Go1 drifts less than 1 cm and A1 less than
+  3 cm, both tilt under 1°). MuJoCo's "Attach conflict" warning about the dropped options is silenced in the compile, because it is the policy.
+- **Frame limitation.** `SimView(frame="base")` is the static mount frame, **not** the moving trunk of a floating robot. A `"root"` frame does not exist yet.
+- **Problems, not silent changes.** `make_env` reports, with the config path: a model with no actuators; driven actuators of another kind than `robot.actuator_kind`; a stale `robot.source`
+  (the provider's check: "the model changed since this config was written"); an unknown joint, entry or keyframe; a free root without `home_root`, or `home_root` without one.
+- **Kinematics.** `robotdesigner.simulators.mujoco.external.MujocoKinematics` is the host-side oracle that a MuJoCo-based robot provider returns from `RobotProvider.kinematics`
+  (`forward_ee_batch(q, base)` by `mj_kinematics`, `sample_joint_positions`), so `OwnReachable` targets and the camera framing of [viz](viz.md) work for external robots.
+## GPU MuJoCo Warp specifics
+
+- Needs the `warp` extra, an NVIDIA GPU, and `mujoco` and `mujoco-warp` of **one release** (otherwise `make_env` reports it).
+- `sim.device` is `cuda:N`; tensors (observations, actions, rewards) live on that device and are float32.
+- `WarpOptions` sets the per-world capacities and the CUDA graph ([sim](configs/sim.md#warpoptionsnjmax-nconmax-cuda_graph)). The environment checks the capacities after every step and raises
+  `CapacityError` instead of silently clipping; `WarpBatchedSim.capacity_usage()` reports how much of an allocation the last step used. A scene with many contacts needs larger options.
+- With the CUDA graph on, the physics sub-steps of one policy step are replayed as one launch (about 12 to 13 times faster per step than stepping kernel by kernel in the Lift sweep of `benchmarks/bench_warp.py`); resets are not captured.
+- Rendering uses a host copy of one world's state, so it costs a device-to-host copy.
+- The model must be one the parity tests cover (`check_model_supported` lists what is not).
+- No gripper yet.
+
+### External robots on Warp
+
+An [`ExternalRobot`](configs/robot.md#externalrobot-a-model-that-lives-elsewhere) runs on Warp with the same compile as on the CPU simulator ([above](#external-robots-on-the-cpu-simulator)). The Warp
+reset writes the same state as the CPU reset: the model keyframe, the driven joints at `home_qpos` plus noise, the composed root pose of a free joint and the held `ctrl` of the actuators that are not driven,
+each per world and masked. `validate` runs `check_model_supported` on the compiled robot model and reports what the installed MuJoCo Warp does not run at the path `robot`; the provider's own checks
+(a stale `source`) are reported too. The action mapping is the CPU simulator's (the actuator's `ctrlrange`).
+
+**Parity** against the CPU simulator, Warp's CPU device, 4 envs, 30 policy steps of random actions of 0.05 of the action range, from the home state (largest absolute error; tolerances `qpos` 1e-4, `qvel` 1e-3,
+effort 1e-2, as in `tests/test_warp_parity.py`). Measured with warp-lang 1.18.0 and mujoco-warp 3.17.0. **These numbers are from Warp's CPU device; the CUDA path is not verified for external robots**
+(the `gpu`-marked copies of the tests are written and skip without a device).
+
+| robot | gains, mode | qpos | qvel | effort | within |
+|---|---|---|---|---|---|
+| Panda | ours (kp 60, kd 6), `joint_pos_abs` | 4.8e-7 | 9.2e-6 | 7.0e-5 | yes |
+| Panda | ours, `joint_vel` | 6.0e-7 | 1.7e-5 | 5.1e-5 | yes |
+| Panda | ours, `joint_torque` | 2.9e-6 | 1.4e-5 | 0 | yes |
+| Panda | native, `joint_pos_delta` | 6.7e-4 | 1.2e-1 | 13 | **no** |
+| Panda | native, `joint_pos_abs` | 3.9e-2 | 2.3 | 1.7e2 | **no** |
+| UR5e | native, `joint_pos_delta` | 6.0e-7 | 2.0e-5 | 3.3e-3 | yes |
+| UR5e | ours, `joint_vel` | 1.8e-6 | 3.9e-5 | 2.4e-4 | yes |
+| UR5e | ours, `joint_pos_abs` | 9.0e-3 | 2.6e-1 | 1.8 | **no** |
+| UR5e | ours, `joint_torque` | 1.6e-4 | 1.4e-3 | 0 | **no** (slightly) |
+| UR5e | native, `joint_pos_abs` | 1.5e-2 | 1.9 | 3.0e2 | **no** |
+| Go2 | native (`joint_torque`, plain motors) | 3.1e-6 | 4.8e-5 | 2.4e-7 | yes |
+| Go2 | ours, `joint_pos_abs` | 9.5e-7 | 1.6e-5 | 1.5e-4 | yes |
+| Go2 | ours, `joint_vel` | 2.9e-6 | 6.1e-5 | 4.0e-4 | yes |
+
+Where it is outside the tolerances, the two simulators agree until something amplifies float32 rounding, which is a property of the case, not a unit mismatch:
+
+- **Stiff native servos (Panda).** Its native gains are kp 4500 and kd 450. With no contact at all, the error grows from 2e-7 at the first step to 9e-3 by step 6. The same model with kp 60 agrees to 5e-7.
+- **Mesh contacts (UR5e).** With our gains the trajectory agrees to 5e-7 until the arm touches the floor or itself (step 15), and then differs by 1e-3 to 5e-3; the contact sets differ (for example 2 contacts on the CPU, 1 on Warp).
+  `joint_pos_abs` of a native robot also starts by moving to the middle of the range, which causes such contacts.
+- **A body thrown onto the floor.** A free root in free fall agrees (tested), but once a box and two capsules land and tumble the two simulators diverge: a chaotic contact case.
+- **An undamped servo arm.** A toy arm with kp 100, kd 0 and no armature differs by 3e-2 in 20 steps; adding armature and damping brings it to 3e-7. Parity needs a model that is not marginally stable.
+
+**Capacities** (`WarpOptions`; the default is `njmax=128`, `nconmax=32` per world; the numbers are the most constraint rows / the most contacts in one world, native control, 8 envs, plain floor):
+
+| robot | at home | random actions, 0.5 of the range | random actions, full range |
+|---|---|---|---|
+| Panda | 3 / 0 | 53 / 13 | 419 / 104 |
+| UR5e | 20 / 5 | 28 / 7 | 36 / 9 |
+| Go2 | 92 / 14 | 72 / 11 | 108 / 20 |
+
+The defaults fit the UR5e and the Go2, and the Panda unless it is driven through its whole range, where its self-contacts need `njmax` of about 512 and `nconmax` of about 128. `CapacityError` says which option to raise
+(`sim.options.njmax` for constraint rows, `sim.options.nconmax` for contacts). `WarpOptions.default()` is unchanged.
+
+```python no-run
+cfg = cfg.sim(simulator="warp", device="cuda:0", num_envs=4096)     # options become WarpOptions.default()
+env = cfg.build()                                                   # env.device == cuda:0, env.batch_size == [4096]
+family = cfg.sweep(paired={"sim.simulator": ["mujoco", "warp"], "sim.device": ["cpu", "cuda:0"]})   # one env_hash each
 ```
-make_env(cfg)
-  ├─ simulator = get_simulator(cfg.sim.simulator)                 the simulator named in the config
-  ├─ provider  = get_task_provider(cfg.task.params.provider)      owner of the task's namespace
-  ├─ problems  = capabilities + simulator.validate + provider.validate   (all at once)
-  └─ simulator.make_env(cfg)
-        ├─ task = provider.build(cfg, simulator.name)       engine side of the task (a TaskImpl)
-        └─ MujocoEnv(cfg, task)   or   WarpEnv(cfg, task)
-              compile_robot(cfg, scene_hook=task.attach)  scene preset, then the task's assets, then the robot (the same code for both)
-              BatchedSim / WarpBatchedSim (a SimView), control law, masked reset, episode counters, rendering   (shared by every task)
-              task.bind(sim) -> sim.finalize()            the host model may be edited until bind; the GPU copy is made after it
-              task.reset / observe / success / reward     (the task's part, written against the SimView)
-```
 
-A task engine side is written against the `SimView` protocol (`robotdesigner.tasks.base`), not against a simulator, so the same
-task runs on both. The two environments are separate classes; the parity tests guard them against drift.
+## What a task sees: `SimView`
 
-## Adding a simulator
-
-1. Write a class with `name`, `capabilities()`, `validate(cfg)` and `make_env(cfg)`. Import the engine inside
-   `validate` and `make_env`, not at module level. `make_env` gets the task with
-   `get_task_provider(cfg.task.params.provider).build(cfg, self.name)`.
-2. Register it: `register_simulator("name", "your.module:YourSimulator")`.
-3. Register its options class: `register_simulator_options("name", YourOptions)` (it needs `to_dict` and `from_dict`). It
-   is the type of `sim.options`, which `SimConfig` checks against `sim.simulator`.
-4. Return an `EnvBase` that follows the contract above: nested `task` / `proprio` observations, `[num_envs, ...]` shapes,
-   no autoreset, `_reset` mask, injected state, deterministic seeding. Test it with `check_env_specs`, a masked-reset
-   test and a seeding test.
-5. Tell the providers it exists: a provider accepts a simulator by name in its `validate`, and builds the engine side the
-   simulator needs in `build` (a provider that only knows MuJoCo reports `sim.simulator` as a problem on yours).
+Tasks never reach into a simulator. They get a `SimView` (`robotdesigner.tasks.base`): `num_envs`, `device`, `iface`, `model` (editable only in `bind`), `base_frame()`, `body_pose()`,
+`site_pos()`, `write_qpos()` and `host_data()`. Both `BatchedSim` (CPU) and `WarpBatchedSim` implement it, which is why a provider lists the simulators it was tested on and nothing more.
+How to write a task: [writing a provider](tasks/writing-a-provider.md).

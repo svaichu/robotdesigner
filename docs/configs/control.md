@@ -1,87 +1,89 @@
-# ControlConfig
+# Control: `ControlConfig`
 
-How the policy's action reaches the joints: the control **mode**, the controller **gains** and the **action scale**.
-Hardware limits (`effort_limit`) belong to the robot; this config only describes the control interface. Importing it
-needs numpy only. The whole config, the gain kind included, is part of `env_hash` ([EnvConfig](env.md#hashing)).
+`ControlConfig(mode, gains, action_scale)` says how an action in `[-1, 1]` becomes a command to the joints. It is explicit data, so a difference between two
+embodiments is never partly a hidden difference in how they were driven.
 
 ```python
-from robotdesigner.config import ConfigError, ControlConfig, FixedGains, InertiaScaledGains
+from robotdesigner.config import CONTROL_MODES, ConfigError, ControlConfig, FixedGains, InertiaScaledGains, NativeGains
+
+pos = ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None)
+delta = ControlConfig("joint_pos_delta", FixedGains(kp=60.0, kd=6.0), action_scale=0.05)
+assert ControlConfig.from_dict(delta.to_dict()) == delta
+assert "joint_torque" in CONTROL_MODES
 ```
 
-Related pages: [RobotConfig](robot.md), [TaskConfig](task.md), [SimConfig](sim.md), [EnvConfig](env.md),
-[simulators](../simulators.md).
+## Modes
 
-## `ControlConfig(mode, gains, action_scale)`
+The action has one component per joint (plus one for the gripper opening if the arm has a gripper, see [robot](robot.md#gripper-and-tool)). The clamp to `[-1, 1]`
+is applied first. Both simulators implement the same four modes with the same arithmetic.
 
-| field | type | rule |
-|---|---|---|
-| `mode` | str | one of the modes below |
-| `gains` | `FixedGains` or `InertiaScaledGains` | |
-| `action_scale` | float or `None` | `> 0` and required for `joint_pos_delta` and `joint_vel`; must be `None` for every other mode |
-
-Every environment takes actions in `[-1, 1]`, one per joint. The mode decides what an action means.
-
-### Modes
-
-| mode | meaning of an action `a` in `[-1, 1]` (MuJoCo simulator) | `action_scale` | gains used |
+| mode | command | `action_scale` | actuator |
 |---|---|---|---|
-| `joint_pos_abs` | target position: `a = -1` and `a = +1` are the two ends of the joint range (`±pi` for an unlimited joint) | `None` | `kp`, `kd` |
-| `joint_pos_delta` | `q_target += a * action_scale` each step (rad per step), clipped to the joint range; the target restarts at the measured position on reset | rad per step | `kp`, `kd` |
-| `joint_vel` | target velocity `a * action_scale` (rad/s) | rad/s | `kd` |
-| `joint_torque` | torque `a * effort_limit` | `None` | none |
-| `ee_pos_delta`, `ee_pose_delta` | reserved names for end-effector control | | no simulator supports them yet |
+| `joint_pos_abs` | target position = action mapped linearly onto the joint range (`±π` for an unlimited joint) | must be `None` | position servo with `kp`, `kd` |
+| `joint_pos_delta` | target += `action * action_scale` (rad), clipped to the joint range; the target starts at the reset posture | required, `> 0` | position servo with `kp`, `kd` |
+| `joint_vel` | velocity target = `action * action_scale` (rad/s) | required, `> 0` | velocity servo: force = `kd * (target - qvel)`; `kp` is not used |
+| `joint_torque` | torque = `action * effort_limit` of each joint | must be `None` | direct; `gains` are carried but unused |
 
-A simulator that does not support a mode rejects the config before building anything; it never approximates
-(see [simulators](../simulators.md#capabilities)).
+`CONTROL_MODES` also lists `ee_pos_delta` and `ee_pose_delta`. They are reserved names: **no simulator supports them yet**, so `make_env` rejects a config that uses them
+(see [simulators](../simulators.md#capabilities-and-validation)). Constructing the `ControlConfig` is allowed, so a config can be written, hashed and stored before a simulator learns the mode.
+
+Whatever the mode, the force of each joint is limited to its `effort_limit` (an actuator force range), so a large gain does not buy unlimited torque.
 
 ## Gains
 
-### `FixedGains(kp, kd)`
+`FixedGains(kp, kd)` gives scalars (every joint) or one value per joint. A per-joint sequence must have `n` entries; this is checked when the
+[`EnvConfig`](env.md) is built, because `ControlConfig` does not know `n`.
 
-A scalar applies to every joint; a sequence gives one value per joint (its length must equal `n`, which
-[`EnvConfig`](env.md) checks). Both must be `>= 0`.
-
-- Position modes: torque `= kp * (q_target - q) - kd * qdot` (N·m/rad and N·m·s/rad).
-- `joint_vel`: torque `= kd * (qdot_target - qdot)`.
-
-### `InertiaScaledGains(bandwidth, damping_ratio)`
-
-Gains derived from the inertia each joint sees, so one setting suits arms of different size and mass. Both must be `> 0`.
+`InertiaScaledGains(bandwidth, damping_ratio)` derives gains from the inertia each joint sees:
 
 ```
 kp_i = bandwidth² · M_ii
 kd_i = max(2 · damping_ratio · sqrt(kp_i · M_ii) − damping_i, 0)
 ```
 
-`M` is the joint-space mass matrix of the compiled model evaluated at `home_qpos` (armature included), and `damping_i`
-is the joint's own damping, which is subtracted so the total damping is what the formula says. It is an approximation:
-`M` changes with the arm's configuration. `bandwidth` is the closed-loop frequency in rad/s and `damping_ratio` is the
-dimensionless damping (1 is critical).
+`M` is the joint-space mass matrix of the compiled model at `home_qpos`, armature included. It is an approximation, since `M` changes with posture, but it removes
+the largest cause of a spurious embodiment difference under equal gains: a long, heavy arm and a short, light one respond alike when tuned to the same bandwidth.
+The simulator evaluates it when it compiles the robot, so the numbers it produces are not in the config; the config stores only `bandwidth` and `damping_ratio`.
 
 ```python
-# the law, for one joint with M_ii = 0.5 kg·m² and 0.5 N·m·s/rad of joint damping
-bandwidth, zeta, M, joint_damping = 10.0, 1.0, 0.5, 0.5
-kp = bandwidth**2 * M
-kd = max(2 * zeta * (kp * M) ** 0.5 - joint_damping, 0.0)
-assert abs(kp - 50.0) < 1e-12 and abs(kd - 9.5) < 1e-12
+scaled = ControlConfig("joint_pos_abs", InertiaScaledGains(bandwidth=20.0, damping_ratio=1.0), action_scale=None)
+assert scaled.to_dict()["gains"] == {"kind": "inertia_scaled", "bandwidth": 20.0, "damping_ratio": 1.0}
+per_joint = FixedGains(kp=(60.0, 40.0, 20.0), kd=6.0)          # kd is a scalar: it applies to every joint
+assert per_joint.kp == (60.0, 40.0, 20.0)
 ```
 
-The MuJoCo simulator evaluates `M` once at `home_qpos`.
+`NativeGains()` has no fields: it says "drive the model with its own actuators and gains", and nothing is replaced. It belongs to an
+[`ExternalRobot`](robot.md#externalrobot-a-model-that-lives-elsewhere) and is its default. The mode must fit the model's actuators, `robot.actuator_kind`:
 
-## Examples
+| `actuator_kind` | modes that fit |
+|---|---|
+| `position` | `joint_pos_abs`, `joint_pos_delta` |
+| `torque` | `joint_torque` |
+| `velocity` | `joint_vel` |
+| `mixed` | none: restrict `robot.joints` to joints with one kind of actuator |
 
 ```python
-delta = ControlConfig("joint_pos_delta", InertiaScaledGains(bandwidth=7.0, damping_ratio=1.0), action_scale=0.05)
-absolute = ControlConfig("joint_pos_abs", FixedGains(kp=(60.0, 40.0), kd=6.0), action_scale=None)
+native = ControlConfig("joint_pos_abs", NativeGains(), action_scale=None)
+assert native.to_dict()["gains"] == {"kind": "native"}
+assert ControlConfig.from_dict(native.to_dict()) == native
+```
 
-assert delta.to_dict() == {
-    "mode": "joint_pos_delta",
-    "gains": {"kind": "inertia_scaled", "bandwidth": 7.0, "damping_ratio": 1.0},
-    "action_scale": 0.05,
-}
-assert absolute.to_dict()["gains"] == {"kind": "fixed", "kp": [60.0, 40.0], "kd": 6.0}
-assert ControlConfig.from_dict(delta.to_dict()) == delta
-assert ControlConfig.from_dict(absolute.to_dict()) == absolute
+The checks that need the robot (`NativeGains` with a `ParametricArm`; the mode against `actuator_kind`) are made by [`EnvConfig`](env.md#cross-part-checks).
+
+### Our gains on an external robot
+
+`FixedGains` and `InertiaScaledGains` are also accepted with an `ExternalRobot`, so that a library arm can be compared with a `ParametricArm` under one control law. The simulator then **deletes the model's
+actuators on the driven joints** and adds the actuators an arm gets (`act_i`: `kp` / `kd`, a force range from `ExternalJoint.effort_limit`, a control range from the joint range), in any of the modes
+`joint_pos_abs`, `joint_pos_delta`, `joint_vel` and `joint_torque`, whatever the model's `actuator_kind`. What is not replaced stays: the model's joint `damping`, `armature` and `frictionloss`, its
+other actuators (held at the keyframe's control, as with `NativeGains`) and its keyframe. `InertiaScaledGains` reads each driven joint's `damping` from the compiled model.
+
+One difference remains between the two ways of driving a model. With `NativeGains`, `joint_pos_abs` maps the action in `[-1, 1]` onto the actuator's `ctrlrange`; with our gains it maps onto the joint range.
+The two are separate fields of a model and a library may round them differently (the UR5e: 6.2831 against 6.28319), so equal actions give slightly different targets. With equal targets and the model's own
+`kp` and `kd`, the trajectories are identical.
+
+```python
+fixed = ControlConfig("joint_pos_abs", FixedGains(kp=(4500.0, 4500.0, 3500.0), kd=(450.0, 450.0, 350.0)), action_scale=None)
+assert fixed.to_dict()["gains"]["kind"] == "fixed" and fixed.gains.kp[2] == 3500.0     # per joint, as for an arm
 ```
 
 ## Errors
@@ -94,9 +96,12 @@ def error_of(build):
         return e
     raise AssertionError("no error")
 
-assert error_of(lambda: ControlConfig("joint_pos_delta", FixedGains(1, 1), None)).path == "action_scale"   # required
-assert error_of(lambda: ControlConfig("joint_torque", FixedGains(1, 1), 0.1)).path == "action_scale"       # must be None
-assert error_of(lambda: ControlConfig("teleport", FixedGains(1, 1), None)).path == "mode"
+g = FixedGains(60.0, 6.0)
+assert error_of(lambda: ControlConfig("joint_pos_delta", g, None)).path == "action_scale"        # delta needs a scale
+assert error_of(lambda: ControlConfig("joint_pos_abs", g, 0.1)).path == "action_scale"           # abs takes none
+assert error_of(lambda: ControlConfig("joint_pos_delta", g, 0.0)).path == "action_scale"
+assert error_of(lambda: ControlConfig("joint_acc", g, None)).path == "mode"
 assert error_of(lambda: FixedGains(-1.0, 1.0)).path == "kp"
+assert error_of(lambda: FixedGains((1.0, -1.0), 1.0)).path == "kp[1]"
 assert error_of(lambda: InertiaScaledGains(0.0, 1.0)).path == "bandwidth"
 ```

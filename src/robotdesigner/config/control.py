@@ -17,6 +17,13 @@ CONTROL_MODES = (
     "ee_pose_delta",
 )
 _SCALED_MODES = frozenset({"joint_pos_delta", "joint_vel"})
+# the control modes that drive the model's own actuators of each kind (NativeGains); "mixed" fits none
+NATIVE_MODES = {
+    "position": ("joint_pos_abs", "joint_pos_delta"),
+    "torque": ("joint_torque",),
+    "velocity": ("joint_vel",),
+    "mixed": (),
+}
 
 
 def _gain(x: Any, name: str) -> float | tuple[float, ...]:
@@ -92,13 +99,29 @@ class InertiaScaledGains:
         return cls(bandwidth=d["bandwidth"], damping_ratio=d["damping_ratio"])
 
 
-Gains = FixedGains | InertiaScaledGains
+@dataclass(frozen=True, slots=True)
+class NativeGains:
+    """Drive the model with its own actuators and gains: nothing is replaced. Only an ``ExternalRobot`` takes it, and
+    an ``ExternalRobot`` takes nothing else until re-actuation exists."""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"kind": "native"}
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "NativeGains":
+        check_keys(d, {"kind"}, "")
+        if d["kind"] != "native":
+            raise ConfigError("kind", f"expected 'native', got {d['kind']!r}")
+        return cls()
+
+
+Gains = FixedGains | InertiaScaledGains | NativeGains
 
 
 def gains_from_dict(d: Mapping[str, Any]) -> Gains:
     if not isinstance(d, Mapping) or "kind" not in d:
         raise ConfigError("", "expected a mapping with a 'kind' key")
-    kinds = {"fixed": FixedGains, "inertia_scaled": InertiaScaledGains}
+    kinds = {"fixed": FixedGains, "inertia_scaled": InertiaScaledGains, "native": NativeGains}
     if d["kind"] not in kinds:
         raise ConfigError("kind", f"unknown gains {d['kind']!r}; expected one of {sorted(kinds)}")
     return kinds[d["kind"]].from_dict(d)
@@ -113,8 +136,8 @@ class ControlConfig:
     def __post_init__(self):
         if self.mode not in CONTROL_MODES:
             raise ConfigError("mode", f"unknown mode {self.mode!r}; expected one of {list(CONTROL_MODES)}")
-        if not isinstance(self.gains, (FixedGains, InertiaScaledGains)):
-            raise ConfigError("gains", "expected FixedGains or InertiaScaledGains")
+        if not isinstance(self.gains, (FixedGains, InertiaScaledGains, NativeGains)):
+            raise ConfigError("gains", "expected FixedGains, InertiaScaledGains or NativeGains")
         if self.mode in _SCALED_MODES:
             if self.action_scale is None:
                 raise ConfigError("action_scale", f"required for mode {self.mode!r}")

@@ -52,6 +52,8 @@ class RobosuiteTasks:
         from . import _introspect as intro
 
         problems: list[Problem] = []
+        if getattr(cfg.robot, "end_effector", True) is None:  # an ExternalRobot without an end effector
+            problems.append(Problem("robot.end_effector", f"task {cfg.task.id!r} reads the end effector, the robot has none"))
         if cfg.sim.scene != SCENE:
             problems.append(
                 Problem("sim.scene", f"must be {SCENE!r} for robosuite tasks: the arena brings its own floor")

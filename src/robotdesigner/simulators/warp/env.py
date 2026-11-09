@@ -56,12 +56,19 @@ class WarpEnv(SpacesMixin, EnvBase):
             self._scale = torch.full((n,), float(cfg.control.action_scale), **f32)
             self._offset = torch.zeros(n, **f32)
         elif self._mode == "joint_pos_abs":
-            lo, hi = self._iface.joint_range[:, 0], self._iface.joint_range[:, 1]
+            # [-1, 1] spans the actuator's ctrlrange for an external robot (its own servo), the joint range otherwise
+            rng = self._iface.joint_range if self._iface.ctrl_range is None else self._iface.ctrl_range
+            lo, hi = rng[:, 0], rng[:, 1]
             finite = np.isfinite(lo) & np.isfinite(hi)
+            lo, hi = np.where(finite, lo, 0.0), np.where(finite, hi, 0.0)  # no inf - inf below
             self._scale = torch.as_tensor(np.where(finite, (hi - lo) / 2.0, np.pi), **f32)
             self._offset = torch.as_tensor(np.where(finite, (hi + lo) / 2.0, 0.0), **f32)
         else:  # joint_torque
-            self._scale = torch.as_tensor(self._iface.effort_limit, **f32)
+            scale = self._iface.effort_limit.copy()
+            if self._iface.ctrl_range is not None:  # an external robot: the ends of the actuator's ctrlrange
+                top = np.abs(self._iface.ctrl_range).max(axis=1)
+                scale = np.where(np.isfinite(top), top, scale)
+            self._scale = torch.as_tensor(scale, **f32)
             self._offset = torch.zeros(n, **f32)
 
         params = cfg.task.params

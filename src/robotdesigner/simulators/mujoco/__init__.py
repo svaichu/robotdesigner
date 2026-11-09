@@ -14,7 +14,7 @@ class MujocoSimulator:
         return Capabilities(
             control_modes=frozenset({"joint_pos_abs", "joint_pos_delta", "joint_torque", "joint_vel"}),
             devices=frozenset({"cpu"}),
-            robot_kinds=frozenset({"parametric"}),
+            robot_kinds=frozenset({"parametric", "external"}),
             integrators=frozenset({"euler", "implicit", "implicitfast", "rk4"}),
         )
 
@@ -24,6 +24,10 @@ class MujocoSimulator:
         problems = []
         if cfg.sim.scene not in SCENES:
             problems.append(Problem("sim.scene", f"unknown scene {cfg.sim.scene!r}; available: {sorted(SCENES)}"))
+        if type(cfg.robot).__name__ == "ExternalRobot":
+            from .external import problems_of
+
+            problems += problems_of(cfg)
         return problems
 
     def make_env(self, cfg: Any):

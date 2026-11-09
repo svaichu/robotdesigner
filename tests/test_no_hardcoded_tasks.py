@@ -11,7 +11,7 @@ import re
 from robotdesigner.config import get_task_provider, list_task_providers
 
 # The one placeholder task the package ships and the core may name (``robotdesigner/tasks/empty``): a runnable default
-# needs a task. Decision log of docs/spec_robotconfig_env.md: "the package ships one placeholder task". Everything else
+# needs a task. See docs/design.md: the package ships one placeholder task. Everything else
 # stays enforced.
 EXEMPT_NAMESPACES = frozenset({"empty"})
 

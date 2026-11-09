@@ -1,7 +1,6 @@
 # robotdesigner: agent memory
 
-Start with `AGENTS.md` (what the package is), `docs/README.md` (reference index) and `docs/spec_robotconfig_env.md` (design record and dated
-decision log, with the reasons); `docs/tasks/writing-a-provider.md` shows how to add a task source. This file keeps what those do not: working rules, environment facts, pitfalls, open decisions.
+Start with `AGENTS.md` (what the package is), `docs/README.md` (reference index) and `docs/design.md` (principles, boundaries, vocabulary; the older dated decision log is in git history); `docs/tasks/writing-a-provider.md` shows how to add a task source. This file keeps what those do not: working rules, environment facts, pitfalls, open decisions.
 Last updated: 2026-10-30. Work happens on `devel` (merged locally; the user pushes). The older history of this file is in git.
 
 ## Goal
@@ -22,14 +21,15 @@ parameter, the robot config kept separate from the env. Do not overwrite the use
   rules or hashing and you change its page.
 - The user works in the repo concurrently: check `git status` before editing shared files. Tell the user what a long step is doing before
   it starts; they ask "is it done?" when a run is silent.
-- After a rename or removal, grep for leftovers in code, docs, images (`docs/architecture.png`), notebook outputs and this file.
+- After a rename or removal, grep for leftovers in code, docs, images (`docs/` diagrams), notebook outputs and this file.
 
 ## Terminology (the user's, 2026-10-30)
 - **simulator**: a physics engine realized as code, `robotdesigner.simulators.<name>`, named by `sim.simulator` (`mujoco`, `warp`).
   Git history, closed issues and old text say "backend": read it as "simulator". `build-backend` in `pyproject.toml` is packaging vocabulary.
 - **task provider**: owner of a task-id namespace (`robosuite`); **task**: `<namespace>/<name>`; **options**: the settings of one simulator,
   in `sim.options`. **config side / engine side**: numpy-only classes vs the code that needs torch and MuJoCo ("engine" = those libraries).
-- **embodiment**: a robot config (`ParametricArm`). **scene**: `sim.scene` is a preset of the simulator (`empty`, `plain_floor`); a
+- **embodiment**: a robot config (`ParametricArm`, or an `ExternalRobot`). **robot provider**: owner of a robot namespace (`config/robot_providers.py`, mirrors task providers);
+  **external robot**: a reference to a model of a robot provider (numbers only on the config side); `NativeGains` drives it with its own actuators. **scene**: `sim.scene` is a preset of the simulator (`empty`, `plain_floor`); a
   robosuite scene is an arena plus objects brought by a task.
 
 ## Why the project looks like this
@@ -108,7 +108,7 @@ tensordict < 0.15, tensordict 0.15.3 needs torch >= 2.11: widen the pins only af
 2. The smallest `n` that can physically solve `Lift`; infeasibility must be separable from failures of learning. The MuJoCo simulator builds no
    gripper (`robot.tool` is ignored), so grasping tasks are out of reach.
 3. Reward shaping of the robosuite objectives is basic (negative distance); `Wipe` needs an objective of its own.
-4. An `ExternalRobot` baseline (the stock Panda) through the same contract.
+4. An `ExternalRobot` baseline (the stock Panda) through the same contract: config side (#49) and the CPU MuJoCo compile (#50) exist; the menagerie provider (#51, `robot/providers/menagerie`, cards in `cards.json`, status in `tests/menagerie_expected.json`) exists; re-actuation (#52: `FixedGains` / `InertiaScaledGains` replace the model's actuators on the driven joints) exists; Warp runs external robots too (#53), verified on Warp's CPU device only: **CUDA is not verified for external robots** (the `gpu` tests skip here; mismatches are in #57). Existing tasks run on Menagerie robots unchanged (#54); the model's solver options are not carried over (the scene's win); the `render` test for external robots is written but cannot run without an OpenGL context.
 5. robosuite 1.5.2 placement path, robosuite throughput with many envs, and the `robosuite` CI job are unchecked.
 6. The user's idea list item "molvospaces": with the terms above that is a task provider (assets) or a simulator (physics): decide which.
 
@@ -117,3 +117,15 @@ tensordict < 0.15, tensordict 0.15.3 needs torch >= 2.11: widen the pins only af
   against code and tests whenever a design changes.
 - After the reach task was purged a diagram still listed it: images and notebook outputs need the same grep as code.
 - A user's uncommitted change in their checkout is theirs: ask, and prefer a reversible step.
+- External robots (the Menagerie work, #48 to #57), pitfalls found:
+  - `MjSpec.attach` into a frame of the *world* body keeps a free root joint legal (MuJoCo allows a free joint only on a direct child of the world); a welded body such as `base` would not. The compile therefore keeps an empty `base` for `SimView` and attaches into a separate frame at the same pose.
+  - Names are not reliable: free joints, many actuators and some keyframes are unnamed, so the compile maps the attached model's joints and actuators by position (they come last), not by name. `mj_id2name` returns `None`.
+  - Compare MuJoCo enums with `int(...)`: a numpy integer does not equal or hash like the pybind enum (a membership test and a dict lookup both failed silently).
+  - A model's joint actuators can include a finger or gripper (seven arms), and a gripper can be a tendon actuator: `controlled` in the card says which joints are driven, the others are held at the keyframe's `ctrl`. Some models have no force limits (`describe` needs `effort_limit`); some have unnamed or no `home` keyframe.
+  - Deleting an actuator from a spec breaks the keyframes' `ctrl` size: delete the keyframes first (re-actuation reads the keyframe from a standalone compile instead).
+  - `check_env_specs` draws from the task's random stream: build a fresh env after it before comparing placements.
+  - Parity with the Warp simulator needs a model that is not marginally stable (no armature or damping amplifies float32 rounding); contacts and stiff native servos are where it differs (#57).
+  - Rendering found two bugs the other tests did not (a camera framing that needs an end effector, a test task that read capsule radii): run the `render` tests with software GL (`apt-get install libosmesa6 libegl1 libgl1-mesa-dri`, then `MUJOCO_GL=egl`).
+  - The notebooks' stored outputs carried a user name and a cluster path: `tests/test_notebooks.py` now fails on an absolute path in a stored output.
+  - `docs/spec_robotconfig_env.md` and `docs/architecture.png`, which the roadmap issues name, are not in the repository; the decision log is the end of `docs/design.md`.
+

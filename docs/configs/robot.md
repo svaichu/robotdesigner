@@ -1,269 +1,110 @@
-# RobotConfig
+# Robot: `ParametricArm` and `ExternalRobot`
 
-A `RobotConfig` describes one embodiment as plain data. It is frozen, validated on construction, serializable to JSON and
-hashable, and importing it never imports a simulator or torch.
+A robot is a **frozen, validated, hashable value**. It has no pose and knows nothing about a simulator: where the base stands is
+`TaskConfig.mount`, and everything that changes how it is driven is in [`ControlConfig`](control.md) and [`SimConfig`](sim.md).
+Two consequences: the same arm object can be dropped into any scene, and `robot_hash` identifies the embodiment alone.
 
-Today there is one kind, **`ParametricArm`**: a serial chain of hinge joints and capsule links on a fixed base. A second
-kind, `ExternalRobot` (a reference to an existing model, for baselines such as a stock Panda), is designed but not
-implemented. Everything below is about `ParametricArm`; "robot config" and `ParametricArm` mean the same thing in the code.
+Everything on this page is numpy only (`robotdesigner.robot`, re-exported by `robotdesigner.config`).
 
 ```python
-from robotdesigner.config import ParametricArm, Segment, JointSpec, LinkSpec, Pose, Capsule, ToolSpec, TwoFingerGripper, chain
+import numpy as np
+
+from robotdesigner.config import (
+    Capsule, ConfigError, EndEffectorRef, ExternalJoint, ExternalRobot, JointSpec, LinkSpec, ParametricArm, Pose, Segment,
+    TwoFingerGripper, chain, kinematics as kin, register_robot_provider, robot_from_dict, unregister_robot_provider,
+)
 ```
 
-The classes live in the package `robotdesigner.robot` (`pose.py`, `gripper.py`, `arm.py`, `generators.py`); `robotdesigner.config`
-re-exports them, so both import paths work.
+## `chain()`: the usual way to get an arm
 
-Related pages: [ControlConfig](control.md), [TaskConfig](task.md), [SimConfig](sim.md), [EnvConfig](env.md),
-[simulators](../simulators.md).
+`chain` builds a serial arm of `n` hinge joints with capsule links. At `q = 0` the arm lies straight along +x of the base frame.
 
-## Conventions
-
-- **Units:** SI. Lengths in metres, masses in kilograms, angles in radians, torques in N·m.
-- **Quaternions** are `(w, x, y, z)`. They are normalized on construction, and the sign is fixed so that the first
-  non-zero component is positive (`q` and `-q` are the same rotation, so they hash the same).
-- **Everything dynamic is explicit.** Damping, armature, friction loss, effort limit, mass and radius have no defaults;
-  a simulator never fills one in. Only `label`, and the optional arguments of `chain()` listed below, have defaults.
-- **Frames.** The chain starts at the *base frame*. The robot has no pose of its own: where the base stands in the world is a property of the scene, `TaskConfig.mount`, so the same arm has the same `config_hash` in every scene. Segment `i` has a *joint frame*
-  (the pose of the joint relative to the previous link's end frame; the base frame for `i = 0`), a *link frame* (the
-  joint frame rotated by the joint angle) and an *end frame* (the link frame translated by `tip_offset`; same
-  orientation). The end effector is the last end frame composed with `end_effector`.
-
-In formulas (this is exactly what `robotdesigner.config.kinematics` computes):
-
+```python
+arm = chain(
+    n=3, axes="zyy",                       # one letter (x, y, z) or one vector per joint; no cycling
+    total_length=0.9, total_mass=3.0,      # split evenly over the links ...
+    radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0,
+    range=(-2.5, 2.5),                     # rad; None = unlimited, or one (lo, hi) / None per joint
+)
+assert arm.n == 3
+assert [s.link.tip_offset[0] for s in arm.segments] == [0.3, 0.3, 0.3]
+assert abs(sum(s.link.mass for s in arm.segments) - 3.0) < 1e-12
 ```
-T_0 = base                          the base frame (the task's mount; the identity if you work in the base frame)
-F_i = T_i · joint_frame_i          joint frame of segment i
-L_i = F_i · Rot(axis_i, q_i)       link frame
-T_{i+1} = L_i · Pose(tip_offset_i) end frame (becomes the next base)
-ee = T_n · end_effector
-```
-
-At `q = 0` every link of a `chain()` arm points along +x of the base frame.
-
-## Classes
-
-All fields are required unless a default is shown. Numbers must be finite; booleans and strings are rejected where a
-number is expected.
-
-### `Pose(pos, quat)`
-
-| field | type | rule |
-|---|---|---|
-| `pos` | 3 floats | metres |
-| `quat` | 4 floats `(w, x, y, z)` | non-zero; normalized; sign canonicalized |
-
-`Pose.identity()` is the zero translation and the identity rotation.
-
-### `Capsule(radius)`
-
-The only geometry in schema version 1. A capsule runs from the link origin to `tip_offset`.
-
-| field | type | rule |
-|---|---|---|
-| `radius` | float | `> 0` |
-
-### `JointSpec(axis, range, damping, armature, frictionloss, effort_limit)`
-
-A hinge joint.
-
-| field | type | rule |
-|---|---|---|
-| `axis` | 3 floats | non-zero; normalized on construction; expressed in the joint frame |
-| `range` | `(lo, hi)` or `None` | `lo < hi`, radians; `None` means unlimited |
-| `damping` | float | `>= 0`, N·m·s/rad |
-| `armature` | float | `>= 0`, kg·m² (rotor inertia added to the joint) |
-| `frictionloss` | float | `>= 0`, N·m (dry friction) |
-| `effort_limit` | float | `> 0`, N·m; the actuator's force and control limit |
-
-### `LinkSpec(joint_frame, tip_offset, mass, geometry, inertia)`
-
-| field | type | rule |
-|---|---|---|
-| `joint_frame` | `Pose` | pose of the joint frame relative to the previous end frame |
-| `tip_offset` | 3 floats | position of the end frame in the link frame, metres |
-| `mass` | float | `> 0`, kg |
-| `geometry` | `Capsule` | |
-| `inertia` | 3 floats or `None` | `None`: derived from the capsule and the mass. Otherwise the three principal moments (kg·m², each `> 0`) about the centre of mass, with the axes of the link frame; the centre of mass is the capsule midpoint, `tip_offset / 2` |
-
-### `Segment(joint, link)`
-
-One joint and the link it moves. A `ParametricArm` is a tuple of segments in kinematic order.
-
-### `ToolSpec(gripper, mount_pos, mount_quat)`
-
-A gripper mounted on the end effector.
-
-| field | type | rule |
-|---|---|---|
-| `gripper` | str | non-empty; a gripper name such as `"PandaGripper"` |
-| `mount_pos` | 3 floats | offset of the gripper's first body, metres |
-| `mount_quat` | 4 floats | orientation of the gripper's first body, normalized like any quaternion |
-
-It is stored and hashed. The MuJoCo simulator does not build grippers yet and ignores it, so it changes `env_hash` but not the physics.
-
-### `TwoFingerGripper(...)`
-
-A parametric two-finger parallel gripper on the end effector, built by the MuJoCo simulator. Stored and hashed; an arm
-without one hashes exactly as before (the `gripper` key is absent from the hashed dict when it is `None`).
-`TwoFingerGripper.default(**overrides)` gives a small gripper.
-
-| field | type | rule |
-|---|---|---|
-| `finger_length`, `finger_radius` | float | metres, `> 0`; the fingers are capsules along +x of the gripper frame |
-| `stroke` | float | `> 0`, travel of each finger; the opening is `0 .. 2 * stroke` (gap between the finger surfaces) |
-| `finger_mass`, `palm_mass` | float | kg, `> 0` (`finger_mass` is per finger) |
-| `palm_length` | float | `> 0`, a box along x from the gripper frame; the fingers start at its far end |
-| `kp`, `kd` | float | `>= 0`, gains of the position servo on the opening |
-| `force_limit` | float | `> 0`, N, on the servo |
-| `mount` | `Pose` | gripper frame relative to the end-effector frame |
-
-The two finger slides are coupled, so the gripper has one degree of freedom. It adds one action dimension (the last), mapped from
-`[-1, 1]` to an opening in `[0, 2 * stroke]` in every control mode, and `proprio.gripper` (the opening, metres) to the observation.
-The warp simulator does not build grippers and rejects an arm that has one (`robot.gripper`).
-
-### `ParametricArm(schema_version, segments, home_qpos, end_effector, tool, label="", gripper=None)`
-
-| field | type | rule |
-|---|---|---|
-| `schema_version` | int | must be `1` |
-| `segments` | tuple of `Segment` | at least one; `n = len(segments)` |
-| `home_qpos` | `n` floats | each inside its joint's `range` |
-| `end_effector` | `Pose` | relative to the last end frame |
-| `tool` | `ToolSpec` or `None` | a named gripper the simulator ignores; not together with `gripper` |
-| `gripper` | `TwoFingerGripper` or `None` | |
-| `label` | str | metadata only; not part of the hash |
-
-`arm.n` is the number of joints. The number of joints is a property of the arm, never a field of any other config.
-
-## Building arms
-
-### `chain(n, axes, ...)`
-
-Builds an `n`-joint arm that is straight along +x at `q = 0`, with identity joint frames, capsule links and derived
-inertia. `n` is an argument of the generator, not a stored field, so a study can sweep it.
 
 | argument | meaning |
 |---|---|
-| `n` | integer `>= 1` |
-| `axes` | a string of `x`/`y`/`z` letters of length `n` (`"zyy"`), or a sequence of `n` axis vectors. No cycling |
-| `link_length` **or** `total_length` | exactly one. A scalar or `n` per-link values; a total is split evenly over the links |
-| `mass` **or** `total_mass` | exactly one, same rules |
-| `radius`, `damping`, `armature`, `frictionloss`, `effort_limit` | required; a scalar (all joints) or `n` per-joint values |
-| `range` | `None` (unlimited), one `(lo, hi)` for all joints, or `n` entries each `(lo, hi)` or `None` |
-| `home_qpos` | default: all zeros |
-| `end_effector` | default: `Pose.identity()` |
-| `tool` | default: `None` |
-| `gripper` | default: `None`; a `TwoFingerGripper` |
-| `label` | default: `""` |
+| `n`, `axes` | number of joints; the axis of each (`"zyy"` or a sequence of 3-vectors; the length must be `n`) |
+| `link_length` **or** `total_length` | exactly one: metres per link (scalar or per link) or the total, divided by `n` |
+| `mass` **or** `total_mass` | exactly one, the same way (kg) |
+| `radius`, `damping`, `armature`, `frictionloss`, `effort_limit` | scalar (every joint) or one value per joint; all required |
+| `range` | `None`, one `(lo, hi)` for every joint, or `n` entries (each `None` or `(lo, hi)`) |
+| `home_qpos` | start posture, default zeros; must lie inside the ranges |
+| `end_effector` | a `Pose` relative to the last link's end frame, default identity |
+| `gripper`, `tool` | optional, at most one; see below |
+| `label` | free text, **not** hashed |
 
-Holding `total_length` or `total_mass` fixed while `n` changes is how a family of arms with comparable size is made.
+There are no defaults for the physical parameters: you state every number. (The builder layer, [`BaseEnvConfig`](base-env.md), is where defaults live.)
 
-```python
-import json
-from dataclasses import replace
+Holding `total_length` and `total_mass` fixed while `n` changes keeps reach and mass the same across a family of embodiments, so what differs is the
+distribution of joints, not the size of the arm.
 
-from robotdesigner.config import (
-    Capsule, ConfigError, JointSpec, LinkSpec, ParametricArm, Pose, Segment, ToolSpec, chain, kinematics,
-)
+## The data model
 
-def close(a, b, tol=1e-9):
-    return abs(a - b) < tol
+`ParametricArm` is a tuple of `Segment(joint, link)` plus `home_qpos`, `end_effector`, `tool`, `gripper`, `label` and `schema_version` (only `1` exists).
 
-common = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0)
+| class | fields | rules |
+|---|---|---|
+| `JointSpec` | `axis`, `range`, `damping`, `armature`, `frictionloss`, `effort_limit` | axis is normalised and non-zero; `range` is `None` or `lo < hi`; damping, armature, friction loss `>= 0`; effort limit `> 0` |
+| `LinkSpec` | `joint_frame`, `tip_offset`, `mass`, `geometry`, `inertia` | `joint_frame` is a `Pose` relative to the previous link's end frame; `tip_offset` is where this link's end frame sits in the link frame; mass `> 0`; `inertia` is `None` (derived from the capsule and the mass) or three principal moments `> 0` |
+| `Capsule` | `radius` | `> 0`; the capsule runs from the link origin to `tip_offset` |
+| `Pose` | `pos`, `quat` | quaternion `(w, x, y, z)`, normalised; `q` and `-q` are stored the same way |
 
-arm = chain(3, "zyy", total_length=0.9, total_mass=3.0, range=(-2.5, 2.5), **common)
-assert arm.n == 3
-assert close(sum(s.link.tip_offset[0] for s in arm.segments), 0.9)   # total_length split over 3 links
-assert close(sum(s.link.mass for s in arm.segments), 3.0)
-assert arm.home_qpos == (0.0, 0.0, 0.0) and arm.tool is None
-
-# the same arm with more joints and the same total length and mass
-arm5 = chain(5, "zyyyy", total_length=0.9, total_mass=3.0, range=(-2.5, 2.5), **common)
-assert arm5.n == 5 and close(sum(s.link.mass for s in arm5.segments), 3.0)
-
-# per-joint values: the first joint unlimited, the others limited
-mixed = chain(3, "zyy", link_length=[0.4, 0.3, 0.2], mass=[1.0, 0.8, 0.5], range=[None, (-2.0, 2.0), (-1.0, 1.0)], **common)
-assert [s.joint.range for s in mixed.segments] == [None, (-2.0, 2.0), (-1.0, 1.0)]
-```
-
-### Building a `ParametricArm` directly
-
-Use the classes when the chain is not straight along +x: offset joint frames, perpendicular links, explicit inertia.
+Joints are hinges only, links are capsules only. Build an arm by hand when `chain` is too regular (a different `joint_frame` per link, explicit inertia):
 
 ```python
 seg = Segment(
-    joint=JointSpec(axis=(0, 0, 1), range=None, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0),
-    link=LinkSpec(
-        joint_frame=Pose((0.0, 0.0, 0.1), (1.0, 0.0, 0.0, 0.0)),   # the joint sits 0.1 m above the previous end frame
-        tip_offset=(0.0, 0.0, 0.4),                                  # this link points up
-        mass=1.5,
-        geometry=Capsule(radius=0.04),
-        inertia=(0.02, 0.02, 0.003),                                 # explicit principal moments
-    ),
+    joint=JointSpec(axis=(0, 0, 1), range=(-1.0, 1.0), damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=40.0),
+    link=LinkSpec(joint_frame=Pose.identity(), tip_offset=(0.4, 0.0, 0.0), mass=1.2, geometry=Capsule(0.03), inertia=None),
 )
-tower = ParametricArm(
-    schema_version=1,
-    segments=(seg, seg),
-    home_qpos=(0.0, 0.0),
-    end_effector=Pose.identity(),
-    tool=None,
-    label="two vertical links",
-)
-ee = kinematics.forward(tower, [0.0, 0.0]).ee
-assert close(ee[2, 3], 0.1 + 0.4 + 0.1 + 0.4)   # two links, each 0.1 above the previous end plus 0.4 long
+one = ParametricArm(schema_version=1, segments=(seg,), home_qpos=(0.0,), end_effector=Pose.identity(), tool=None)
+assert one.n == 1
 ```
 
-### The end effector, a gripper and the mount
+## Gripper and tool
+
+`TwoFingerGripper` is a parametric parallel gripper with one degree of freedom, the opening `w` in `[0, 2 * stroke]`. It is part of the arm's identity
+(hashed) and is **built by the CPU MuJoCo simulator**, which adds one action dimension (the opening, `[-1, 1]` mapped to `[0, max_opening]` in every control mode) and a `proprio/gripper`
+observation. The Warp simulator does not build grippers yet and reports `robot.gripper` as a problem.
 
 ```python
-placed = chain(
-    3, "zyy", total_length=0.9, total_mass=3.0, **common,
-    end_effector=Pose((0.0, 0.0, 0.05), (0.7071068, 0.0, 0.7071068, 0.0)),   # tool frame: 5 cm along z, rotated 90 deg about y
-    tool=ToolSpec("PandaGripper", (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0)),
-)
-assert placed.tool.gripper == "PandaGripper"
-mount = Pose((0.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0))       # where the arm stands: given to the kinematics (and to `TaskConfig.mount`), not to the arm
-p = kinematics.forward(placed, [0.0, 0.0, 0.0], mount).ee[:3, 3]
-assert close(p[0], 0.9) and close(p[1], 0.0) and close(p[2], 0.5 + 0.05)   # along +x at height 0.5, plus the 5 cm tool offset
-q = kinematics.forward(placed, [0.0, 0.0, 0.0]).ee[:3, 3]                 # without a mount: in the base frame
-assert close(q[2], 0.05)
+g = TwoFingerGripper.default(stroke=0.05)           # keyword arguments replace fields; see the class for the defaults
+gripped = chain(3, "zyy", total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5, armature=0.01,
+                frictionloss=0.0, effort_limit=50.0, gripper=g)
+assert g.max_opening == 0.1 and g.tcp_offset == (0.09, 0.0, 0.0)
+assert gripped.config_hash != arm.config_hash
 ```
 
-## Serialization and the hash
+`ToolSpec(gripper, mount_pos, mount_quat)` names a gripper by string. It is stored and hashed but the simulators ignore it. Giving both a `gripper` and a `tool` is an error.
+
+## Identity: serialization and hashing
 
 ```python
-d = arm.to_dict()                     # plain JSON-able dict; tuples become lists
-assert d["kind"] == "parametric_arm" and d["schema_version"] == 1 and "label" in d
-assert ParametricArm.from_dict(json.loads(json.dumps(d))) == arm
-```
+d = arm.to_dict()
+assert ParametricArm.from_dict(d) == arm                      # exact round trip (JSON-able: lists, numbers, None)
 
-`from_dict` is strict: unknown keys, missing keys and a wrong `kind` or `schema_version` raise `ConfigError`. Only
-`label` may be omitted.
-
-The hash is the SHA-256 of a canonical JSON form (sorted keys, no whitespace) of the dict **without `label`**, with every
-float rounded to 12 significant digits and `-0.0` written as `0.0`. Because axes and quaternions are normalized on
-construction, equal arms written differently hash identically.
-
-| property | value |
-|---|---|
-| `arm.config_hash` | the first 12 hex characters; use it to name and compare robots |
-| `arm.full_hash` | all 64 hex characters; what `EnvConfig` hashes |
-| `arm.canonical_json()` | the exact text that is hashed |
-
-```python
+relabeled = chain(3, "zyy", total_length=0.9, total_mass=3.0, radius=0.03, damping=0.5, armature=0.01,
+                  frictionloss=0.0, effort_limit=50.0, range=(-2.5, 2.5), label="my arm")
+assert relabeled.config_hash == arm.config_hash                # the label is metadata
 assert len(arm.config_hash) == 12 and arm.full_hash.startswith(arm.config_hash)
-assert replace(arm, label="renamed").config_hash == arm.config_hash          # the label is metadata
-assert chain(1, [(0, 0, 5)], link_length=0.3, mass=1.0, **common).config_hash == \
-       chain(1, "z", link_length=0.3, mass=1.0, **common).config_hash       # axes are normalized
-assert chain(1, "z", link_length=0.3, mass=1.0, **common).config_hash != \
-       chain(1, "z", link_length=0.31, mass=1.0, **common).config_hash      # any physical change changes it
 ```
+
+`config_hash` is the first 12 hex characters of the SHA-256 of the canonical JSON (sorted keys, floats rounded to 12 significant digits, `-0.0` as `0.0`, label
+left out). The same embodiment therefore hashes the same across machines and float noise below 1e-12. Changing any physical number, the home posture, the gripper or the tool changes it.
+`env.robot_hash` of a built environment is this value.
 
 ## Errors
 
-Every validation error is a `ConfigError` (a `ValueError`). Its `.path` names the offending field, counted from the
-object you were building, and the message starts with that path.
+Every constructor validates and raises `ConfigError`, a `ValueError` whose `.path` names the offending field and `.reason` says why.
 
 ```python
 def error_of(build):
@@ -273,56 +114,113 @@ def error_of(build):
         return e
     raise AssertionError("no error")
 
-e = error_of(lambda: chain(2, "zy", link_length=0.3, mass=1.0, range=(-1.0, 1.0), home_qpos=(0.0, 2.0), **common))
-assert e.path == "home_qpos[1]" and "outside the joint range" in str(e)
-
-e = error_of(lambda: chain(2, "zy", link_length=0.3, total_length=0.6, mass=1.0, **common))
-assert e.path == "link_length/total_length"                                  # give exactly one of the pair
-
-bad = arm.to_dict()
-bad["segments"][1]["joint"]["axis"] = [0, 0, 0]
-assert error_of(lambda: ParametricArm.from_dict(bad)).path == "segments[1].joint.axis"
+base = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0)
+assert error_of(lambda: chain(0, "", total_length=1.0, total_mass=1.0, **base)).path == "n"
+assert error_of(lambda: chain(2, "zy", total_length=1.0, link_length=0.5, total_mass=1.0, **base)).path == "link_length/total_length"
+assert error_of(lambda: chain(2, "zq", total_length=1.0, total_mass=1.0, **base)).path == "axes[1]"
+assert error_of(lambda: chain(2, "zy", total_length=1.0, total_mass=1.0, home_qpos=(0.0, 9.0), range=(-1.0, 1.0), **base)).path == "home_qpos[1]"
+assert error_of(lambda: JointSpec((0, 0, 0), None, 0.0, 0.0, 0.0, 1.0)).path == "axis"
 ```
 
-## Kinematics oracle
+Errors raised while a larger config is being parsed carry the full dotted path (`robot.segments[1].joint.range`).
 
-`robotdesigner.config.kinematics` computes forward kinematics in pure numpy, independent of any simulator. The tests
-use it to check every compiled model.
+## Forward kinematics
 
-| function | returns |
-|---|---|
-| `forward(arm, q, base=None)` | `FK` with `link_frames` `(n, 4, 4)`, `tip_frames` `(n, 4, 4)` and `ee` `(4, 4)`, all poses in the frame `base` is given in: world poses for `base = task.mount`, base-frame poses for `None` |
-| `forward_ee_batch(arm, q_batch, base=None)` | end-effector positions `(B, 3)`: in the **world** frame with `base = task.mount`, in the robot's base frame with `None` |
-| `sample_joint_positions(arm, num, rng)` | `(num, n)` samples, uniform inside each joint range and in `[-pi, pi]` for unlimited joints |
+`robotdesigner.config.kinematics` is a pure-numpy oracle, independent of any simulator: the tests compare every simulator against it.
 
 ```python
-import numpy as np
-
-pos = kinematics.forward_ee_batch(arm, np.zeros((2, 3)))
-assert pos.shape == (2, 3) and close(pos[0, 0], 0.9)    # straight along +x
-q = kinematics.sample_joint_positions(arm, 10, np.random.default_rng(0))
-assert q.shape == (10, 3) and np.all(np.abs(q) <= 2.5)
+fk = kin.forward(arm, np.zeros(3))
+assert np.allclose(fk.ee[:3, 3], [0.9, 0.0, 0.0])               # straight along +x
+base = Pose((0.5, 0.0, 1.0), (1.0, 0.0, 0.0, 0.0))
+assert np.allclose(kin.forward(arm, np.zeros(3), base).ee[:3, 3], [1.4, 0.0, 1.0])   # base = the task's mount
+q = kin.sample_joint_positions(arm, 5, np.random.default_rng(0))                     # uniform in the ranges
+assert kin.forward_ee_batch(arm, q).shape == (5, 3)
 ```
 
-### An arm with a gripper
+Convention: `T_0 = base`; for each segment `F_i = T_i · joint_frame_i`, `L_i = F_i · Rot(axis_i, q_i)`, `tip_i = L_i · Pose(tip_offset_i)`, `T_{i+1} = tip_i`;
+`ee = T_n · end_effector`. Without `base` the poses are in the robot's base frame.
+
+## `ExternalRobot`: a model that lives elsewhere
+
+A `ParametricArm` is generated from numbers. An `ExternalRobot` **refers** to a model that already exists, for baselines such as a stock Panda
+from MuJoCo Menagerie. It holds no model, only what the config layer must know without opening one, so it stays numpy only, frozen, validated and hashable
+like the arm. Its dict has `"kind": "external_robot"`; `robot_from_dict` reads either kind.
+
+| field | meaning |
+|---|---|
+| `provider`, `name`, `entry` | the [robot provider](#robot-providers) (a namespace such as `menagerie`), the robot within it, the model file within the robot |
+| `source` | a content id the provider vouches for (Menagerie: the git tree id of the model directory). **Hashed**: a changed model is a different robot |
+| `joints` | the joints a `ControlConfig` drives, in order, each an `ExternalJoint(name, range, effort_limit)`; `n = len(joints)`. A joint the model has but `joints` omits (a finger) is not controlled |
+| `home_qpos` | one value per joint, inside its range |
+| `home_root` | for a model with a free root: the root body at home in the model's world frame; else `None` |
+| `keyframe` | the model keyframe that sets the state of the joints that are not driven, or `None` |
+| `end_effector` | an `EndEffectorRef`: an existing `site`, or a `body` plus an `offset`; exactly one of the two. `None` for a robot without one |
+| `actuator_kind` | the model's own actuators on `joints`: `position`, `torque`, `velocity` or `mixed` |
+| `label` | free text, **not** hashed |
+
+A provider's `describe` reads the model and returns these numbers; a config can also be written by hand, as here (the provider below is a stand-in, which
+is all the config side needs).
 
 ```python
-from robotdesigner.config import TwoFingerGripper, chain
+from types import SimpleNamespace
 
-gripped = chain(3, "zyy", total_length=0.9, total_mass=2.0, radius=0.03, damping=0.5, armature=0.01,
-                frictionloss=0.0, effort_limit=50.0, gripper=TwoFingerGripper.default(stroke=0.05))
-assert gripped.n == 3 and gripped.gripper.max_opening == 0.1
+# a provider that only names a robot: enough for the config side (the engine-side methods are not called)
+stand_in = SimpleNamespace(names=lambda: ("arm",), describe=None, spec=None, validate=lambda robot, simulator: [], kinematics=None)
+register_robot_provider("demo", stand_in, replace=True)
+
+panda_like = ExternalRobot(
+    provider="demo", name="arm", entry="arm.xml", source="3f9a2c",
+    joints=(ExternalJoint("j1", (-2.9, 2.9), 87.0), ExternalJoint("j2", (-1.7, 1.7), 87.0)),
+    home_qpos=(0.0, -0.5), home_root=None, keyframe="home",
+    end_effector=EndEffectorRef(site="ee", body=None, offset=Pose.identity()), actuator_kind="position",
+)
+assert panda_like.n == 2
+assert robot_from_dict(panda_like.to_dict()) == panda_like                  # the kind picks the class
+assert ExternalRobot.from_dict(panda_like.to_dict()).full_hash == panda_like.full_hash
+changed = ExternalRobot.from_dict({**panda_like.to_dict(), "source": "7be104"})
+assert changed.config_hash != panda_like.config_hash                         # a changed model is another robot
+assert ExternalRobot.from_dict({**panda_like.to_dict(), "label": "baseline"}).config_hash == panda_like.config_hash
 ```
 
-## How the MuJoCo simulator uses the robot
+Validation raises `ConfigError` with a path, as for the arm: `provider` must be registered, `joints` non-empty with unique names, `home_qpos` inside the ranges,
+`actuator_kind` one of the four, `EndEffectorRef` with exactly one of `site` and `body` (and an identity `offset` for a site).
 
-| aspect | MuJoCo simulator |
-|---|---|
-| names | `base`, `link_{i}`, `joint_{i}`, `geom_{i}`, `ee` (site), `act_{i}` |
-| actuators | position servo, velocity servo or torque, by control mode; force limited to `±effort_limit` |
-| `ToolSpec` | ignored |
-| `TwoFingerGripper` | bodies `gripper`, `finger_{0,1}`, joints `finger_joint_{0,1}`, tendon `gripper_width`, actuator `act_gripper` (last), site `tcp` |
-| mount | the `base` body sits at `TaskConfig.mount`, for every task |
-| collisions | robot geoms collide with the scene; with each other only if `MujocoOptions.self_collision` |
+```python
+def error_of(build):
+    try:
+        build()
+    except ConfigError as e:
+        return e
+    raise AssertionError("no error")
 
-The chain is built by one function (`simulators/mujoco/arm_spec.py`), so the physical robot is the same in every scene.
+assert error_of(lambda: ExternalRobot.from_dict({**panda_like.to_dict(), "provider": "nowhere"})).path == "provider"
+assert error_of(lambda: ExternalRobot.from_dict({**panda_like.to_dict(), "home_qpos": [0.0, 9.0]})).path == "home_qpos[1]"
+assert error_of(lambda: ExternalRobot.from_dict({**panda_like.to_dict(), "actuator_kind": "magic"})).path == "actuator_kind"
+assert error_of(lambda: EndEffectorRef(site="ee", body="hand", offset=Pose.identity())).reason == "give exactly one of site and body"
+assert error_of(lambda: robot_from_dict({"kind": "mystery"})).path == "kind"
+```
+
+What an `ExternalRobot` can do depends on its parts. By default it is driven with its own actuators and gains (`NativeGains`); `FixedGains` or `InertiaScaledGains` replace the actuators of the driven joints with ours (see [control](control.md#gains)). A simulator must list the kind `external` among its capabilities: the CPU MuJoCo simulator does ([how it runs one](../simulators.md#external-robots-on-the-cpu-simulator)); Warp does not yet, so `make_env` rejects it there.
+
+### Robot providers
+
+A robot provider owns a namespace, as a [task provider](../tasks/writing-a-provider.md) does. It is an object with five methods: `names()`; `describe(name, **options)`,
+which reads the model and returns an `ExternalRobot`; `spec(robot)`, which returns an editable `mujoco.MjSpec` after checking the model against `robot.source`;
+`validate(robot, simulator)`; and `kinematics(robot)`, which returns an oracle with `forward_ee_batch(q, base)` and `sample_joint_positions(num, rng)`. The last
+three and `describe` are engine side: importing the provider imports no engine. Providers are found lazily, in this order of precedence:
+`register_robot_provider(namespace, target)`, the entry-point group `robotdesigner.robot.providers`, then the subpackages of `robotdesigner.robot.providers`.
+`list_robot_providers()` loads nothing; `get_robot_provider(namespace)` loads one. The core names no provider. The one shipped provider is [`menagerie`](../robots/menagerie.md).
+
+`config.kinematics.forward_ee_batch` and `sample_joint_positions` accept an `ExternalRobot` and ask its provider for the oracle; without the engine they raise a
+`ConfigError` that says what to install. `forward` (link frames) is for the `ParametricArm` only.
+
+```python
+unregister_robot_provider("demo")                                           # the stand-in was for this page
+assert error_of(lambda: ExternalRobot.from_dict(panda_like.to_dict())).path == "provider"
+```
+
+## What the CPU MuJoCo simulator builds from it
+
+The names are stable, so tasks and your own code can look things up: bodies `base` (at the mount), `link_{i}`; hinges `joint_{i}`; capsule geoms `geom_{i}`; actuators
+`act_{i}`; the end effector is the site `ee`. With a gripper: joints `finger_joint_{0,1}`, actuator `act_gripper`, site `tcp`. Robot geoms collide with the scene; they collide with
+each other only if `MujocoOptions.self_collision` is true ([SimConfig](sim.md)). Mass and inertia come from the capsule unless the link gives explicit `inertia`.

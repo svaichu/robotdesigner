@@ -6,35 +6,56 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from .._canon import HASH_DISPLAY_LENGTH, canonical_json, check_keys, sha256_hex, within
-from .control import ControlConfig
+from .control import NATIVE_MODES, ControlConfig, FixedGains, InertiaScaledGains, NativeGains
 from ..errors import ConfigError
-from ..robot import ParametricArm
+from ..robot import ExternalRobot, ParametricArm, robot_from_dict
 from .sim import SimConfig
 from .task import TaskConfig
 
 
 @dataclass(frozen=True, slots=True)
 class EnvConfig:
-    robot: ParametricArm
+    robot: ParametricArm | ExternalRobot
     control: ControlConfig
     task: TaskConfig
     sim: SimConfig
 
     def __post_init__(self):
         for name, cls in (
-            ("robot", ParametricArm),
+            ("robot", (ParametricArm, ExternalRobot)),
             ("control", ControlConfig),
             ("task", TaskConfig),
             ("sim", SimConfig),
         ):
             if not isinstance(getattr(self, name), cls):
-                raise ConfigError(name, f"expected {cls.__name__}")
+                names = " or ".join(c.__name__ for c in (cls if isinstance(cls, tuple) else (cls,)))
+                raise ConfigError(name, f"expected {names}")
 
         n = self.robot.n
         for name in ("kp", "kd"):
             v = getattr(self.control.gains, name, None)
             if isinstance(v, tuple) and len(v) != n:
                 raise ConfigError(f"control.gains.{name}", f"expected {n} per-joint values, got {len(v)}")
+        self._check_gains_against_robot()
+
+    def _check_gains_against_robot(self) -> None:
+        gains = self.control.gains
+        if isinstance(self.robot, ExternalRobot):
+            # FixedGains and InertiaScaledGains replace the model's actuators with ours, so any mode fits; NativeGains
+            # drives the model's own actuators, so the mode must fit their kind.
+            if isinstance(gains, NativeGains):
+                fits = NATIVE_MODES[self.robot.actuator_kind]
+                if self.control.mode not in fits:
+                    hint = (
+                        f"the modes that fit are {list(fits)}" if fits else
+                        "no mode fits: restrict robot.joints to joints with one kind of actuator, or use FixedGains"
+                    )
+                    raise ConfigError(
+                        "control.mode",
+                        f"mode {self.control.mode!r} does not fit the model's {self.robot.actuator_kind!r} actuators; {hint}",
+                    )
+        elif isinstance(gains, NativeGains):
+            raise ConfigError("control.gains", "NativeGains drives a model's own actuators: it needs an ExternalRobot")
 
     # --- resolution and hashing ----------------------------------------------------
 
@@ -77,7 +98,7 @@ class EnvConfig:
     def from_dict(cls, d: Mapping[str, Any]) -> "EnvConfig":
         check_keys(d, {"robot", "control", "task", "sim"}, "")
         return cls(
-            robot=within("robot", ParametricArm.from_dict, d["robot"]),
+            robot=within("robot", robot_from_dict, d["robot"]),
             control=within("control", ControlConfig.from_dict, d["control"]),
             task=within("task", TaskConfig.from_dict, d["task"]),
             sim=within("sim", SimConfig.from_dict, d["sim"]),

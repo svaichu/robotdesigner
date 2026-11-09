@@ -1,7 +1,8 @@
 """The documentation is checked against the code.
 
-* Python blocks in the configuration pages, the task pages and the index are executed (blocks fenced as
-  ``python no-run`` are not): the pages use only the config sides (numpy), so this needs no simulator.
+* Python blocks in every page of ``docs/`` are executed, in order, in one namespace per page (blocks fenced as
+  ``python no-run`` are not): the pages use only the config sides (numpy), so this needs no simulator. Pages in
+  ``NO_EXAMPLES`` are prose only.
 * Every relative link in the Markdown files points to an existing file and, if it has a fragment, to a real heading.
 """
 
@@ -11,9 +12,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNNABLE = (
-    sorted((ROOT / "docs" / "configs").glob("*.md")) + sorted((ROOT / "docs" / "tasks").glob("*.md")) + [ROOT / "docs" / "README.md"]
-)
+NO_EXAMPLES = {"design.md", "development.md"}
+RUNNABLE = [p for p in sorted((ROOT / "docs").rglob("*.md")) if p.name not in NO_EXAMPLES]
 ALL_MD = [ROOT / "README.md"] + sorted((ROOT / "docs").rglob("*.md"))
 FENCE = re.compile(r"^```python\n(.*?)^```", re.S | re.M)
 LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)\s]+)\)")
@@ -32,8 +32,10 @@ def anchors(path: Path) -> set[str]:
 
 def test_pages_exist():
     assert {p.name for p in RUNNABLE} >= {
-        "robot.md", "control.md", "task.md", "sim.md", "env.md", "README.md", "robosuite.md",
+        "robot.md", "control.md", "task.md", "sim.md", "env.md", "base-env.md", "README.md", "robosuite.md", "empty.md",
+        "writing-a-provider.md", "simulators.md", "viz.md", "cluster.md", "getting-started.md",
     }
+    assert {p.name for p in ALL_MD} >= NO_EXAMPLES
 
 
 @pytest.mark.parametrize("page", RUNNABLE, ids=lambda p: f"{p.parent.name}/{p.name}")
