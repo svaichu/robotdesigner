@@ -26,7 +26,7 @@ pip install -e .                        # config layer only (numpy): write, vali
 pip install -e ".[env]"                 # + torch, TorchRL, MuJoCo: the CPU simulator
 pip install -e ".[env,robosuite]"       # + robosuite scenes as tasks
 pip install -e ".[env,warp]"            # + MuJoCo Warp: the GPU simulator (an NVIDIA GPU)
-pip install -e ".[menagerie]"            # + robots from MuJoCo Menagerie (Python >= 3.10.12)
+pip install -e ".[menagerie]"           # + robots from MuJoCo Menagerie (Python >= 3.10.12)
 pip install -e ".[env,viz]"             # + GIF / MP4 output
 pip install -e ".[env,robosuite,viz,dev]"   # a development install; "yaml" adds YAML config files
 ```
@@ -40,6 +40,20 @@ Python >= 3.10. `import robotdesigner.config` never imports an engine.
 - **Reject, never approximate.** A control mode, device, task or scene a simulator cannot run is rejected up front, with every problem listed and the config path to change.
 - **Comparable by construction.** `chain(total_length=, total_mass=)` holds size fixed while `n` varies, gains are explicit (`InertiaScaledGains` tunes joints to one bandwidth), and the task's random stream does not depend on the robot.
 - **One environment contract.** Every environment is a TorchRL `EnvBase` with `batch_size=[num_envs]`. It never autoresets; reset rows with the `_reset` mask.
+
+## A robot from a library
+
+A model that already exists, such as a Panda or a Go1 from MuJoCo Menagerie, is an `ExternalRobot`: a reference with the numbers the config needs, driven by the model's own actuators.
+
+```python
+from robotdesigner.config import BaseEnvConfig
+from robotdesigner.robot_providers.menagerie import PROVIDER     # pip install -e ".[menagerie]"; models are fetched by the library, never copied here
+
+panda = PROVIDER.describe("franka_emika_panda")
+env = BaseEnvConfig().robot(panda).sim(num_envs=4, scene="plain_floor").build()
+```
+
+[Robots from Menagerie](docs/robots/menagerie.md) · [writing a robot provider](docs/robots/writing-a-robot-provider.md).
 
 ## Compare embodiments
 

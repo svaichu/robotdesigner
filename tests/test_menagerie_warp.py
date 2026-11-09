@@ -5,7 +5,6 @@ docs/simulators.md with their measured errors and the reason; they are not hidde
 """
 
 import warnings
-from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -16,12 +15,12 @@ pytest.importorskip("mujoco")
 pytest.importorskip("torchrl")
 pytest.importorskip("mujoco_warp")
 
-from robotdesigner.config import BaseEnvConfig, ControlConfig, FixedGains, WarpOptions  # noqa: E402
-from robotdesigner.robot_providers.menagerie import PROVIDER  # noqa: E402
-from robotdesigner.simulators.warp.sim import CapacityError  # noqa: E402
-from tests.parity import build, errors, on_warp, run, twin, with_sim  # noqa: E402
-from tests.test_warp_env import DEVICES  # noqa: E402
-from tests.test_warp_parity import TOL  # noqa: E402
+from robotdesigner.config import BaseEnvConfig, FixedGains, WarpOptions
+from robotdesigner.robot_providers.menagerie import PROVIDER
+from robotdesigner.simulators.warp.sim import CapacityError
+from tests.parity import build, errors, on_warp, run, twin, with_sim
+from tests.test_warp_env import DEVICES
+from tests.test_warp_parity import TOL
 
 pytestmark = pytest.mark.menagerie
 
@@ -66,7 +65,7 @@ def test_go2_native_and_with_our_gains(device):
 
 
 def test_the_go2_root_and_ground_contact_start_the_same_in_both():
-    robot, base = config("unitree_go2", num_envs=3)
+    _, base = config("unitree_go2", num_envs=3)
     cfg = base.resolve()
     cpu, warp = build(twin(cfg)), build(on_warp(cfg, "cpu"))
     cpu.reset(), warp.reset()

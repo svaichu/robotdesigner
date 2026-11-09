@@ -12,8 +12,8 @@ pytest.importorskip("mujoco")
 torch = pytest.importorskip("torch")
 pytest.importorskip("torchrl")
 
-from robotdesigner.config import BaseEnvConfig, FixedGains, InertiaScaledGains  # noqa: E402
-from robotdesigner.robot_providers.menagerie import PROVIDER  # noqa: E402
+from robotdesigner.config import BaseEnvConfig, FixedGains, InertiaScaledGains
+from robotdesigner.robot_providers.menagerie import PROVIDER
 
 pytestmark = pytest.mark.menagerie
 EXPECTED = json.loads(Path(__file__).with_name("menagerie_expected.json").read_text())

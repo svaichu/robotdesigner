@@ -29,9 +29,9 @@ With the library installed, `describe` opens the model and fills these numbers i
 from robotdesigner.config import BaseEnvConfig
 from robotdesigner.robot_providers.menagerie import PROVIDER
 
-panda = PROVIDER.describe("franka_emika_panda")        # 7 driven joints, position servos, end effector on the hand body
+panda = PROVIDER.describe("franka_emika_panda")        # position servos on the arm joints, an end effector on the hand body
 env = BaseEnvConfig().robot(panda).sim(num_envs=4, scene="plain_floor").build()
-go2 = PROVIDER.describe("unitree_go2")                  # 12 joints, plain motors, a free root with a home pose
+go2 = PROVIDER.describe("unitree_go2")                  # plain motors, a free root with a home pose, no end effector
 PROVIDER.describe("kuka_iiwa_14", effort_limit=200.0)   # a model without force limits needs one
 ```
 
@@ -54,6 +54,42 @@ offsets of body end effectors approximate the gripper mounting point, they are n
 
 `spec(robot)` returns the model's `MjSpec` after checking `robot.source` (the library's content id of the model directory) and fails with `robot.source: the model changed since this config was written` otherwise.
 `validate` reports the library missing (naming the extra), an unknown robot (with the library's near match), an unknown or scene entry and a stale source, each with its config path.
+
+A runnable walk-through (describe a Panda and a Go1, step them, spawn the Go1 at two mounts, render a frame of each) is [`examples/menagerie_robots.ipynb`](../../examples/menagerie_robots.ipynb).
+
+## What is driven, what is held
+
+`ExternalRobot.joints` are the joints a controller drives, one action component each. Everything else in the model stays: a finger or gripper actuator is **held** at the control value of the keyframe (zero when there
+is none) on every step, joints that no actuator drives (coupled or passive finger joints) take the keyframe's state at reset, and there is no gripper action. A free root is never driven: it is the pose the robot starts
+in, and what moves it is physics. `NativeGains` (the default for an external robot) drives the model with its own actuators; `FixedGains` and `InertiaScaledGains` replace the actuators of the driven joints with ours
+([control](../configs/control.md#our-gains-on-an-external-robot)).
+
+## Spawn pose
+
+The task's `mount` places the model's world frame ([simulators](../simulators.md#external-robots-on-the-cpu-simulator)): a fixed arm stands at the mount, and a floating robot starts at the mount composed with the
+`home_root` its keyframe gives. A mount above the floor makes a legged robot fall and land. A robot whose base is made of joints (TidyBot: two slides and a hinge) has no free root; its base moves when those joints are
+driven. `SimView`'s `"base"` frame is the static mount, **not** the moving trunk of a floating robot.
+
+```python no-run
+from robotdesigner.config import BaseEnvConfig, Pose
+
+go1 = PROVIDER.describe("unitree_go1")
+mount = Pose((0.4, -0.3, 0.3), (0.7071, 0.0, 0.0, 0.7071))          # 0.3 m up, turned 90 degrees about z
+env = BaseEnvConfig().robot(go1).task(mount=mount).sim(num_envs=2, scene="plain_floor").build()
+```
+
+## Limits
+
+- **No gripper action** and no end-effector control modes: fingers are held, and a task that needs a grasp cannot be solved with an external robot (`robosuite/Lift` builds and steps).
+- **The base frame is static** (above): there is no frame that follows a floating robot's trunk.
+- **No locomotion**: no locomotion reward or controller; a legged robot stands because its position servos hold the reset pose.
+- **The model's solver options** (`cone`, `impratio`, ...) are not carried over: the scene's win, so that a task is one physics for every robot ([simulators](../simulators.md#external-robots-on-the-cpu-simulator)).
+- **Robots without an end effector** are refused by a task that reads one.
+- **Warp** runs external robots (verified on Warp's CPU device only); where it differs from the CPU simulator is in [simulators](../simulators.md#external-robots-on-warp).
+
+## Writing your own provider
+
+Another source of robot models (a URDF collection, your own library) is a robot provider of its own: [writing a robot provider](writing-a-robot-provider.md).
 
 ## Which robots run
 

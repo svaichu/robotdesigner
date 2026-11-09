@@ -13,17 +13,23 @@ mujoco = pytest.importorskip("mujoco")
 pytest.importorskip("torchrl")
 pytest.importorskip("mujoco_warp")
 
-from torchrl.envs.utils import check_env_specs  # noqa: E402
+from torchrl.envs.utils import check_env_specs
 
-from robotdesigner.config import ControlConfig, FixedGains, InertiaScaledGains, Pose, WarpOptions  # noqa: E402
-from robotdesigner.simulators import get_simulator  # noqa: E402
-from robotdesigner.simulators.mujoco.external import compose  # noqa: E402
-from robotdesigner.simulators.warp.sim import CapacityError  # noqa: E402
-from tests.parity import build, on_warp, random_case, run, twin, with_sim  # noqa: E402
-from tests.test_mujoco_external import ROTATED, idle_cfg, reach_cfg  # noqa: E402
-from tests.test_warp_env import DEVICES  # noqa: E402
-from tests.test_warp_parity import TOL, assert_parity  # noqa: E402
-from tests.toy_robot_provider import PROVIDER  # noqa: E402
+from robotdesigner.config import (
+    ControlConfig,
+    FixedGains,
+    InertiaScaledGains,
+    Pose,
+    WarpOptions,
+)
+from robotdesigner.simulators import get_simulator
+from robotdesigner.simulators.mujoco.external import compose
+from robotdesigner.simulators.warp.sim import CapacityError
+from tests.parity import build, on_warp, random_case, twin, with_sim
+from tests.test_mujoco_external import ROTATED, idle_cfg, reach_cfg
+from tests.test_warp_env import DEVICES
+from tests.test_warp_parity import assert_parity
+from tests.toy_robot_provider import PROVIDER
 
 MODES = ["joint_pos_abs", "joint_pos_delta", "joint_vel", "joint_torque"]
 SCALE = {"joint_pos_abs": None, "joint_pos_delta": 0.05, "joint_vel": 2.0, "joint_torque": None}

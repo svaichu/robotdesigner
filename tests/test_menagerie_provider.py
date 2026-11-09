@@ -16,10 +16,9 @@ mujoco = pytest.importorskip("mujoco")
 torch = pytest.importorskip("torch")
 pytest.importorskip("torchrl")
 
-from robotdesigner.config import BaseEnvConfig, ConfigError, ExternalJoint, Pose  # noqa: E402
-from robotdesigner.config import kinematics as kin  # noqa: E402
-from robotdesigner.envs import make_env  # noqa: E402
-from robotdesigner.robot_providers.menagerie import PROVIDER, cards  # noqa: E402
+from robotdesigner.config import BaseEnvConfig, ConfigError, Pose
+from robotdesigner.config import kinematics as kin
+from robotdesigner.robot_providers.menagerie import PROVIDER, cards
 
 pytestmark = pytest.mark.menagerie
 
@@ -83,7 +82,7 @@ def test_an_actuator_without_a_force_limit_needs_effort_limit():
 def test_a_home_value_outside_its_range_is_clipped_and_said():
     with pytest.warns(UserWarning, match="outside its range .* clipped"):
         r = PROVIDER.describe("google_robot")
-    lo = [j.range[0] for j in r.joints if j.name == "joint_finger_left"][0]
+    lo = next(j.range[0] for j in r.joints if j.name == "joint_finger_left")
     assert r.home_qpos[[j.name for j in r.joints].index("joint_finger_left")] == lo
 
 
@@ -171,7 +170,7 @@ def test_a_card_matches_its_model(name):
     assert entry in meta.entry_names and meta.entry(entry).kind == "robot"
     model = meta.spec(entry).compile()
     O = mujoco.mjtObj
-    joint = lambda n: mujoco.mj_name2id(model, O.mjOBJ_JOINT, n)  # noqa: E731
+    joint = lambda n: mujoco.mj_name2id(model, O.mjOBJ_JOINT, n)
     transmitted = {int(model.actuator_trnid[a, 0]) for a in range(model.nu) if int(model.actuator_trntype[a]) == 0}
     for n in card.get("controlled", []):
         assert joint(n) >= 0 and joint(n) in transmitted, f"{name}: {n}"
@@ -200,7 +199,7 @@ def status_of(name: str) -> str:
         except ConfigError as e:
             return "refused: mixed actuators" if "no mode fits" in str(e) else f"refused: make_env: {e}"
         td = env.reset()
-        finite = lambda t: all(torch.isfinite(v).all() for v in t.values(True, True) if v.dtype.is_floating_point)  # noqa: E731
+        finite = lambda t: all(torch.isfinite(v).all() for v in t.values(True, True) if v.dtype.is_floating_point)
         assert finite(td), f"{name}: reset"
         for i in range(20):
             td["action"] = torch.zeros(2, env.action_spec.shape[-1]) if i < 10 else env.action_spec.rand()

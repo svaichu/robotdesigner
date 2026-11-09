@@ -57,8 +57,14 @@ def workspace_points(cfg, n_samples: int = 512, seed: int = 0) -> np.ndarray:
     T = np.eye(4) if mount is None else kin.pose_to_matrix(mount)
     base = T[:3, 3]
     pts = [base[None], np.array([[base[0], base[1], 0.0]])]
-    pts.append(kin.forward_ee_batch(robot, kin.sample_joint_positions(robot, n_samples, rng), mount))
-    pts.append(kin.forward_ee_batch(robot, np.asarray(robot.home_qpos, dtype=float)[None], mount))
+    if getattr(robot, "end_effector", True) is None:
+        # A robot without an end effector (a quadruped) has no reach to sample: frame a metre around where it starts.
+        root = getattr(robot, "home_root", None)
+        centre = base if root is None else T[:3, :3] @ np.asarray(root.pos) + base
+        pts.append(centre + 0.6 * np.array([[x, y, z] for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)], dtype=float))
+    else:
+        pts.append(kin.forward_ee_batch(robot, kin.sample_joint_positions(robot, n_samples, rng), mount))
+        pts.append(kin.forward_ee_batch(robot, np.asarray(robot.home_qpos, dtype=float)[None], mount))
     if isinstance(region, FixedBox):
         lo, hi = np.asarray(region.low, dtype=float), np.asarray(region.high, dtype=float)
         corners = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])

@@ -9,8 +9,9 @@ the model; a config can also be written by hand. ``source`` is hashed, so a chan
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from .._canon import (
     HASH_DISPLAY_LENGTH,
@@ -57,7 +58,7 @@ class ExternalJoint:
         }
 
     @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> "ExternalJoint":
+    def from_dict(cls, d: Mapping[str, Any]) -> ExternalJoint:
         check_keys(d, {"name", "range", "effort_limit"}, "")
         return cls(name=d["name"], range=d["range"], effort_limit=d["effort_limit"])
 
@@ -86,7 +87,7 @@ class EndEffectorRef:
         return {"site": self.site, "body": self.body, "offset": self.offset.to_dict()}
 
     @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> "EndEffectorRef":
+    def from_dict(cls, d: Mapping[str, Any]) -> EndEffectorRef:
         check_keys(d, {"site", "body", "offset"}, "")
         return cls(site=d["site"], body=d["body"], offset=within("offset", Pose.from_dict, d["offset"]))
 
@@ -185,7 +186,7 @@ class ExternalRobot:
         }
 
     @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> "ExternalRobot":
+    def from_dict(cls, d: Mapping[str, Any]) -> ExternalRobot:
         check_keys(
             d,
             {

@@ -8,15 +8,32 @@ a direct child of the world, which MuJoCo requires.
 
 from __future__ import annotations
 
+import contextlib
 import warnings
 
 import mujoco
 import numpy as np
 
-from ...config import EnvConfig, ExternalRobot, FixedGains, InertiaScaledGains, Pose, get_robot_provider
+from ...config import (
+    EnvConfig,
+    ExternalRobot,
+    FixedGains,
+    InertiaScaledGains,
+    Pose,
+    get_robot_provider,
+)
 from ...config.kinematics import quat_to_matrix
 from ...errors import ConfigError, Problem
-from .compile import _INTEGRATORS, _LIMITED, _UNLIMITED, SUPPORTED_MODES, CompiledRobot, RobotInterface, _per_joint, inertia_scaled_gains
+from .compile import (
+    _INTEGRATORS,
+    _LIMITED,
+    _UNLIMITED,
+    SUPPORTED_MODES,
+    CompiledRobot,
+    RobotInterface,
+    _per_joint,
+    inertia_scaled_gains,
+)
 from .scenes import apply_scene
 
 PREFIX = "ext_"
@@ -241,11 +258,33 @@ def _build_external_spec(cfg: EnvConfig, facts: Facts, scene_hook, own: tuple[li
     return spec
 
 
+@contextlib.contextmanager
+def _scene_options_win():
+    """MuJoCo warns when the model's own option differs from the scene's and the scene's value is kept (as a Python warning
+    and on stderr). That is the policy (``CARRY_MODEL_OPTIONS``, docs/simulators.md), not news on every build; other
+    MuJoCo warnings pass."""
+    previous = mujoco.get_mju_user_warning()
+
+    def handler(message):
+        text = message.decode() if isinstance(message, bytes) else str(message)
+        if "Attach conflict" in text:
+            return
+        if previous is not None:
+            previous(message)
+        else:
+            warnings.warn(text, stacklevel=2)
+
+    mujoco.set_mju_user_warning(handler)
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Attach conflict")
+            yield
+    finally:
+        mujoco.set_mju_user_warning(previous)
+
+
 def compile_external(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
-    with warnings.catch_warnings():
-        # MuJoCo warns when the model's own option differs from the scene's and the scene's value is kept. That is the
-        # policy (CARRY_MODEL_OPTIONS, docs/simulators.md), not news on every build.
-        warnings.filterwarnings("ignore", message="Attach conflict")
+    with _scene_options_win():
         return _compile_external(cfg, scene_hook)
 
 

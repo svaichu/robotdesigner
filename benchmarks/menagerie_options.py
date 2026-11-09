@@ -15,10 +15,10 @@ import mujoco
 import numpy as np
 import torch
 
-import robotdesigner.simulators.mujoco.external as external
 from robotdesigner.config import BaseEnvConfig
 from robotdesigner.envs import make_env
 from robotdesigner.robot_providers.menagerie import PROVIDER
+from robotdesigner.simulators.mujoco import external
 
 
 def stand(name: str, carry: bool, dt_factor: float, seconds: float = 2.0) -> dict:
@@ -33,7 +33,7 @@ def stand(name: str, carry: bool, dt_factor: float, seconds: float = 2.0) -> dic
     td, d = env.reset(), env._sim.data[0]
     root = env.interface.root_qpos_adr
     z0, penetration, contacts = env.interface.home_root.pos[2], 0.0, []
-    for _ in range(int(round(seconds / env._sim.control_dt))):
+    for _ in range(round(seconds / env._sim.control_dt)):
         td["action"] = torch.zeros(1, robot.n)
         td = env.step(td)["next"]
         contacts.append(d.ncon)
