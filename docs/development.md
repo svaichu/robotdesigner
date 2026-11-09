@@ -4,19 +4,21 @@
 
 ```
 src/robotdesigner/
-    robot/        ParametricArm, JointSpec, LinkSpec, TwoFingerGripper, Pose, chain()            numpy only
+    robot/        ParametricArm, ExternalRobot, JointSpec, LinkSpec, TwoFingerGripper, Pose, chain()   numpy only
     config/       ControlConfig, SimConfig, TaskConfig, EnvConfig, BaseEnvConfig, Chain, sweep,    numpy only
-                  the task-provider registry (providers.py), kinematics oracle, defaults.py
+                  the task-provider and robot-provider registries (providers.py, robot_providers.py), kinematics oracle, defaults.py
     simulators/   registry, Capabilities, Simulator protocol
         mujoco/   CPU simulator: model compiler, batched sim, MujocoEnv, renderer, scene presets
         warp/     GPU simulator: WarpBatchedSim, WarpEnv
     tasks/        the task contract (base.py) and one subpackage per provider: empty/, robosuite/
+    robot_providers/  one subpackage per robot provider: menagerie/ (MuJoCo Menagerie robots, cards.json)
     envs/         make_env(cfg), observation_space / action_space
     viz/          Clip, FrameRecorder, record_rollout, camera framing                           numpy only
     _canon.py     canonical JSON, hashing, field coercion;  errors.py: ConfigError, Problem
-tests/            one file per area; toy_provider/ is a test-only task provider (namespace "toy")
+tests/            one file per area; toy_provider/ is a test-only task provider (namespace "toy"), toy_robot_provider/ a
+                  test-only robot provider (namespace "toyrobot", models written inline)
 examples/         notebooks only
-benchmarks/       bench_warp.py
+benchmarks/       bench_warp.py, menagerie_options.py
 docs/             this documentation
 pizza_robot/      a standalone MuJoCo scene (an ElRobot arm on a table, with a viewer script); not wired into the package
 ```
@@ -46,6 +48,7 @@ MUJOCO_GL=egl pytest -m render                            # needs an OpenGL cont
 | `gpu` | a CUDA device (and the `warp` extra) |
 | `robosuite` | the `robosuite` extra |
 | `render` | an OpenGL context; skipped when there is none |
+| `menagerie` | the `menagerie` extra and a model download (CI caches the library's cache directory) |
 
 CI (`.github/workflows/ci.yml`) runs the unmarked tests on Python 3.10, 3.12 and 3.13, and the robosuite tests (without GPU and render) in a separate job, because robosuite 1.5.x needs the compat layer on current MuJoCo
 and those tests notice when either side changes. Only the tip of a branch is expected to pass.
@@ -54,7 +57,8 @@ Beyond unit tests there are three kinds of check worth knowing:
 
 - **Parity** (`tests/parity.py`, `tests/test_warp_parity.py`): the GPU simulator against the CPU one, and both against the numpy kinematics oracle. A capability is claimed only after it matches.
 - **Notebook smoke tests** (`tests/test_notebooks.py`, `tests/nbrun.py`): the code cells of every notebook run in-process.
-- **`tests/test_no_hardcoded_tasks.py`**: the core must not name a task (the `empty` namespace is exempt).
+- **`tests/test_no_hardcoded_tasks.py`**: the core must not name a task (the `empty` namespace is exempt). **`tests/test_no_hardcoded_robots.py`**: the core must not name a robot provider or a robot.
+- **Coverage of the library** (`tests/menagerie_expected.json`, `tests/test_menagerie_provider.py`): the status of every Menagerie robot; a test fails when one flips, and the table of `docs/robots/menagerie.md` is checked against the file.
 
 ## Documentation is tested
 

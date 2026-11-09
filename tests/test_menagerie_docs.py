@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ROW = re.compile(r"^\| `([^`]+)` \| [^|]+ \| [^|]+ \| ([^|]+) \|$", re.M)
+ROW = re.compile(r"^\| `([^`]+)` \| [^|]+ \| [^|]+ \| ([^|]+) \|$", re.MULTILINE)
 
 
 def test_the_docs_table_lists_the_expected_status_of_every_robot():

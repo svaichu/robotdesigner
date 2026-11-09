@@ -39,7 +39,7 @@ def describe(provider, name, entry, controlled, end_effector, keyframe, effort_l
         model = meta.spec(entry).compile()
     except Exception as e:
         raise ConfigError("name", f"menagerie/{name} could not be opened ({type(e).__name__}: {e}); {EXTRA}") from e
-    jname = lambda j: mujoco.mj_id2name(model, O.mjOBJ_JOINT, j)  # noqa: E731
+    jname = lambda j: mujoco.mj_id2name(model, O.mjOBJ_JOINT, j)
 
     # --- the driven joints and the actuator of each ---
     joint_act: dict[int, int] = {}

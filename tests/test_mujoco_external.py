@@ -10,9 +10,9 @@ torch = pytest.importorskip("torch")
 mujoco = pytest.importorskip("mujoco")
 pytest.importorskip("torchrl")
 
-from torchrl.envs.utils import check_env_specs  # noqa: E402
+from torchrl.envs.utils import check_env_specs
 
-from robotdesigner.config import (  # noqa: E402
+from robotdesigner.config import (
     BaseEnvConfig,
     ConfigError,
     ControlConfig,
@@ -27,24 +27,24 @@ from robotdesigner.config import (  # noqa: E402
     SimConfig,
     TaskConfig,
 )
-from robotdesigner.config import kinematics as kin  # noqa: E402
-from robotdesigner.envs import make_env  # noqa: E402
-from robotdesigner.simulators.mujoco.compile import compile_robot  # noqa: E402
-from robotdesigner.simulators.mujoco.external import compose  # noqa: E402
-from robotdesigner.viz.camera import workspace_points  # noqa: E402
-from tests.toy_provider import ReachParams  # noqa: E402
-from tests.toy_robot_provider import PROVIDER  # noqa: E402
+from robotdesigner.config import kinematics as kin
+from robotdesigner.envs import make_env
+from robotdesigner.simulators.mujoco.compile import compile_robot
+from robotdesigner.simulators.mujoco.external import compose
+from robotdesigner.viz.camera import workspace_points
+from tests.toy_provider import ReachParams
+from tests.toy_robot_provider import PROVIDER
 
 ROTATED = Pose((0.4, -0.3, 0.2), (float(np.cos(0.4)), 0.0, 0.0, float(np.sin(0.4))))
 OTHER = Pose((-0.5, 0.6, 0.0), (float(np.cos(-0.9)), 0.0, 0.0, float(np.sin(-0.9))))
 
 
-def reach_cfg(robot, mount=Pose.identity(), mode="joint_pos_abs", num_envs=3, noise=0.0, region=None, dt=0.002, scale=None, seed=0):
+def reach_cfg(robot, mount=None, mode="joint_pos_abs", num_envs=3, noise=0.0, region=None, dt=0.002, scale=None, seed=0):
     return EnvConfig(
         robot=robot,
         control=ControlConfig(mode, NativeGains(), scale),
         task=TaskConfig(
-            ReachParams("reach", noise, False), 20, 0.02, region or FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)), mount=mount,
+            ReachParams("reach", noise, False), 20, 0.02, region or FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)), mount=mount or Pose.identity(),
         ),
         sim=SimConfig("mujoco", num_envs, "cpu", dt, "euler", 50, seed, "plain_floor", options=MujocoOptions(False)),
     )
@@ -267,7 +267,7 @@ def test_zero_actuator_model_is_a_problem():
 
 
 def test_wrong_actuator_kind_stale_source_unknown_joint_keyframe_and_entry(arm3):
-    cfg = lambda robot, **kw: reach_cfg(robot, **kw)  # noqa: E731
+    cfg = lambda robot, **kw: reach_cfg(robot, **kw)
     msg = err_of(lambda: make_env(cfg(replace(arm3, actuator_kind="torque"), mode="joint_torque")))
     assert "robot.actuator_kind" in msg and "'position'" in msg
     assert "robot.source: the model changed since this config was written" in err_of(lambda: make_env(cfg(replace(arm3, source="stale"))))
@@ -306,10 +306,10 @@ def test_parametric_compile_still_works_next_to_an_external_one(arm3):
 
 # --- our own actuators on an external robot (FixedGains, InertiaScaledGains) -------------------------------------------
 
-from robotdesigner.config import FixedGains, InertiaScaledGains  # noqa: E402
+from robotdesigner.config import FixedGains, InertiaScaledGains
 
 
-def own_cfg(robot, gains, mode="joint_pos_abs", scale=None, num_envs=2, mount=Pose.identity()):
+def own_cfg(robot, gains, mode="joint_pos_abs", scale=None, num_envs=2, mount=None):
     cfg = reach_cfg(robot, mount, num_envs=num_envs)  # native gains in a mode that fits; the control is replaced below
     return replace(cfg, control=ControlConfig(mode, gains, scale))
 
@@ -450,7 +450,7 @@ def test_a_model_without_actuators_can_be_driven_with_our_gains():
 
 # --- rendering (needs an OpenGL context; MUJOCO_GL=egl on a headless machine) ---------------------------------------
 
-from tests.test_render import needs_gl  # noqa: E402
+from tests.test_render import needs_gl
 
 
 @pytest.mark.render
@@ -462,3 +462,9 @@ def test_an_external_robot_renders_a_frame_that_is_not_blank(arm3, floater):
         assert frame.shape == (96, 128, 3) and frame.dtype == np.uint8
         assert np.ptp(frame.reshape(-1, 3), axis=0).max() > 20, f"{robot.name}: the frame is blank"
         env.close()
+
+
+def test_the_camera_frames_a_robot_without_an_end_effector(floater):
+    pts = workspace_points(idle_cfg(floater, ROTATED))
+    centre = compose(ROTATED, floater.home_root).pos
+    assert np.isfinite(pts).all() and np.abs(pts - centre).max() < 1.5 and (np.abs(pts - centre).max(axis=1) <= 0.6 + 1e-9).sum() >= 8

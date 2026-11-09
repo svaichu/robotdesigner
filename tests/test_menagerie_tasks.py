@@ -16,13 +16,13 @@ mujoco = pytest.importorskip("mujoco")
 torch = pytest.importorskip("torch")
 pytest.importorskip("torchrl")
 
-from torchrl.envs.utils import check_env_specs  # noqa: E402
+from torchrl.envs.utils import check_env_specs
 
-from robotdesigner.config import BaseEnvConfig, ConfigError, Pose  # noqa: E402
-from robotdesigner.config.kinematics import pose_to_matrix  # noqa: E402
-from robotdesigner.envs import make_env  # noqa: E402
-from robotdesigner.robot_providers.menagerie import PROVIDER  # noqa: E402
-from robotdesigner.simulators.mujoco.external import compose  # noqa: E402
+from robotdesigner.config import BaseEnvConfig, ConfigError, Pose
+from robotdesigner.config.kinematics import pose_to_matrix
+from robotdesigner.envs import make_env
+from robotdesigner.robot_providers.menagerie import PROVIDER
+from robotdesigner.simulators.mujoco.external import compose
 
 pytestmark = pytest.mark.menagerie
 
@@ -175,7 +175,6 @@ def test_legged_robots_dropped_from_0_3_m_fall_and_land(name):
     mount = Pose((0.0, 0.0, 0.3), (1.0, 0.0, 0.0, 0.0))
     robot, env = standing(name, mount)
     zs = settle(env, 100)
-    a = env.interface.root_qpos_adr
     assert env.interface.home_root.pos[2] == pytest.approx(robot.home_root.pos[2] + 0.3)
     assert zs[0] > robot.home_root.pos[2] + 0.2  # it starts above the floor, not in it
     assert zs.min() > 0.02 and np.isfinite(zs).all()  # and lands: the trunk never goes through the floor

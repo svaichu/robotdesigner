@@ -51,6 +51,13 @@ assert (env_cfg.robot.config_hash, env_cfg.env_hash) == (cfg.resolve().robot.con
 | [robosuite scenes](tasks/robosuite.md) | robosuite arenas and objects as tasks, which environments work |
 | [Writing a task provider](tasks/writing-a-provider.md) | bring your own tasks, end to end |
 
+## Robots from a library
+
+| page | covers |
+|---|---|
+| [`menagerie`](robots/menagerie.md) | MuJoCo Menagerie robots as `ExternalRobot`s: `describe`, cards, what is driven and held, spawn pose, licences, which robots run |
+| [Writing a robot provider](robots/writing-a-robot-provider.md) | bring your own source of robot models, end to end |
+
 ## Working with it
 
 | page | covers |
@@ -64,6 +71,6 @@ Runnable notebooks are in [`examples/`](../examples).
 ## Words used in these docs
 
 **embodiment**: a robot configuration. **simulator**: a physics engine (`mujoco`, `warp`). **task** / **task provider**: `"<namespace>/<name>"` and the owner of the namespace.
-**robot provider** / **external robot**: the owner of a robot namespace, and a reference to one of its models (`ExternalRobot`).
+**robot provider** / **external robot** / **native gains**: the owner of a robot namespace; a reference to one of its models (`ExternalRobot`); `NativeGains`, which drives such a model with its own actuators.
 **scene**: a simulator preset (`sim.scene`), or, for robosuite, an arena with objects. **mount**: the robot base's pose in the world. **resolve**: turn the builder into the frozen `EnvConfig`.
 **config side / engine side**: numpy-only code versus code that needs torch and MuJoCo. The full table is in [Design](design.md#vocabulary).

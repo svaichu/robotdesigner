@@ -117,3 +117,15 @@ tensordict < 0.15, tensordict 0.15.3 needs torch >= 2.11: widen the pins only af
   against code and tests whenever a design changes.
 - After the reach task was purged a diagram still listed it: images and notebook outputs need the same grep as code.
 - A user's uncommitted change in their checkout is theirs: ask, and prefer a reversible step.
+- External robots (the Menagerie work, #48 to #57), pitfalls found:
+  - `MjSpec.attach` into a frame of the *world* body keeps a free root joint legal (MuJoCo allows a free joint only on a direct child of the world); a welded body such as `base` would not. The compile therefore keeps an empty `base` for `SimView` and attaches into a separate frame at the same pose.
+  - Names are not reliable: free joints, many actuators and some keyframes are unnamed, so the compile maps the attached model's joints and actuators by position (they come last), not by name. `mj_id2name` returns `None`.
+  - Compare MuJoCo enums with `int(...)`: a numpy integer does not equal or hash like the pybind enum (a membership test and a dict lookup both failed silently).
+  - A model's joint actuators can include a finger or gripper (seven arms), and a gripper can be a tendon actuator: `controlled` in the card says which joints are driven, the others are held at the keyframe's `ctrl`. Some models have no force limits (`describe` needs `effort_limit`); some have unnamed or no `home` keyframe.
+  - Deleting an actuator from a spec breaks the keyframes' `ctrl` size: delete the keyframes first (re-actuation reads the keyframe from a standalone compile instead).
+  - `check_env_specs` draws from the task's random stream: build a fresh env after it before comparing placements.
+  - Parity with the Warp simulator needs a model that is not marginally stable (no armature or damping amplifies float32 rounding); contacts and stiff native servos are where it differs (#57).
+  - Rendering found two bugs the other tests did not (a camera framing that needs an end effector, a test task that read capsule radii): run the `render` tests with software GL (`apt-get install libosmesa6 libegl1 libgl1-mesa-dri`, then `MUJOCO_GL=egl`).
+  - The notebooks' stored outputs carried a user name and a cluster path: `tests/test_notebooks.py` now fails on an absolute path in a stored output.
+  - `docs/spec_robotconfig_env.md` and `docs/architecture.png`, which the roadmap issues name, are not in the repository; the decision log is the end of `docs/design.md`.
+
