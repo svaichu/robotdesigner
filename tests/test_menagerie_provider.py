@@ -18,7 +18,7 @@ pytest.importorskip("torchrl")
 
 from robotdesigner.config import BaseEnvConfig, ConfigError, Pose
 from robotdesigner.config import kinematics as kin
-from robotdesigner.robot.provider.menagerie import PROVIDER, cards
+from robotdesigner.robot.providers.menagerie import PROVIDER, cards
 
 pytestmark = pytest.mark.menagerie
 

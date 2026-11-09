@@ -51,7 +51,7 @@ def test_menagerie_provider_imports_without_an_engine_or_the_library():
         "import sys\n"
         f"for m in {BLOCKED + ['mujoco_menagerie']!r}: sys.modules[m] = None\n"
         "import robotdesigner.config as c\n"
-        "from robotdesigner.robot.provider.menagerie import PROVIDER, cards\n"
+        "from robotdesigner.robot.providers.menagerie import PROVIDER, cards\n"
         "assert 'menagerie' in c.list_robot_providers() and PROVIDER.names() == () and len(cards()) > 20\n"
         "try:\n"
         "    PROVIDER.describe('franka_emika_panda')\n"

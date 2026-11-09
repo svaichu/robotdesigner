@@ -10,7 +10,7 @@ The config side needs neither the library nor an engine, so a config naming this
 
 ```python
 from robotdesigner.config import EndEffectorRef, ExternalJoint, ExternalRobot, Pose, list_robot_providers
-from robotdesigner.robot.provider.menagerie import cards
+from robotdesigner.robot.providers.menagerie import cards
 
 assert "menagerie" in list_robot_providers()
 ur5e_like = ExternalRobot(
@@ -27,7 +27,7 @@ With the library installed, `describe` opens the model and fills these numbers i
 
 ```python no-run
 from robotdesigner.config import BaseEnvConfig
-from robotdesigner.robot.provider.menagerie import PROVIDER
+from robotdesigner.robot.providers.menagerie import PROVIDER
 
 panda = PROVIDER.describe("franka_emika_panda")        # position servos on the arm joints, an end effector on the hand body
 env = BaseEnvConfig().robot(panda).sim(num_envs=4, scene="plain_floor").build()
@@ -49,7 +49,7 @@ PROVIDER.describe("kuka_iiwa_14", effort_limit=200.0)   # a model without force 
   needs an end effector then refuses the robot.
 - **actuator_kind**: from the gain and bias of the driven actuators: a position servo, a velocity servo, a plain motor, or `mixed`.
 
-A **card** (`robot/provider/menagerie/cards.json`) holds what cannot be derived: the driven joints where a finger is a joint actuator, an end effector where the model has no suitable site (the
+A **card** (`robot/providers/menagerie/cards.json`) holds what cannot be derived: the driven joints where a finger is a joint actuator, an end effector where the model has no suitable site (the
 offsets of body end effectors approximate the gripper mounting point, they are not calibrated), a keyframe that is not called `home`. Every arm and quadruped has one; the test suite checks each against its model.
 
 `spec(robot)` returns the model's `MjSpec` after checking `robot.source` (the library's content id of the model directory) and fails with `robot.source: the model changed since this config was written` otherwise.
