@@ -11,7 +11,7 @@ src/robotdesigner/
         mujoco/   CPU simulator: model compiler, batched sim, MujocoEnv, renderer, scene presets
         warp/     GPU simulator: WarpBatchedSim, WarpEnv
     tasks/        the task contract (base.py) and one subpackage per provider: empty/, robosuite/
-    robot_providers/  one subpackage per robot provider: menagerie/ (MuJoCo Menagerie robots, cards.json)
+    robot/providers/   one subpackage per robot provider: menagerie/ (MuJoCo Menagerie robots, cards.json)
     envs/         make_env(cfg), observation_space / action_space
     viz/          Clip, FrameRecorder, record_rollout, camera framing                           numpy only
     _canon.py     canonical JSON, hashing, field coercion;  errors.py: ConfigError, Problem

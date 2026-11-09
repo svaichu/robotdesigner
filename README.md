@@ -47,7 +47,7 @@ A model that already exists, such as a Panda or a Go1 from MuJoCo Menagerie, is 
 
 ```python
 from robotdesigner.config import BaseEnvConfig
-from robotdesigner.robot_providers.menagerie import PROVIDER     # pip install -e ".[menagerie]"; models are fetched by the library, never copied here
+from robotdesigner.robot.providers.menagerie import PROVIDER     # pip install -e ".[menagerie]"; models are fetched by the library, never copied here
 
 panda = PROVIDER.describe("franka_emika_panda")
 env = BaseEnvConfig().robot(panda).sim(num_envs=4, scene="plain_floor").build()

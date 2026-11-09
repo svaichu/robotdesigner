@@ -7,9 +7,9 @@ import warnings
 import mujoco
 import numpy as np
 
-from ...config import EndEffectorRef, ExternalJoint, ExternalRobot, Pose
-from ...errors import ConfigError
-from ...simulators.mujoco.external import actuator_kind
+from ....config import EndEffectorRef, ExternalJoint, ExternalRobot, Pose
+from ....errors import ConfigError
+from ....simulators.mujoco.external import actuator_kind
 
 O = mujoco.mjtObj
 # Sites that conventional names mark as the end effector, in order of preference.
