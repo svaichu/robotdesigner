@@ -16,7 +16,7 @@ import json
 from importlib import resources
 from typing import Any
 
-from ...errors import ConfigError, Problem
+from ....errors import ConfigError, Problem
 
 __all__ = ["PROVIDER", "MenagerieRobots", "cards"]
 
@@ -118,7 +118,7 @@ class MenagerieRobots:
         return problems
 
     def kinematics(self, robot):
-        from ...simulators.mujoco.external import MujocoKinematics
+        from ....simulators.mujoco.external import MujocoKinematics
 
         return MujocoKinematics(robot, self.spec(robot))
 

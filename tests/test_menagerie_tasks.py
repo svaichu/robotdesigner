@@ -21,7 +21,7 @@ from torchrl.envs.utils import check_env_specs
 from robotdesigner.config import BaseEnvConfig, ConfigError, Pose
 from robotdesigner.config.kinematics import pose_to_matrix
 from robotdesigner.envs import make_env
-from robotdesigner.robot_providers.menagerie import PROVIDER
+from robotdesigner.robot.provider.menagerie import PROVIDER
 from robotdesigner.simulators.mujoco.external import compose
 
 pytestmark = pytest.mark.menagerie

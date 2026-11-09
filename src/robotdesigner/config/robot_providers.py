@@ -11,7 +11,7 @@ namespace, and the namespace selects a *provider*, which
 
 This mirrors task providers (``config/providers.py``). The core knows no namespace. Providers are found lazily, from
 
-1. the subpackages of ``robotdesigner.robot_providers``: the subpackage name is the namespace and it exposes ``PROVIDER``;
+1. the subpackages of ``robotdesigner.robot.provider``: the subpackage name is the namespace and it exposes ``PROVIDER``;
 2. the entry-point group ``robotdesigner.robot_providers``: the entry-point name is the namespace, the value ``"module:attr"``;
 3. :func:`register_robot_provider`, which takes precedence over both.
 
@@ -94,10 +94,10 @@ def _discover() -> None:
     if _STATE["discovered"]:
         return
     _STATE["discovered"] = True
-    package = importlib.import_module("robotdesigner.robot_providers")
+    package = importlib.import_module("robotdesigner.robot.provider")
     for info in pkgutil.iter_modules(package.__path__):
         if info.ispkg and _NAMESPACE.fullmatch(info.name):
-            _REGISTRY.setdefault(info.name, f"robotdesigner.robot_providers.{info.name}:PROVIDER")
+            _REGISTRY.setdefault(info.name, f"robotdesigner.robot.provider.{info.name}:PROVIDER")
     for ep in importlib.metadata.entry_points(group=ENTRY_POINT_GROUP):
         if _NAMESPACE.fullmatch(ep.name):
             _REGISTRY.setdefault(ep.name, ep.value)

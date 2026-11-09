@@ -17,7 +17,7 @@ import torch
 
 from robotdesigner.config import BaseEnvConfig
 from robotdesigner.envs import make_env
-from robotdesigner.robot_providers.menagerie import PROVIDER
+from robotdesigner.robot.provider.menagerie import PROVIDER
 from robotdesigner.simulators.mujoco import external
 
 

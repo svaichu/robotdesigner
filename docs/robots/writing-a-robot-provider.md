@@ -98,7 +98,7 @@ a model whose driven joints have no actuator, or two, is reported as a problem b
 ## 3. Register it
 
 Three ways, in order of precedence: `register_robot_provider(namespace, target)` (an object, a class, or a lazy `"module:attr"` string); the entry-point group `robotdesigner.robot_providers` of your package; or a subpackage of
-`robotdesigner.robot_providers` for a provider that ships with this package.
+`robotdesigner.robot.provider` for a provider that ships with this package.
 
 ```toml
 # pyproject.toml of your package
