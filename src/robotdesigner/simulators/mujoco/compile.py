@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from ...config import EnvConfig, FixedGains, InertiaScaledGains, Pose
+from ...config import EnvConfig, FixedGains, InertiaScaledGains, Pose, world_mount
 from .arm_spec import add_arm, add_gripper
 from .scenes import apply_scene
 
@@ -106,8 +106,9 @@ def _build_spec(cfg: EnvConfig, kp: list[float], kd: list[float], scene_hook=Non
     self_collision = bool(getattr(cfg.sim.options, "self_collision", False))
     conaffinity = 1 if self_collision else 0
 
+    mount = world_mount(cfg)
     base = spec.worldbody.add_body(
-        name="base", pos=list(cfg.task.mount.pos), quat=list(cfg.task.mount.quat)
+        name="base", pos=list(mount.pos), quat=list(mount.quat)
     )
 
     parent, prev_tip = add_arm(base, arm, conaffinity=conaffinity)
@@ -231,7 +232,7 @@ def compile_robot(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
         joint_range=joint_range,
         effort_limit=np.array([s.joint.effort_limit for s in arm.segments]),
         home_qpos=np.array(arm.home_qpos),
-        mount=cfg.task.mount,
+        mount=world_mount(cfg),
         kp=None if control.mode == "joint_torque" else np.array(kp),
         kd=None if control.mode == "joint_torque" else np.array(kd),
         **gripper_fields,

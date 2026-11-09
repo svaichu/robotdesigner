@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from robotdesigner.config import (
-    ConfigError, FixedBox, Pose, Problem, TaskConfig, list_task_providers, register_task_provider, unregister_task_provider,
+    ConfigError, FixedBox, Mount, Pose, Problem, TaskConfig, list_task_providers, register_task_provider, unregister_task_provider,
 )
 
 
@@ -66,8 +66,8 @@ class MyTasks:
     def params_class(self, name):                # None means "no such task"
         return ReachParams if name == "reach" else None
 
-    def default_mount(self, name):               # where the robot base goes if the user does not say: a world Pose
-        return Pose.identity()
+    def mount_frame(self, params):               # the scene's mount frame for this task instance: a world Pose
+        return Pose.identity()                   # (the origin when the scene has no robot slot; params may move it)
 
     def validate(self, cfg, simulator):          # every reason this task cannot run on that simulator
         if simulator not in self.SIMULATORS:
@@ -104,14 +104,14 @@ task = TaskConfig(
     params=ReachParams(name="reach", reset_noise=0.0, terminate_on_success=False),
     max_episode_steps=200, success_tolerance=0.02,
     target_region=FixedBox(low=(0.2, -0.3, -0.2), high=(0.6, 0.3, 0.2)),    # in the robot's base frame; it follows the mount
-    mount=PROVIDER.default_mount("reach"),
+    mount=Mount(),                                                          # snapped onto the frame the provider names
 )
 assert task.id == "mine/reach" and task.to_dict()["provider"] == "mine"
 assert TaskConfig.from_dict(task.to_dict()) == task
 
 for wrong, path in (
-    (lambda: TaskConfig(ReachParams("lift", 0.0, False), 200, 0.02, FixedBox((0, 0, 0), (1, 1, 1)), Pose.identity()), "params.name"),   # no such task
-    (lambda: TaskConfig(ReachParams("reach", 0.0, False), 200, None, None, Pose.identity()), "success_tolerance"),   # a goal task needs its tolerance
+    (lambda: TaskConfig(ReachParams("lift", 0.0, False), 200, 0.02, FixedBox((0, 0, 0), (1, 1, 1)), Mount()), "params.name"),   # no such task
+    (lambda: TaskConfig(ReachParams("reach", 0.0, False), 200, None, None, Mount()), "success_tolerance"),   # a goal task needs its tolerance
     (lambda: ReachParams("reach", -1.0, False), "reset_noise"),                                                      # the params validate themselves
 ):
     try:

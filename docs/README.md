@@ -72,5 +72,5 @@ Runnable notebooks are in [`examples/`](../examples).
 
 **embodiment**: a robot configuration. **simulator**: a physics engine (`mujoco`, `warp`). **task** / **task provider**: `"<namespace>/<name>"` and the owner of the namespace.
 **robot provider** / **external robot** / **native gains**: the owner of a robot namespace; a reference to one of its models (`ExternalRobot`); `NativeGains`, which drives such a model with its own actuators.
-**scene**: a simulator preset (`sim.scene`), or, for robosuite, an arena with objects. **mount**: the robot base's pose in the world. **resolve**: turn the builder into the frozen `EnvConfig`.
+**scene**: a simulator preset (`sim.scene`), or, for robosuite, an arena with objects. **mount frame**: the scene's own place for a robot (a world pose, from the task provider). **mount**: what the task adds to it: `Mount(offset)` for a fixed-base arm, `MobileMount(spawn, heading)` for a floating-base robot. **resolve**: turn the builder into the frozen `EnvConfig`.
 **config side / engine side**: numpy-only code versus code that needs torch and MuJoCo. The full table is in [Design](design.md#vocabulary).

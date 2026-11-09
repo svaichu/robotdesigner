@@ -12,13 +12,14 @@ pytest.importorskip("torchrl")
 from torchrl.envs.utils import check_env_specs, step_mdp  # noqa: E402
 
 from robotdesigner import make_env  # noqa: E402
+from robotdesigner.config import world_mount  # noqa: E402
 from robotdesigner.config import (  # noqa: E402
-    ConfigError, ControlConfig, EnvConfig, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
+    ConfigError, ControlConfig, EnvConfig, FixedGains, MujocoOptions, Mount, Pose, SimConfig, TaskConfig, chain,
 )
-from robotdesigner.tasks.robosuite import LiftObject, ReachObject, RobosuiteParams, PROVIDER, default_mount  # noqa: E402
+from robotdesigner.tasks.robosuite import LiftObject, ReachObject, RobosuiteParams, PROVIDER  # noqa: E402
 
 COMMON = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0)
-HIGH = Pose((-0.56, 0.0, 1.2), (1.0, 0.0, 0.0, 0.0))  # well above the table: the arm does not touch the scene
+HIGH = Mount(Pose((0.0, 0.0, 0.288), (1.0, 0.0, 0.0, 0.0)))  # 0.288 m above the stock mount: the arm does not touch the scene
 
 
 def make_cfg(name="Lift", objective=None, kwargs=None, num_envs=2, seed=0, scene="empty", base=HIGH, n=3, axes="zyy",
@@ -207,11 +208,19 @@ def test_fixtures_are_placed_once_at_bind_time():
     env.close()
 
 
-def test_default_mount_is_where_robosuite_puts_a_stock_arm():
-    mount = default_mount("Lift")
-    assert mount.pos == pytest.approx((-0.56, 0.0, 0.912)) and mount.quat == (1.0, 0.0, 0.0, 0.0)
-    cfg = make_cfg(base=mount)  # usable as the mount of the task
-    assert cfg.task.mount == mount == PROVIDER.default_mount("Lift")
+def test_mount_frame_is_where_robosuite_puts_a_stock_arm():
+    frame = PROVIDER.mount_frame(RobosuiteParams("Lift", {}, LiftObject("cube", 0.84), 0.0, False))
+    assert frame.pos == pytest.approx((-0.56, 0.0, 0.912)) and frame.quat == (1.0, 0.0, 0.0, 0.0)
+    cfg = make_cfg(base=Mount())  # snapped onto the frame
+    assert world_mount(cfg) == frame
+
+
+def test_mount_frame_follows_the_scene_kwargs():
+    def frame(**kw):
+        return PROVIDER.mount_frame(RobosuiteParams("Lift", kw, LiftObject("cube", 0.84), 0.0, False))
+
+    wide = frame(table_full_size=(1.0, 0.8, 0.05))
+    assert wide.pos[0] == pytest.approx(frame().pos[0] - 0.1)
 
 
 def test_control_modes_and_time_step_are_ours_not_robosuite_s():

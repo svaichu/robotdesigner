@@ -29,6 +29,7 @@ from robotdesigner.config import BaseEnvConfig, Chain, InertiaScaledGains, Pose,
 from robotdesigner.simulators import get_simulator  # noqa: E402
 from tests.parity import errors, on_warp, random_case, run, twin, with_control, with_sim  # noqa: E402
 from tests.test_mujoco_env import make_cfg  # noqa: E402
+from robotdesigner.config import MobileMount, Mount  # noqa: E402,F401
 from tests.test_warp_env import DEVICES  # noqa: E402
 
 TOL = {"qpos": 1e-4, "qvel": 1e-3, "effort": 1e-2, "ee_pos": 1e-4, "reward": 1e-4, "target_pos": 0.0}
@@ -85,7 +86,7 @@ def test_integrators(device, integrator):
 @pytest.mark.parametrize("device", DEVICES)
 def test_arm_pressed_onto_the_floor(device):
     cfg = make_cfg(n=4, num_envs=4, max_episode_steps=100)
-    cfg = replace(cfg, task=replace(cfg.task, mount=Pose((0.0, 0.0, 0.3), (1.0, 0.0, 0.0, 0.0))))
+    cfg = replace(cfg, task=replace(cfg.task, mount=Mount(Pose((0.0, 0.0, 0.3), (1.0, 0.0, 0.0, 0.0)))))
     cfg = with_control(with_sim(cfg, scene="plain_floor"), "joint_torque")
     actions = np.zeros((40, 4, 4))
     actions[:, :, 1], actions[:, :, 3] = 0.6, 0.3

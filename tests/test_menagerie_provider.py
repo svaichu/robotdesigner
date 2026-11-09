@@ -16,7 +16,7 @@ mujoco = pytest.importorskip("mujoco")
 torch = pytest.importorskip("torch")
 pytest.importorskip("torchrl")
 
-from robotdesigner.config import BaseEnvConfig, ConfigError, Pose
+from robotdesigner.config import BaseEnvConfig, ConfigError, Mount, Pose
 from robotdesigner.config import kinematics as kin
 from robotdesigner.robot.providers.menagerie import PROVIDER, cards
 
@@ -138,7 +138,7 @@ def test_a_model_with_mixed_actuators_is_refused_with_the_way_out():
 def test_the_oracle_matches_the_simulator():
     robot = PROVIDER.describe("universal_robots_ur5e")
     mount = Pose((0.3, -0.2, 0.1), (float(np.cos(0.3)), 0.0, 0.0, float(np.sin(0.3))))
-    env = BaseEnvConfig().robot(robot).task(mount=mount).sim(num_envs=1, scene="plain_floor").build()
+    env = BaseEnvConfig().robot(robot).task(mount=Mount(mount)).sim(num_envs=1, scene="plain_floor").build()
     env.reset()
     sim_ee = env._sim.data[0].site_xpos[env.interface.ee_site_id]
     assert np.allclose(kin.forward_ee_batch(robot, np.array([robot.home_qpos]), mount)[0], sim_ee, atol=1e-6)

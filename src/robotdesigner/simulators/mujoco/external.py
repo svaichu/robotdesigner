@@ -21,6 +21,7 @@ from ...config import (
     InertiaScaledGains,
     Pose,
     get_robot_provider,
+    world_mount,
 )
 from ...config.kinematics import quat_to_matrix
 from ...errors import ConfigError, Problem
@@ -229,7 +230,7 @@ def _add_own_actuators(spec: mujoco.MjSpec, robot: ExternalRobot, control, kp: l
 def _build_external_spec(cfg: EnvConfig, facts: Facts, scene_hook, own: tuple[list[float], list[float]] | None) -> mujoco.MjSpec:
     """The scene with the model attached. ``own = (kp, kd)`` replaces the model's actuators on the driven joints."""
     robot: ExternalRobot = cfg.robot
-    mount = cfg.task.mount
+    mount = world_mount(cfg)
     spec = mujoco.MjSpec()
     spec.compiler.degree = False  # all angles here are radians
     spec.option.timestep = cfg.sim.dt
@@ -318,7 +319,7 @@ def _compile_external(cfg: EnvConfig, scene_hook=None) -> CompiledRobot:
             own = (list(kp_arr), list(kd_arr))
     spec = _build_external_spec(cfg, facts, scene_hook, own)
     model = spec.compile()
-    mount = cfg.task.mount
+    mount = world_mount(cfg)
     ee = robot.end_effector
 
     # The attached model's joints and actuators come last, in their own order: ids shift by what the scene has before them.

@@ -25,6 +25,7 @@ from .robot_providers import get_robot_provider
 from ..robot import ExternalRobot, ParametricArm, Pose, ToolSpec, TwoFingerGripper, robot_from_dict
 from .sim import SIMULATOR_OPTIONS, SimConfig
 from .specs import NOT_SET, Chain
+from .mount import Mount
 from .task import TaskConfig, migrate_task_dict
 
 __all__ = ["BaseEnvConfig"]
@@ -112,7 +113,7 @@ class BaseEnvConfig:
         self._control = {"mode": d["control"]["mode"], "gains": FixedGains(d["control"]["kp"], d["control"]["kd"]),
                          "action_scale": d["control"]["action_scale"]}
         self._task = {"params": params_cls(name=name), "max_episode_steps": d["task"]["max_episode_steps"], "success_tolerance": None,
-                      "target_region": None, "mount": NOT_SET}
+                      "target_region": None, "mount": Mount()}
         self._sim = {k: d["sim"][k] for k in _SIM_FIELDS if k != "options"}
         self._sim["options"] = _default_options(d["sim"]["simulator"])
         self._written: frozenset[str] = frozenset()
@@ -218,13 +219,6 @@ class BaseEnvConfig:
                 values["mode"], sources["mode"] = next(m for m in CONTROL_MODES if m in fits), "default (robot)"
         return values, sources
 
-    def _default_mount(self) -> Pose:
-        params = self._task["params"]
-        try:
-            return get_task_provider(params.provider).default_mount(params.name)
-        except (ConfigError, AttributeError):
-            return Pose.identity()  # TaskConfig reports what is wrong with the params itself
-
     def _build(self) -> tuple[list[Problem], EnvConfig | None]:
         problems: list[Problem] = []
         parts: dict[str, Any] = {}
@@ -242,10 +236,7 @@ class BaseEnvConfig:
         attempt("control", lambda: ControlConfig(**self._resolved_control()[0]))
 
         def task():
-            t = dict(self._task)
-            if t["mount"] is NOT_SET:
-                t["mount"] = self._default_mount()
-            return TaskConfig(**t)
+            return TaskConfig(**self._task)
 
         def sim():
             s = dict(self._sim)
@@ -268,7 +259,7 @@ class BaseEnvConfig:
         return self._build()[0]
 
     def resolve(self) -> EnvConfig:
-        """The frozen :class:`EnvConfig`, every value explicit (the task's default mount filled in). Raises one
+        """The frozen :class:`EnvConfig`, every value explicit. Raises one
         ``ConfigError`` that lists every problem with its dotted path (``.problems`` holds them)."""
         problems, cfg = self._build()
         if cfg is not None:
@@ -290,15 +281,13 @@ class BaseEnvConfig:
     # --- serialization -----------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        """Every builder field as plain data, with ``defaults_version``. A mount that was not pinned is omitted: it is
-        the task's default, applied by ``resolve()``. The record to keep with a run is ``resolve().to_dict()``."""
+        """Every builder field as plain data, with ``defaults_version``. The record to keep with a run is ``resolve().to_dict()``."""
         robot = (self._robot.to_dict() if isinstance(self._robot, _READY)
                  else {"kind": "chain", **{n: _jsonable(getattr(self._robot, n)) for n in self._robot.written()}})
         t = self._task
         task = {"provider": t["params"].provider, "params": t["params"].to_dict(), "max_episode_steps": t["max_episode_steps"],
                 "success_tolerance": t["success_tolerance"], "target_region": _jsonable(t["target_region"])}
-        if t["mount"] is not NOT_SET:
-            task["mount"] = _jsonable(t["mount"])
+        task["mount"] = _jsonable(t["mount"])
         sim = {k: self._sim[k] for k in _SIM_FIELDS if k != "options"}
         if self._sim["options"] is not NOT_SET:
             sim["options"] = self._sim["options"].to_dict()
@@ -369,10 +358,10 @@ class BaseEnvConfig:
             return self._copy(control={k: getattr(c, k) for k in _CONTROL_FIELDS})
         if section == "task":
             check_keys(d, {"provider", "params", "max_episode_steps", "success_tolerance", "target_region"}, "task", {"mount"})
-            probe = within("task", TaskConfig.from_dict, {**d, "mount": d.get("mount", Pose.identity().to_dict())})
+            probe = within("task", TaskConfig.from_dict, {**d, "mount": d.get("mount", Mount().to_dict())})
             task = {"params": probe.params, "max_episode_steps": probe.max_episode_steps, "success_tolerance": probe.success_tolerance,
                     "target_region": probe.target_region,
-                    "mount": probe.mount if "mount" in d else NOT_SET}
+                    "mount": probe.mount}
             return self._copy(task=task)
         d = dict(d)
         check_keys(d, set(), "sim", optional=set(_SIM_FIELDS))
@@ -453,7 +442,7 @@ class BaseEnvConfig:
         key, section = parts[-1], parts[0]
         path = ".".join(parts)
         chain_level = section == "robot" and len(parts) == 2 and node.get("kind", "chain") == "chain"
-        allowed = set(node) | ({*_CHAIN_FIELDS} if chain_level else set()) | ({"mount"} if path == "task.mount" else set())
+        allowed = set(node) | ({*_CHAIN_FIELDS} if chain_level else set())
         if key not in allowed:
             raise ConfigError(path, f"unknown field; expected one of {sorted(allowed)}")
         node[key] = value
@@ -502,7 +491,7 @@ class BaseEnvConfig:
 
     # --- inspection ------------------------------------------------------------------
 
-    def _fields(self, *, resolved_mount: bool) -> list[tuple[str, Any, str]]:
+    def _fields(self, *, resolved: bool) -> list[tuple[str, Any, str]]:
         w = self._written
         src = lambda path: "set" if path in w else "default"  # noqa: E731
         out: list[tuple[str, Any, str]] = []
@@ -510,14 +499,11 @@ class BaseEnvConfig:
             out.append(("robot", self._robot, "set"))
         else:
             out += [(f"robot.{n}", getattr(self._robot, n), src(f"robot.{n}")) for n in self._robot.written()]
-        control, by_robot = self._resolved_control() if resolved_mount else (self._control, {})
+        control, by_robot = self._resolved_control() if resolved else (self._control, {})
         out += [(f"control.{k}", control[k], by_robot.get(k) or src(f"control.{k}")) for k in _CONTROL_FIELDS]
         out.append(("task.params", self._task["params"], src("task.params")))
         for k in _TASK_FIELDS:
-            v, s = self._task[k], src(f"task.{k}")
-            if k == "mount" and v is NOT_SET:
-                v, s = (self._default_mount() if resolved_mount else NOT_SET), "default (task)"
-            out.append((f"task.{k}", v, s))
+            out.append((f"task.{k}", self._task[k], src(f"task.{k}")))
         out += [(f"sim.{k}", self._sim[k], src(f"sim.{k}")) for k in _SIM_FIELDS]
         return out
 
@@ -531,9 +517,9 @@ class BaseEnvConfig:
             return None
 
     def explain(self) -> str:
-        """Every field with its value and where it comes from: ``set``, ``default``, ``default (task)`` or, for an
+        """Every field with its value and where it comes from: ``set``, ``default``, or, for an
         external robot, ``default (robot)``."""
-        rows = self._fields(resolved_mount=True)
+        rows = self._fields(resolved=True)
         license_ = self._robot_license()
         if license_ is not None:
             rows.insert(1, ("robot.license", license_, "provider"))
@@ -543,9 +529,9 @@ class BaseEnvConfig:
 
     def diff(self) -> dict[str, tuple[Any, Any]]:
         """``{path: (default, value)}`` against the pristine ``BaseEnvConfig()`` of this defaults version. A field
-        that only one side has is ``NOT_SET`` on the other; an unpinned mount is not compared."""
-        mine = {p: v for p, v, _ in self._fields(resolved_mount=False)}
-        base = {p: v for p, v, _ in BaseEnvConfig()._fields(resolved_mount=False)}
+        that only one side has is ``NOT_SET`` on the other;"""
+        mine = {p: v for p, v, _ in self._fields(resolved=False)}
+        base = {p: v for p, v, _ in BaseEnvConfig()._fields(resolved=False)}
         out = {}
         for path in [*base, *(p for p in mine if p not in base)]:
             a, b = base.get(path, NOT_SET), mine.get(path, NOT_SET)

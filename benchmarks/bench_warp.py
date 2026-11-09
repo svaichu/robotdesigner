@@ -75,7 +75,8 @@ def base_config(task: str):
     if (namespace, name) == ("empty", "idle"):
         return cfg
     if namespace == "robosuite":
-        from robotdesigner.tasks.robosuite import LiftObject, ReachObject, RobosuiteParams, default_mount
+        from robotdesigner.tasks.robosuite import LiftObject, ReachObject, RobosuiteParams
+        from robotdesigner.config import Mount
         from robotdesigner.tasks.robosuite.scene import load_scene
 
         if name == "Lift":
@@ -84,7 +85,7 @@ def base_config(task: str):
             first = next(o.name for o in load_scene(name, {}, 0).objects if not o.visual)
             objective = ReachObject(first, 0.05)
         params = RobosuiteParams(name, {}, objective, 0.0, False)
-        return cfg.task(params, mount=default_mount(name)).sim(scene="empty")
+        return cfg.task(params, mount=Mount()).sim(scene="empty")
     raise SystemExit(f"unknown task {task!r}: use empty/idle or robosuite/<EnvName>")
 
 

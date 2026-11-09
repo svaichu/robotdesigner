@@ -5,7 +5,7 @@ import pytest
 
 from robotdesigner.config import (
     NOT_SET, BaseEnvConfig, Chain, ConfigError, ControlConfig, EnvConfig, FixedBox, FixedGains, InertiaScaledGains,
-    MujocoOptions, Pose, SimConfig, TaskConfig, chain, register_simulator_options,
+    MujocoOptions, Mount, Pose, SimConfig, TaskConfig, chain, register_simulator_options,
 )
 from robotdesigner.config import defaults
 from robotdesigner.config.sim import SIMULATOR_OPTIONS
@@ -20,7 +20,7 @@ def hand_built():
     return EnvConfig(
         robot=arm,
         control=ControlConfig("joint_pos_abs", FixedGains(60.0, 6.0), None),
-        task=TaskConfig(EmptyParams("idle"), 200, None, None, Pose.identity()),
+        task=TaskConfig(EmptyParams("idle"), 200, None, None, Mount()),
         sim=SimConfig("mujoco", 1, "cpu", 0.002, "euler", 50.0, 0, "empty", MujocoOptions(False)),
     )
 
@@ -135,7 +135,7 @@ def test_explain_and_diff():
     cfg = BaseEnvConfig().robot(n=2, axes="zy").sim(num_envs=8)
     text = cfg.explain()
     assert "robot.n" in text and "2  [set]" in text and "sim.dt" in text and "[default]" in text
-    assert "task.mount" in text and "[default (task)]" in text
+    assert "task.mount" in text and "[default (task)]" not in text
     assert cfg.diff() == {"robot.n": (1, 2), "robot.axes": ("z", "zy"), "sim.num_envs": (1, 8)}
     assert BaseEnvConfig().diff() == {}
 
@@ -151,31 +151,26 @@ def test_a_change_of_a_default_changes_the_hash_but_a_stored_dict_still_reproduc
 
 # 6. the mount ----------------------------------------------------------------------------------------------
 
-def test_the_mount_is_the_default_of_the_task_until_pinned():
-    class Moved:
-        provider = "empty"
-        uses_goal = False
-        name = "idle"
-
+def test_the_mount_is_an_ordinary_value_snapped_by_default():
     base = BaseEnvConfig()
-    assert base.resolve().task.mount == Pose.identity()
-    pin = Pose((0.3, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0))
+    assert base.resolve().task.mount == Mount()
+    pin = Mount(Pose((0.3, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0)))
     pinned = base.task(mount=pin)
     assert pinned.resolve().task.mount == pin and "[set]" in [l for l in pinned.explain().splitlines() if "task.mount" in l][0]
-    # a pinned mount survives a task change; an unpinned one follows the provider's default
+    # a written mount survives a task change
     other = pinned.task(ReachParams("reach", 0.0, False), success_tolerance=0.02,
                         target_region=FixedBox((0.1, -0.1, 0.0), (0.4, 0.1, 0.3)))
     assert other.resolve().task.mount == pin
     assert base.task(ReachParams("reach", 0.0, False), success_tolerance=0.02,
-                     target_region=FixedBox((0.1, -0.1, 0.0), (0.4, 0.1, 0.3))).resolve().task.mount == Pose.identity()
+                     target_region=FixedBox((0.1, -0.1, 0.0), (0.4, 0.1, 0.3))).resolve().task.mount == Mount()
 
 
-def test_robosuite_default_mount_is_filled_in():
-    pytest.importorskip("robosuite")
+def test_resolving_a_robosuite_config_builds_no_scene():
+    """The mount frame is not read at resolve() time: it needs no robosuite."""
     from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams
 
     cfg = BaseEnvConfig().task(RobosuiteParams("Lift", {}, LiftObject("cube", 0.84), 0.0, False)).sim(scene="empty").resolve()
-    assert cfg.task.mount.pos == pytest.approx((-0.56, 0.0, 0.912))
+    assert cfg.task.mount == Mount()
 
 
 def test_goal_fields_are_reset_when_the_task_changes_class():
@@ -317,20 +312,20 @@ def test_a_simulator_override_resets_the_options():
 def test_a_ready_arm_and_the_pinned_mount_through_overrides():
     arm = chain(2, "zy", total_length=0.6, total_mass=2.0, radius=0.02, damping=0.1, armature=0.0, frictionloss=0.0,
                 effort_limit=10.0)
-    cfg = BaseEnvConfig().robot(arm).with_overrides({"robot.label": "mine", "task.mount": Pose((1, 0, 0), (1, 0, 0, 0))})
+    cfg = BaseEnvConfig().robot(arm).with_overrides({"robot.label": "mine", "task.mount": Mount(Pose((1, 0, 0), (1, 0, 0, 0)))})
     r = cfg.resolve()
-    assert r.robot.label == "mine" and r.task.mount.pos == (1.0, 0.0, 0.0)
+    assert r.robot.label == "mine" and r.task.mount.offset.pos == (1.0, 0.0, 0.0)
     assert "[set]" in [l for l in cfg.explain().splitlines() if "task.mount" in l][0]
 
 
 # --- dict, JSON and YAML round trips --------------------------------------------------------------------------
 
 def test_dict_and_json_round_trips_keep_the_hash(tmp_path):
-    cfg = goal_cfg().sim(num_envs=8).task(mount=Pose((0.1, 0.0, 0.2), (1.0, 0.0, 0.0, 0.0))).control(
+    cfg = goal_cfg().sim(num_envs=8).task(mount=Mount(Pose((0.1, 0.0, 0.2), (1.0, 0.0, 0.0, 0.0)))).control(
         gains=InertiaScaledGains(20.0, 1.0))
     d = cfg.to_dict()
     assert d["defaults_version"] == defaults.DEFAULTS_VERSION and d["task"]["provider"] == "toy"
-    assert "mount" not in goal_cfg().to_dict()["task"]  # the deferred default is omitted
+    assert goal_cfg().to_dict()["task"]["mount"] == Mount().to_dict()  # the mount is always written
     back = BaseEnvConfig.from_dict(d)
     assert back == cfg and back.resolve().env_hash == cfg.resolve().env_hash and back.diff() == cfg.diff()
     path = tmp_path / "run.json"

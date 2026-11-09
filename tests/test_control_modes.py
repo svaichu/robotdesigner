@@ -13,6 +13,7 @@ from robotdesigner.config import (  # noqa: E402
     Pose, TaskConfig, chain,
 )
 from tests.toy_provider import ReachParams
+from robotdesigner.config import MobileMount, Mount  # noqa: E402,F401
 from robotdesigner.envs import make_env  # noqa: E402
 
 COMMON = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0)
@@ -24,7 +25,7 @@ def make_cfg(mode, scale, n=2, axes="zy", num_envs=2, rng=(-1.0, 1.0), bandwidth
         robot=arm,
         control=ControlConfig(mode, InertiaScaledGains(bandwidth, 1.0), scale),
         task=TaskConfig(ReachParams("reach", 0.0, False), 100, 0.02,
-                        FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)), mount=Pose((0, 0, 0.5), (1, 0, 0, 0))),
+                        FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)), mount=Mount(Pose((0, 0, 0.5), (1, 0, 0, 0)))),
         sim=SimConfig("mujoco", num_envs, "cpu", 0.002, "euler", 50, 0, "plain_floor", options=MujocoOptions(False)),
     )
 

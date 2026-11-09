@@ -17,6 +17,7 @@ from robotdesigner.envs import make_env  # noqa: E402
 from robotdesigner.simulators.base import task_seed  # noqa: E402
 from robotdesigner.simulators.warp.env import WarpEnv  # noqa: E402
 from tests.test_mujoco_env import make_cfg  # noqa: E402
+from robotdesigner.config import MobileMount, Mount  # noqa: E402,F401
 from tests.test_render import needs_gl  # noqa: E402
 
 DEVICES = ["cpu", pytest.param("cuda:0", marks=[pytest.mark.gpu, pytest.mark.skipif(
@@ -176,7 +177,7 @@ def check_a_too_small_constraint_capacity_raises(device, cuda_graph):
     from robotdesigner.simulators.warp.sim import CapacityError
 
     cfg = make_cfg(n=4, num_envs=4, max_episode_steps=100)
-    cfg = replace(cfg, task=replace(cfg.task, mount=Pose((0.0, 0.0, 0.3), (1.0, 0.0, 0.0, 0.0))))
+    cfg = replace(cfg, task=replace(cfg.task, mount=Mount(Pose((0.0, 0.0, 0.3), (1.0, 0.0, 0.0, 0.0)))))
     cfg = with_mode(replace(cfg, sim=replace(cfg.sim, scene="plain_floor")), "joint_torque")
     env = warp_env(cfg, device, WarpOptions(njmax=1, nconmax=16, cuda_graph=cuda_graph))
     td = env.reset()

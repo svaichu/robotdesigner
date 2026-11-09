@@ -66,15 +66,15 @@ in, and what moves it is physics. `NativeGains` (the default for an external rob
 
 ## Spawn pose
 
-The task's `mount` places the model's world frame ([simulators](../simulators.md#external-robots-on-the-cpu-simulator)): a fixed arm stands at the mount, and a floating robot starts at the mount composed with the
-`home_root` its keyframe gives. A mount above the floor makes a legged robot fall and land. A robot whose base is made of joints (TidyBot: two slides and a hinge) has no free root; its base moves when those joints are
+The task's `mount` (relative to the scene's mount frame; the world pose is `world_mount(cfg)`) places the model's world frame ([simulators](../simulators.md#external-robots-on-the-cpu-simulator)): a fixed arm stands at the mount, and a floating robot starts at the mount composed with the
+`home_root` its keyframe gives. A floating-base robot takes a `MobileMount` (a `Mount` is an error); a mount above the floor makes a legged robot fall and land. A robot whose base is made of joints (TidyBot: two slides and a hinge) has no free root; its base moves when those joints are
 driven. `SimView`'s `"base"` frame is the static mount, **not** the moving trunk of a floating robot.
 
 ```python no-run
-from robotdesigner.config import BaseEnvConfig, Pose
+from robotdesigner.config import BaseEnvConfig, MobileMount
 
 go1 = PROVIDER.describe("unitree_go1")
-mount = Pose((0.4, -0.3, 0.3), (0.7071, 0.0, 0.0, 0.7071))          # 0.3 m up, turned 90 degrees about z
+mount = MobileMount(spawn=(0.4, -0.3, 0.3), heading=1.5708)           # 0.3 m above its home height, turned 90 degrees about z
 env = BaseEnvConfig().robot(go1).task(mount=mount).sim(num_envs=2, scene="plain_floor").build()
 ```
 

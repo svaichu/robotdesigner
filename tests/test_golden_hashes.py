@@ -19,6 +19,7 @@ from robotdesigner.config import (
     FixedGains,
     InertiaScaledGains,
     MujocoOptions,
+    Mount,
     Pose,
     SimConfig,
     TaskConfig,
@@ -45,7 +46,7 @@ def _env(arm, gains=None, mount=None):
             max_episode_steps=200,
             success_tolerance=0.02,
             target_region=FixedBox(low=(0.2, -0.3, 0.0), high=(0.6, 0.3, 0.4)),
-            mount=mount or Pose.identity(),
+            mount=mount or Mount(),
         ),
         sim=SimConfig(simulator="mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler", control_freq=50,
                       seed=0, scene="plain_floor", options=MujocoOptions(self_collision=False)),
@@ -60,7 +61,7 @@ def configs() -> dict[str, EnvConfig]:
         "chain_n5": _env(_arm(5, "zyyzy")),
         "gripper": _env(_arm(3, "zyz", gripper=gripper)),
         "inertia_scaled_gains": _env(_arm(3, "zyz"), gains=InertiaScaledGains(bandwidth=20.0, damping_ratio=1.0)),
-        "mount": _env(_arm(3, "zyz"), mount=Pose(pos=(0.5, -0.2, 0.1), quat=(0.7071067811865476, 0.0, 0.0, 0.7071067811865476))),
+        "mount": _env(_arm(3, "zyz"), mount=Mount(Pose(pos=(0.5, -0.2, 0.1), quat=(0.7071067811865476, 0.0, 0.0, 0.7071067811865476)))),
         "base_env_default": BaseEnvConfig().resolve(),
     }
 

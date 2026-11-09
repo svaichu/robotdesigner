@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from torchrl.data import Composite, Unbounded
 
-from robotdesigner.config import FixedBox, OwnReachable
+from robotdesigner.config import FixedBox, OwnReachable, world_mount
 from robotdesigner.config import kinematics as kin
 from robotdesigner.tasks.base import BaseTask
 
@@ -51,8 +51,9 @@ class ReachTask(BaseTask):
         lo = np.where(np.isfinite(rng[:, 0]), rng[:, 0], -np.pi)
         hi = np.where(np.isfinite(rng[:, 1]), rng[:, 1], np.pi)
         q = lo + rand(N, sim.iface.n).numpy() * (hi - lo)
-        world = kin.forward_ee_batch(self.cfg.robot, q, self.cfg.task.mount)
-        T = kin.pose_to_matrix(self.cfg.task.mount)
+        mount = world_mount(self.cfg)
+        world = kin.forward_ee_batch(self.cfg.robot, q, mount)
+        T = kin.pose_to_matrix(mount)
         return torch.from_numpy((world - T[:3, 3]) @ T[:3, :3]).to(torch.float32)
 
     def reset(self, sim, mask, rand, injected) -> None:

@@ -22,7 +22,6 @@ __all__ = [
     "RobosuiteParams",
     "RobosuiteTasks",
     "apply_compat",
-    "default_mount",
 ]
 
 SCENE = "empty"  # the arena brings its own floor, so the simulator adds none
@@ -37,8 +36,8 @@ class RobosuiteTasks:
     def params_class(self, name: str) -> type | None:
         return RobosuiteParams if name else None
 
-    def default_mount(self, name: str) -> Pose:
-        return default_mount(name)
+    def mount_frame(self, params: Any) -> Pose:
+        return _mount_frame(params.name, dict(params.kwargs))
 
     def validate(self, cfg: Any, simulator: str) -> list[Problem]:
         if simulator not in self.SIMULATORS:
@@ -115,12 +114,9 @@ class RobosuiteTasks:
 PROVIDER = RobosuiteTasks()
 
 
-def default_mount(env_name: str, **env_kwargs: Any) -> Pose:
-    """Where robosuite mounts a stock arm in ``env_name`` (world frame, identity orientation).
-
-    Use it as the base of your own robot, for example ``TaskConfig(..., mount=default_mount("Lift"))``, so the arm
-    stands where the robosuite scene expects it. Builds the robosuite environment once, so it needs robosuite.
-    """
+def _mount_frame(env_name: str, env_kwargs: dict[str, Any]) -> Pose:
+    """Where robosuite mounts a stock arm in ``env_name`` built with ``env_kwargs`` (world frame, identity
+    orientation). Builds the robosuite environment once, so it needs robosuite."""
     from .scene import load_scene
 
     pos = load_scene(env_name, env_kwargs).default_mount

@@ -14,7 +14,7 @@ from typing import Any, Mapping
 
 from .._canon import as_float, as_int, as_vector, check_keys, within
 from ..errors import ConfigError
-from ..robot import Pose
+from .mount import MobileMount, Mount, check_mount, mount_from_dict
 from .providers import get_task_provider, known_task_ids, list_task_providers
 
 
@@ -79,16 +79,17 @@ class TaskConfig:
     environment reads ``reset_noise`` (rad, uniform noise on the initial joint positions) and
     ``terminate_on_success`` from it when they exist.
 
-    ``mount`` is the pose of the robot base in the world: where the scene expects the arm
-    (``TaskProvider.default_mount(name)``). The robot itself has no pose, so ``robot_hash`` identifies the embodiment
-    alone. Target regions are in the robot's base frame and follow the mount.
+    ``mount`` places the robot base relative to the scene's mount frame (``TaskProvider.mount_frame(params)``):
+    ``Mount(offset=Pose)`` for a fixed-base arm, ``MobileMount(spawn, heading)`` for a floating-base robot; the world
+    pose is ``world_mount(cfg)``. The robot itself has no pose, so ``robot_hash`` identifies the embodiment alone.
+    Target regions are in the robot's base frame and follow the mount.
     """
 
     params: Any
     max_episode_steps: int
     success_tolerance: float | None
     target_region: TargetRegion | None
-    mount: Pose
+    mount: Mount | MobileMount
 
     def __post_init__(self):
         provider = getattr(self.params, "provider", None)
@@ -102,8 +103,7 @@ class TaskConfig:
         params_cls = _params_class(provider, name, "params", "params.name")
         if not isinstance(self.params, params_cls):
             raise ConfigError("params", f"task {self.id!r} requires {params_cls.__name__}")
-        if not isinstance(self.mount, Pose):
-            raise ConfigError("mount", "expected a Pose: the robot base in the world")
+        check_mount(self.mount)
         max_episode_steps = as_int(self.max_episode_steps, "max_episode_steps")
         if max_episode_steps < 1:
             raise ConfigError("max_episode_steps", "must be >= 1")
@@ -154,7 +154,7 @@ class TaskConfig:
             max_episode_steps=d["max_episode_steps"],
             success_tolerance=d["success_tolerance"],
             target_region=None if region is None else within("target_region", region_from_dict, region),
-            mount=within("mount", Pose.from_dict, d["mount"]),
+            mount=within("mount", mount_from_dict, d["mount"]),
         )
 
 

@@ -11,6 +11,7 @@ from robotdesigner.config import (
     ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
 )
 from tests.toy_provider import ReachParams
+from robotdesigner.config import MobileMount, Mount  # noqa: E402,F401
 from robotdesigner.viz import (
     CameraSpec, Clip, FrameRecorder, annotate, auto_camera, record_rollout, tile, tile_clips, workspace_points,
 )
@@ -29,7 +30,7 @@ def _cfg(n=3, length=0.9):
         robot=arm,
         control=ControlConfig("joint_pos_abs", FixedGains(60.0, 6.0), None),
         task=TaskConfig(ReachParams("reach", 0.0, False), 20, 0.02, FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)),
-                        mount=Pose((0.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0))),
+                        mount=Mount(Pose((0.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0)))),
         sim=SimConfig("mujoco", 2, "cpu", 0.002, "euler", 50, 0, "plain_floor", options=MujocoOptions(False)),
     )
 
@@ -301,7 +302,7 @@ def test_workspace_follows_the_mount_and_a_bare_arm_sits_at_the_origin():
     cfg = _cfg()
     from dataclasses import replace
 
-    shifted = replace(cfg, task=replace(cfg.task, mount=Pose((1.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0))))
+    shifted = replace(cfg, task=replace(cfg.task, mount=Mount(Pose((1.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0)))))
     d = workspace_points(shifted) - workspace_points(cfg)
     assert np.allclose(d, (1.0, 0.0, 0.0))
     assert np.allclose(workspace_points(cfg.robot)[0], (0.0, 0.0, 0.0))

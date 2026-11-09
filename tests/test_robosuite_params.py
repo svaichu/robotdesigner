@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 
 from robotdesigner.config import (
-    ConfigError, ControlConfig, EnvConfig, FixedGains, MujocoOptions, OwnReachable, Pose, SimConfig, TaskConfig, chain,
+    Mount, ConfigError, ControlConfig, EnvConfig, FixedGains, MujocoOptions, OwnReachable, Pose, SimConfig, TaskConfig, chain,
 )
 from robotdesigner.tasks.robosuite import LiftObject, ReachObject, RobosuiteParams
 from robotdesigner.tasks.robosuite.params import RESERVED_ENV_KWARGS, objective_from_dict
@@ -18,7 +18,7 @@ def make_cfg(params=None, name="Lift"):
     return EnvConfig(
         robot=arm,
         control=ControlConfig("joint_pos_abs", FixedGains(60.0, 6.0), None),
-        task=TaskConfig(params, 100, None, None, Pose((-0.56, 0.0, 1.2), (1, 0, 0, 0))),
+        task=TaskConfig(params, 100, None, None, Mount(Pose((0.0, 0.0, 0.288), (1, 0, 0, 0)))),
         sim=SimConfig("mujoco", 2, "cpu", 0.002, "euler", 50, 0, "empty", options=MujocoOptions(False)),
     )
 
@@ -69,11 +69,11 @@ def test_validation_errors_carry_paths():
     with pytest.raises(ConfigError, match="^name: must be a non-empty string"):
         RobosuiteParams("", {}, ReachObject("cube", 0.1), 0.0, False)  # needs an environment name
     with pytest.raises(ConfigError, match="success_tolerance: must be None"):
-        TaskConfig(ok, 10, 0.02, None, Pose.identity())  # the objective defines success
+        TaskConfig(ok, 10, 0.02, None, Mount())  # the objective defines success
     with pytest.raises(ConfigError, match="target_region: must be None"):
-        TaskConfig(ok, 10, None, OwnReachable(), Pose.identity())
+        TaskConfig(ok, 10, None, OwnReachable(), Mount())
     with pytest.raises(ConfigError, match="^params: expected a task provider's params object"):
-        TaskConfig(LiftObject("cube", 0.84), 10, None, None, Pose.identity())
+        TaskConfig(LiftObject("cube", 0.84), 10, None, None, Mount())
     d = make_cfg().to_dict()
     d["task"]["params"]["objective"]["kind"] = "juggle"
     with pytest.raises(ConfigError, match=r"^task\.params\.objective\.kind"):
