@@ -96,6 +96,8 @@ def test_stored_outputs_hold_no_absolute_path(path):
 def test_menagerie_notebook_runs_up_to_the_frames():
     pytest.importorskip("mujoco_menagerie")
     pytest.importorskip("torchrl")
+    pytest.importorskip("IPython")  # the notebook's cells display images: IPython and Pillow (the viz extra) are not in the CI job
+    pytest.importorskip("PIL")
     ns = run_notebook("menagerie_robots.ipynb", stop_before="## 4. A frame of each")
     assert ns["panda"].n == 7 and ns["go1"].n == 12 and set(ns["envs"]) == {"turned 90 degrees, shifted", "0.3 m up"}
     a = ns["envs"]["0.3 m up"].interface.root_qpos_adr
@@ -108,6 +110,8 @@ def test_menagerie_notebook_runs_up_to_the_frames():
 def test_menagerie_notebook_renders_its_frames():
     pytest.importorskip("mujoco_menagerie")
     pytest.importorskip("torchrl")
+    pytest.importorskip("IPython")
+    pytest.importorskip("PIL")
     ns = run_notebook("menagerie_robots.ipynb")
     assert set(ns["frames"]) == {"panda", "go1 after the drop", "go1 turned and shifted"}
     for name, frame in ns["frames"].items():
