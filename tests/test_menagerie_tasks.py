@@ -18,7 +18,7 @@ pytest.importorskip("torchrl")
 
 from torchrl.envs.utils import check_env_specs
 
-from robotdesigner.config import BaseEnvConfig, ConfigError, MobileMount, Mount, Pose, world_mount
+from robotdesigner.config import BaseEnvConfig, ConfigError, MobileMount, Mount, Pose
 from robotdesigner.config.kinematics import pose_to_matrix
 from robotdesigner.envs import make_env
 from robotdesigner.robot.providers.menagerie import PROVIDER
@@ -68,8 +68,9 @@ def lift_cfg(robot, num_envs=2, seed=0):
     from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams
 
     params = RobosuiteParams("Lift", {}, LiftObject("cube", 0.84), 0.0, False)
+    mount = MobileMount() if robot.home_root is not None else Mount()
     return (
-        BaseEnvConfig().robot(robot).task(params, mount=Mount()).sim(num_envs=num_envs, scene="empty", seed=seed).resolve()
+        BaseEnvConfig().robot(robot).task(params, mount=mount).sim(num_envs=num_envs, scene="empty", seed=seed).resolve()
     )
 
 

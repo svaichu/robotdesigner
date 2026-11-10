@@ -122,9 +122,9 @@ def test_masked_reset_only_replaces_the_masked_envs():
 
 
 def test_the_arm_collides_with_the_table():
-    # base 1.2 m up, left of the cube, joint 1 commanded to 1.5 rad (the arm points almost straight down). In free
+    # base 1.2 m up in the world, left of the cube, joint 1 commanded to 1.5 rad (the arm points almost straight down). In free
     # space the tip would end at z = 1.2 - 0.9 * sin(1.5) = 0.30; here the arm comes down on the table and rests on it.
-    cfg = make_cfg(num_envs=1, base=Pose((-0.2, 0.0, 1.2), (1.0, 0.0, 0.0, 0.0)))
+    cfg = make_cfg(num_envs=1, base=Mount(Pose((0.36, 0.0, 0.288), (1.0, 0.0, 0.0, 0.0))))  # world (-0.2, 0, 1.2): the frame is the stock mount
     env = make_env(cfg)
     td = env.reset()
     for _ in range(100):

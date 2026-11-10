@@ -20,6 +20,8 @@ from robotdesigner.config import (
     ExternalJoint,
     ExternalRobot,
     FixedBox,
+    MobileMount,
+    Mount,
     MujocoOptions,
     NativeGains,
     OwnReachable,
@@ -27,7 +29,6 @@ from robotdesigner.config import (
     SimConfig,
     TaskConfig,
 )
-from robotdesigner.config import MobileMount, Mount
 from robotdesigner.config import kinematics as kin
 from robotdesigner.envs import make_env
 from robotdesigner.simulators.mujoco.compile import compile_robot
