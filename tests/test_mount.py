@@ -15,12 +15,14 @@ from robotdesigner.config import (
     Mount,
     Pose,
     TaskConfig,
-    kinematics as kin,
     world_mount,
 )
+from robotdesigner.config import (
+    kinematics as kin,
+)
 from robotdesigner.config.mount import compose, mount_from_dict
-from tests.toy_provider import ReachParams
 from tests.toy_provider.framed import FRAME, FramedParams
+
 
 def make_task(provider_params, mount):
     from robotdesigner.config import OwnReachable
