@@ -142,7 +142,7 @@ def test_a_fixed_arm_at_a_yawed_and_shifted_mount():
 
 
 @pytest.mark.parametrize("name", ["unitree_go1", "unitree_go2"])
-def test_legged_robots_stand_where_the_keyframe_puts_them_at_the_default_mount(name):
+def test_legged_robots_stand_where_the_keyframe_puts_them_at_the_snapped_mount(name):
     robot, env = standing(name, MobileMount())
     env.reset()
     a = env.interface.root_qpos_adr
@@ -150,7 +150,7 @@ def test_legged_robots_stand_where_the_keyframe_puts_them_at_the_default_mount(n
     env.close()
 
 
-def test_go1_holds_its_pose_at_the_default_mount():
+def test_go1_holds_its_pose_at_the_snapped_mount():
     robot, env = standing("unitree_go1", MobileMount(), mode="joint_pos_delta", action_scale=0.05)
     zs = settle(env, 100)
     assert abs(zs[-1] - robot.home_root.pos[2]) < 0.01

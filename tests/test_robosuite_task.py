@@ -208,19 +208,115 @@ def test_fixtures_are_placed_once_at_bind_time():
     env.close()
 
 
+def lift_params(**kw):
+    return RobosuiteParams("Lift", kw, LiftObject("cube", 0.84), 0.0, False)
+
+
 def test_mount_frame_is_where_robosuite_puts_a_stock_arm():
-    frame = PROVIDER.mount_frame(RobosuiteParams("Lift", {}, LiftObject("cube", 0.84), 0.0, False))
+    frame = PROVIDER.mount_frame(lift_params())
     assert frame.pos == pytest.approx((-0.56, 0.0, 0.912)) and frame.quat == (1.0, 0.0, 0.0, 0.0)
     cfg = make_cfg(base=Mount())  # snapped onto the frame
     assert world_mount(cfg) == frame
 
 
 def test_mount_frame_follows_the_scene_kwargs():
-    def frame(**kw):
-        return PROVIDER.mount_frame(RobosuiteParams("Lift", kw, LiftObject("cube", 0.84), 0.0, False))
+    base = PROVIDER.mount_frame(lift_params())
+    wide = PROVIDER.mount_frame(lift_params(table_full_size=(1.0, 0.8, 0.05)))
+    assert wide.pos[0] == pytest.approx(base.pos[0] - 0.1)  # half the change in table length
+    a = make_cfg(kwargs={"table_full_size": (1.0, 0.8, 0.05)}, base=Mount())
+    b = make_cfg(base=Mount())
+    assert a.env_hash != b.env_hash and world_mount(a).pos[0] == pytest.approx(world_mount(b).pos[0] - 0.1)
 
-    wide = frame(table_full_size=(1.0, 0.8, 0.05))
-    assert wide.pos[0] == pytest.approx(frame().pos[0] - 0.1)
+
+def test_the_frame_is_the_same_for_two_seeds_and_is_read_once_per_scene(monkeypatch):
+    import robotdesigner.tasks.robosuite as rs
+    import robotdesigner.tasks.robosuite.scene as scene
+
+    calls = []
+
+    def counting(*args, **kw):
+        calls.append(args)
+        return scene.load_scene(*args, **kw)
+
+    a = world_mount(make_cfg(seed=0, base=Mount()))
+    b = world_mount(make_cfg(seed=123, base=Mount()))
+    assert a == b
+    rs._FRAMES.clear()
+    monkeypatch.setattr(scene, "load_scene", counting)
+    for _ in range(3):
+        PROVIDER.mount_frame(lift_params())
+    assert len(calls) == 1
+
+
+def stock_base_pose(env_name):
+    """What robosuite itself says: the root of a stock Panda in ``env_name``."""
+    import robosuite
+
+    from robotdesigner.tasks.robosuite._compat import apply_compat
+    from robotdesigner.tasks.robosuite.scene import matrix_to_quat
+
+    apply_compat()
+    env = robosuite.make(env_name, robots="Panda", has_renderer=False, has_offscreen_renderer=False, use_camera_obs=False)
+    try:
+        robot = env.robots[0]
+        return np.asarray(robot.base_pos, dtype=float), matrix_to_quat(np.asarray(robot.base_ori, dtype=float))
+    finally:
+        env.close()
+
+
+def single_arm_names():
+    from robotdesigner.tasks.robosuite import _introspect as intro
+
+    return [n for n in intro.single_arm_env_names() if not n.endswith("Single")]
+
+
+@pytest.mark.parametrize("name", ["PickPlace", "Lift", "Door", "Stack"])
+def test_the_frame_is_the_pose_of_a_stock_arm_built_by_robosuite_itself(name):
+    objective = ReachObject("cube", 0.05)
+    frame = PROVIDER.mount_frame(RobosuiteParams(name, {}, objective, 0.0, False))
+    pos, quat = stock_base_pose(name)
+    assert np.allclose(frame.pos, pos, atol=1e-9)
+    assert np.allclose(frame.quat, quat, atol=1e-9) or np.allclose(frame.quat, -np.asarray(quat), atol=1e-9)
+
+
+def test_the_frame_matches_every_environment_that_builds():
+    objective = ReachObject("cube", 0.05)
+    checked = []
+    for name in single_arm_names():
+        try:
+            frame = PROVIDER.mount_frame(RobosuiteParams(name, {}, objective, 0.0, False))
+            pos, quat = stock_base_pose(name)
+        except Exception:  # an environment robosuite cannot build here: not a property of the frame
+            continue
+        assert np.allclose(frame.pos, pos, atol=1e-9), name
+        assert np.isclose(abs(np.dot(frame.quat, quat)), 1.0, atol=1e-9), name
+        checked.append(name)
+    assert "Lift" in checked and len(checked) >= 8
+
+
+def test_the_compiled_scene_has_rs_mount_at_the_frame_and_the_base_is_on_it():
+    cfg = make_cfg(base=Mount(), num_envs=1)
+    env = make_env(cfg)
+    env.reset()
+    model, data = env._compiled.model, env._sim.data[0]
+    site = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "rs_mount")
+    base = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
+    assert site >= 0 and env.task.mount_site() == "rs_mount"
+    assert np.allclose(data.site_xpos[site], (-0.56, 0.0, 0.912), atol=1e-9)
+    assert np.allclose(data.xpos[base], data.site_xpos[site], atol=1e-9)
+    assert np.allclose(data.xmat[base], data.site_xmat[site], atol=1e-9)
+    assert env.world_mount.pos == pytest.approx((-0.56, 0.0, 0.912))
+    env.close()
+
+
+def test_base_frame_observations_match_a_hand_placed_base_at_the_same_pose():
+    snapped = make_env(make_cfg(base=Mount(), num_envs=2, seed=3))
+    placed = make_env(make_cfg(base=Mount(Pose((0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0))), num_envs=2, seed=3))
+    a, b = snapped.reset(), placed.reset()
+    assert torch.allclose(a["task", "ee_pos"], b["task", "ee_pos"], atol=1e-6)
+    assert torch.allclose(a["task", "cube_pos"], b["task", "cube_pos"], atol=1e-6)
+    snapped.close()
+    placed.close()
 
 
 def test_control_modes_and_time_step_are_ours_not_robosuite_s():

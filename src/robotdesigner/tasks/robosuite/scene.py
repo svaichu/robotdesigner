@@ -12,10 +12,12 @@ from typing import Any
 
 import numpy as np
 
+from ...robot import Pose
 from ._compat import apply_compat
 from ._introspect import constructor_params, env_class
 
 PREFIX = "rs_"  # names of everything attached from the scene start with this, in the compiled model
+MOUNT_SITE = "mount"  # the marker for the scene's mount frame; ``rs_mount`` in the compiled model
 
 # Top-level sections that are simulator settings: ``SimConfig`` and the simulator options decide them, not robosuite.
 _DROP_SECTIONS = ("option", "size", "visual")
@@ -35,7 +37,7 @@ class SceneAssets:
     xml: str  # arena and objects as one MJCF document, without simulator settings
     objects: tuple[ObjectInfo, ...]
     sampler: Any  # robosuite's object placement sampler, or None
-    default_mount: np.ndarray  # where robosuite mounts a stock arm in this environment, world frame
+    mount: Pose  # where robosuite puts the stock robot's root body in this environment (world frame): the scene's mount frame
 
 
 def clean_xml(xml: str) -> str:
@@ -49,6 +51,42 @@ def clean_xml(xml: str) -> str:
         for body in list(world.findall("body")):
             if body.get("mocap") == "true" and (body.get("name") or "").endswith(_IK_TARGET_SUFFIX):
                 world.remove(body)
+    return ET.tostring(root, encoding="unicode")
+
+
+def matrix_to_quat(R: np.ndarray) -> tuple[float, float, float, float]:
+    """A rotation matrix as a unit quaternion ``(w, x, y, z)``, ``w >= 0``."""
+    R = np.asarray(R, dtype=float).reshape(3, 3)
+    t = np.trace(R)
+    if t > 0.0:
+        s = 2.0 * np.sqrt(t + 1.0)
+        q = np.array([0.25 * s, (R[2, 1] - R[1, 2]) / s, (R[0, 2] - R[2, 0]) / s, (R[1, 0] - R[0, 1]) / s])
+    else:
+        i = int(np.argmax(np.diag(R)))
+        j, k = (i + 1) % 3, (i + 2) % 3
+        s = 2.0 * np.sqrt(R[i, i] - R[j, j] - R[k, k] + 1.0)
+        q = np.zeros(4)
+        q[0] = (R[k, j] - R[j, k]) / s
+        q[1 + i] = 0.25 * s
+        q[1 + j] = (R[j, i] + R[i, j]) / s
+        q[1 + k] = (R[k, i] + R[i, k]) / s
+    q = q / np.linalg.norm(q)
+    return tuple(float(x) for x in (q if q[0] >= 0.0 else -q))
+
+
+def add_mount_marker(xml: str, pose: Pose) -> str:
+    """Add the mount marker, a site at ``pose`` in the world body of an MJCF document (static: it is under no moving body)."""
+    root = ET.fromstring(xml)
+    world = root.find("worldbody")
+    if world is None:
+        world = ET.SubElement(root, "worldbody")
+    ET.SubElement(world, "site", {
+        "name": MOUNT_SITE,
+        "pos": " ".join(repr(float(x)) for x in pose.pos),
+        "quat": " ".join(repr(float(x)) for x in pose.quat),
+        "size": "0.01 0.01 0.01",
+        "rgba": "0 0 0 0",
+    })
     return ET.tostring(root, encoding="unicode")
 
 
@@ -87,11 +125,16 @@ def load_scene(env_name: str, env_kwargs: dict[str, Any], seed: int = 0) -> Scen
             ObjectInfo(o.name, o.root_body, tuple(o.joints or ()), getattr(o, "obj_type", "all") == "visual")
             for o in objects
         )
+        robot = env.robots[0]
+        mount = Pose(
+            tuple(float(x) for x in np.asarray(robot.base_pos, dtype=float)),
+            matrix_to_quat(np.asarray(robot.base_ori, dtype=float)),
+        )
         return SceneAssets(
-            xml=clean_xml(xml),
+            xml=add_mount_marker(clean_xml(xml), mount),
             objects=infos,
             sampler=getattr(env, "placement_initializer", None),
-            default_mount=np.asarray(env.robots[0].base_pos, dtype=float).copy(),
+            mount=mount,
         )
     finally:
         env.close()

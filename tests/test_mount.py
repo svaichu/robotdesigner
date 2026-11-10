@@ -80,7 +80,7 @@ def test_world_mount_is_the_frame_applied_to_the_offset():
     assert np.allclose(kin.pose_to_matrix(got), T @ kin.pose_to_matrix(offset))
 
 
-def test_default_mount_snaps_onto_the_frame():
+def test_a_plain_mount_snaps_onto_the_frame():
     assert world_mount(make_task(FramedParams("reach", 0.0, False), Mount())) == FRAME
 
 

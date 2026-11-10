@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..._canon import canonical_json
 from ...errors import Problem
 from ...robot import Pose
 from ._compat import CompatReport, apply_compat
@@ -114,10 +115,19 @@ class RobosuiteTasks:
 PROVIDER = RobosuiteTasks()
 
 
-def _mount_frame(env_name: str, env_kwargs: dict[str, Any]) -> Pose:
-    """Where robosuite mounts a stock arm in ``env_name`` built with ``env_kwargs`` (world frame, identity
-    orientation). Builds the robosuite environment once, so it needs robosuite."""
-    from .scene import load_scene
+_FRAMES: dict[tuple[str, str], Pose] = {}
 
-    pos = load_scene(env_name, env_kwargs).default_mount
-    return Pose(tuple(float(x) for x in pos), (1.0, 0.0, 0.0, 0.0))
+
+def _mount_frame(env_name: str, env_kwargs: dict[str, Any]) -> Pose:
+    """Where robosuite puts the stock robot's root body in ``env_name`` built with ``env_kwargs`` (world frame).
+
+    It follows the scene's parameters (a larger table moves it) and not ``sim.seed``: robosuite derives it from the
+    arena and the robot model. Memoised per (environment, canonical ``env_kwargs``), so a scene costs at most one extra
+    build. Needs robosuite.
+    """
+    key = (env_name, canonical_json(env_kwargs))
+    if key not in _FRAMES:
+        from .scene import load_scene
+
+        _FRAMES[key] = load_scene(env_name, env_kwargs).mount
+    return _FRAMES[key]

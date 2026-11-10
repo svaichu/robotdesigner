@@ -67,8 +67,12 @@ env = cfg.build()
 ```
 
 - **Placement.** The arena origin is the world origin (the table top of `Lift` is at z = 0.8). The scene's **mount frame** is where robosuite mounts a stock arm in that scene
-  (for `Lift`: `(-0.56, 0, 0.912)`, identity orientation): `PROVIDER.mount_frame(params)` returns it and follows `env_kwargs` (a longer table moves it). `task.mount` is relative to it:
-  `Mount()` snaps the robot base onto it ([task](../configs/task.md#mount)). Reading the frame builds the robosuite environment once, so it needs robosuite; resolving a config does not.
+  (for `Lift`: `(-0.56, 0, 0.912)`, identity orientation). It is the full pose of the stock Panda's root body, a property of that reference robot and not of the robot you attach, read from
+  robosuite's own `base_pos` and `base_ori`. `PROVIDER.mount_frame(params)` returns it, follows `env_kwargs` (a longer table moves it by half the change in length) and not `sim.seed`, and is
+  memoised per scene, so a scene costs at most one extra robosuite build. The compiled model carries it as the site `rs_mount` (`TaskImpl.mount_site()`), and the compile snaps the robot base onto
+  it. `task.mount` is relative to it: `Mount()` snaps exactly ([task](../configs/task.md#mount)). Resolving a config does not read the frame, so it needs no robosuite.
+  The stock robot's pedestal and controller box are part of its model and are **not** recreated: the base is a welded anchor and renders show it floating. That is a modelling choice, so that
+  every embodiment sees the same scene. Only single-arm environments are accepted, as before.
 - **Scene.** `sim.scene` must be `"empty"` (the default): the arena brings its own floor.
 - **Validation.** `make_env` reports every problem at once: a wrong scene, an unknown environment, a multi-arm environment, `env_kwargs` the environment does not accept,
   an objective that names an object not in the scene (the message lists the objects that are), and environments that pick a different object each episode (below).

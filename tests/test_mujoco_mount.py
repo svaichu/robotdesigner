@@ -52,7 +52,7 @@ def compiled_for(cfg, at=FRAME):
     return compile_robot(cfg, scene_hook=marker_at(at), mount_site=MARKER)
 
 
-def test_default_mount_puts_the_base_body_on_the_marker():
+def test_a_plain_mount_puts_the_base_body_on_the_marker():
     cfg = cfg_of(FramedParams("reach", 0.0, False), Mount())
     compiled = compiled_for(cfg)
     pos, R = base_pose(compiled)
