@@ -8,7 +8,6 @@ import pytest
 
 from robotdesigner.config import (
     BaseEnvConfig,
-    snapped,
     ConfigError,
     ControlConfig,
     EndEffectorRef,
@@ -25,6 +24,7 @@ from robotdesigner.config import (
     list_robot_providers,
     register_robot_provider,
     robot_from_dict,
+    snapped,
     unregister_robot_provider,
 )
 from robotdesigner.config import kinematics as kin

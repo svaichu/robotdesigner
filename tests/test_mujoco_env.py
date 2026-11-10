@@ -11,7 +11,6 @@ from torchrl.envs.utils import check_env_specs  # noqa: E402
 
 from robotdesigner.config import (  # noqa: E402
     Mount,
-    Pose,
     ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, OwnReachable, SimConfig, TaskConfig, chain,
 )
 from tests.toy_provider import ReachParams

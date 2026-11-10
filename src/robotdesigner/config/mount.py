@@ -13,8 +13,9 @@ from it:
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from .._canon import as_float, as_vector, check_keys, within
 from ..errors import ConfigError
@@ -42,7 +43,7 @@ class Mount:
         return {"kind": "mount", "offset": self.offset.to_dict()}
 
     @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> "Mount":
+    def from_dict(cls, d: Mapping[str, Any]) -> Mount:
         check_keys(d, {"offset"}, "", optional={"kind"})
         return cls(offset=within("offset", Pose.from_dict, d["offset"]))
 
@@ -67,7 +68,7 @@ class MobileMount:
         return {"kind": "mobile_mount", "spawn": list(self.spawn), "heading": self.heading}
 
     @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> "MobileMount":
+    def from_dict(cls, d: Mapping[str, Any]) -> MobileMount:
         check_keys(d, {"spawn", "heading"}, "", optional={"kind"})
         return cls(spawn=d["spawn"], heading=d["heading"])
 

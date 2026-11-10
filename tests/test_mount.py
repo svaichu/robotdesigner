@@ -15,13 +15,15 @@ from robotdesigner.config import (
     Mount,
     Pose,
     TaskConfig,
-    kinematics as kin,
     register_task_provider,
     unregister_task_provider,
     world_mount,
 )
+from robotdesigner.config import (
+    kinematics as kin,
+)
 from robotdesigner.config.mount import compose, mount_from_dict
-from tests.toy_provider import PROVIDER as TOY, ReachParams, ToyTasks
+from tests.toy_provider import ReachParams, ToyTasks
 
 FRAME = Pose((0.3, -0.2, 0.1), (math.cos(math.pi / 8), 0.0, 0.0, math.sin(math.pi / 8)))  # yawed 45 degrees
 
