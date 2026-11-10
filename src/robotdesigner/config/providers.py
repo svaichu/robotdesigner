@@ -54,8 +54,9 @@ class TaskProvider(Protocol):
         """The ``params`` class of task ``name`` (``to_dict`` / ``from_dict``), or ``None`` if there is no such task."""
         ...
 
-    def default_mount(self, name: str) -> Pose:
-        """Where task ``name`` expects the robot base (a world pose); the origin when the scene has no opinion."""
+    def mount_frame(self, params: Any) -> Pose:
+        """The scene's mount frame for this task instance (a world pose); the origin when the scene has no robot slot.
+        It depends on the params (a provider's scene options count), not on the task name alone."""
         ...
 
     def validate(self, cfg: Any, simulator: str) -> list[Problem]:

@@ -6,12 +6,12 @@ simulator's scene and nothing is asked of it. It is the task of `BaseEnvConfig()
 
 ```python
 from robotdesigner.config import BaseEnvConfig, TaskConfig, get_task_provider
-from robotdesigner.config import Pose
+from robotdesigner.config import Mount, Pose
 from robotdesigner.tasks.empty import EmptyParams
 
-task = TaskConfig(EmptyParams(name="idle"), max_episode_steps=100, success_tolerance=None, target_region=None, mount=Pose.identity())
+task = TaskConfig(EmptyParams(name="idle"), max_episode_steps=100, success_tolerance=None, target_region=None, mount=Mount())
 assert task.id == "empty/idle"
-assert get_task_provider("empty").default_mount("idle") == Pose.identity()
+assert get_task_provider("empty").mount_frame(EmptyParams("idle")) == Pose.identity()
 assert BaseEnvConfig().resolve().task.id == "empty/idle"
 ```
 
@@ -19,7 +19,7 @@ assert BaseEnvConfig().resolve().task.id == "empty/idle"
 |---|---|
 | params | `EmptyParams(name)`; `name` must be `"idle"`. No other fields, so no `reset_noise` and no `terminate_on_success` (the environment reads them when a params class has them) |
 | goal | none: `success_tolerance` and `target_region` must be `None` |
-| mount | the origin |
+| mount frame | the world origin |
 | simulators | `mujoco`, `warp` |
 | `task` observations | none (the group is empty); the `proprio`, `success` and `episode_step` entries are present as for every task |
 | success, reward | success is always `False`, reward always `0.0` |

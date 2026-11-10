@@ -10,6 +10,7 @@ from robotdesigner.config import (  # noqa: E402
     ControlConfig, EnvConfig, FixedBox, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
 )
 from tests.toy_provider import ReachParams
+from robotdesigner.config import MobileMount, Mount  # noqa: E402,F401
 from robotdesigner.config import kinematics as kin  # noqa: E402
 
 COMMON = dict(radius=0.03, damping=0.5, armature=0.01, frictionloss=0.0, effort_limit=50.0)
@@ -26,7 +27,7 @@ def make_cfg(arm, mode="joint_pos_abs", mount=None, **sim):
         robot=arm,
         control=ControlConfig(mode=mode, gains=FixedGains(60.0, 6.0), action_scale=None),
         task=TaskConfig(ReachParams("reach", 0.0, False), 100, 0.02,
-                        FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)), mount=Pose.identity() if mount is None else mount),
+                        FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)), mount=Mount(Pose.identity() if mount is None else mount)),
         sim=SimConfig(**sim_kw),
     )
 

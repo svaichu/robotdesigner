@@ -8,7 +8,7 @@ placement rule of the robosuite environment `<EnvName>` and puts them into the s
 Needs the `robosuite` extra to build an environment (`pip install -e ".[env,robosuite]"`, robosuite 1.5.x). The config side on this page needs only numpy.
 
 ```python
-from robotdesigner.config import ConfigError, Pose, TaskConfig
+from robotdesigner.config import ConfigError, Mount, Pose, TaskConfig
 from robotdesigner.tasks.robosuite import LiftObject, ReachObject, RobosuiteParams
 from robotdesigner.tasks.robosuite.params import RESERVED_ENV_KWARGS
 ```
@@ -41,7 +41,7 @@ lift = TaskConfig(
     params=RobosuiteParams(name="Lift", env_kwargs={"table_full_size": [0.8, 0.8, 0.05]},
                            objective=LiftObject("cube", 0.84), reset_noise=0.0, terminate_on_success=False),
     max_episode_steps=200, success_tolerance=None, target_region=None,
-    mount=Pose((-0.56, 0.0, 0.912), (1.0, 0.0, 0.0, 0.0)),    # where robosuite mounts a stock arm in Lift (see default_mount)
+    mount=Mount(),                                            # snapped onto the scene's mount frame (below)
 )
 assert lift.id == "robosuite/Lift"
 assert lift.params.kwargs == {"table_full_size": (0.8, 0.8, 0.05)}
@@ -66,9 +66,13 @@ cfg = (
 env = cfg.build()
 ```
 
-- **Placement.** `task.mount` is the world pose of the robot base, as for every task; the arena origin is the world origin (the table top of `Lift` is at z = 0.8).
-  `robotdesigner.tasks.robosuite.default_mount(env_name, **env_kwargs)` returns where robosuite mounts a stock arm in that scene (for `Lift`: `(-0.56, 0, 0.912)`), and
-  `BaseEnvConfig` uses it when you do not pin a mount. It builds the robosuite environment once, so it needs robosuite.
+- **Placement.** The arena origin is the world origin (the table top of `Lift` is at z = 0.8). The scene's **mount frame** is where robosuite mounts a stock arm in that scene
+  (for `Lift`: `(-0.56, 0, 0.912)`, identity orientation). It is the full pose of the stock Panda's root body, a property of that reference robot and not of the robot you attach, read from
+  robosuite's own `base_pos` and `base_ori`. `PROVIDER.mount_frame(params)` returns it, follows `env_kwargs` (a longer table moves it by half the change in length) and not `sim.seed`, and is
+  memoised per scene, so a scene costs at most one extra robosuite build. The compiled model carries it as the site `rs_mount` (`TaskImpl.mount_site()`), and the compile snaps the robot base onto
+  it. `task.mount` is relative to it: `Mount()` snaps exactly ([task](../configs/task.md#mount)). Resolving a config does not read the frame, so it needs no robosuite.
+  The stock robot's pedestal and controller box are part of its model and are **not** recreated: the base is a welded anchor and renders show it floating. That is a modelling choice, so that
+  every embodiment sees the same scene. Only single-arm environments are accepted, as before.
 - **Scene.** `sim.scene` must be `"empty"` (the default): the arena brings its own floor.
 - **Validation.** `make_env` reports every problem at once: a wrong scene, an unknown environment, a multi-arm environment, `env_kwargs` the environment does not accept,
   an objective that names an object not in the scene (the message lists the objects that are), and environments that pick a different object each episode (below).
@@ -77,7 +81,7 @@ env = cfg.build()
 - **Randomness.** The scene is built once, with robosuite's own construction-time draws (the size of the `Lift` cube) seeded from `sim.seed`. Objects with a free joint are placed by robosuite's
   sampler at every reset, from the task's own stream, so the **same seed and `num_envs` give every embodiment the same placements**, whatever its number of joints, and `env.set_seed` reproduces episodes.
   Objects without a free joint (the door of `Door`, the bins of `PickPlace`) are *fixtures*: all envs share one model, so they are placed once when the environment is built and then stay put.
-- **A robot from a library.** A Menagerie arm works as it is: `BaseEnvConfig().robot(PROVIDER.describe("franka_emika_panda")).task(RobosuiteParams("Lift", ...), mount=default_mount("Lift"))` builds, steps and places
+- **A robot from a library.** A Menagerie arm works as it is: `BaseEnvConfig().robot(PROVIDER.describe("franka_emika_panda")).task(RobosuiteParams("Lift", ...), mount=Mount())` builds, steps and places
   the cube exactly as for a `ParametricArm` at the same mount and seed. `ee_pos` is the robot's end effector. The CPU simulator builds no gripper action for an external robot, so the fingers are held
   and `Lift` cannot be solved; it runs. A robot with `end_effector=None` (a quadruped) is refused with a `Problem` at `robot.end_effector`. See [the robot provider](../robots/menagerie.md).
 - **Cameras.** The arena's cameras are in the model with the prefix `rs_`: `env.render(camera="rs_agentview")`.
@@ -122,7 +126,7 @@ def error_of(build):
 objective = ReachObject("cube", 0.05)
 ok = RobosuiteParams("Lift", {}, objective, 0.0, False)
 assert error_of(lambda: RobosuiteParams("", {}, objective, 0.0, False)).path == "name"
-assert error_of(lambda: TaskConfig(ok, 10, 0.02, None, Pose.identity())).path == "success_tolerance"      # the objective defines success
+assert error_of(lambda: TaskConfig(ok, 10, 0.02, None, Mount())).path == "success_tolerance"      # the objective defines success
 assert error_of(lambda: RobosuiteParams("Lift", {"robots": "Panda"}, objective, 0.0, False)).path == "env_kwargs"
 assert error_of(lambda: RobosuiteParams("Lift", {"x": object()}, objective, 0.0, False)).path == "env_kwargs.x"
 assert error_of(lambda: RobosuiteParams("Lift", {}, "lift", 0.0, False)).path == "objective"

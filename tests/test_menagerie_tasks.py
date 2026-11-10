@@ -18,7 +18,7 @@ pytest.importorskip("torchrl")
 
 from torchrl.envs.utils import check_env_specs
 
-from robotdesigner.config import BaseEnvConfig, ConfigError, Pose
+from robotdesigner.config import BaseEnvConfig, ConfigError, MobileMount, Mount, Pose
 from robotdesigner.config.kinematics import pose_to_matrix
 from robotdesigner.envs import make_env
 from robotdesigner.robot.providers.menagerie import PROVIDER
@@ -29,6 +29,7 @@ pytestmark = pytest.mark.menagerie
 ROOT = Path(__file__).resolve().parents[1]
 OK = sorted(n for n, s in json.loads((ROOT / "tests" / "menagerie_expected.json").read_text()).items() if s == "ok")
 YAW90 = Pose((0.4, -0.3, 0.0), (float(np.cos(np.pi / 4)), 0.0, 0.0, float(np.sin(np.pi / 4))))
+SPAWN90 = MobileMount((0.4, -0.3), np.pi / 2)  # the same pose, as a floating base takes it
 
 
 def describe(name, **kw):
@@ -64,11 +65,12 @@ def test_empty_idle_on_a_fixed_base_robot_in_the_empty_scene(name):
 
 
 def lift_cfg(robot, num_envs=2, seed=0):
-    from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams, default_mount
+    from robotdesigner.tasks.robosuite import LiftObject, RobosuiteParams
 
     params = RobosuiteParams("Lift", {}, LiftObject("cube", 0.84), 0.0, False)
+    mount = MobileMount() if robot.home_root is not None else Mount()
     return (
-        BaseEnvConfig().robot(robot).task(params, mount=default_mount("Lift")).sim(num_envs=num_envs, scene="empty", seed=seed).resolve()
+        BaseEnvConfig().robot(robot).task(params, mount=mount).sim(num_envs=num_envs, scene="empty", seed=seed).resolve()
     )
 
 
@@ -83,7 +85,7 @@ def test_lift_builds_steps_and_places_the_cube_as_for_a_parametric_arm(name):
     env = make_env(lift_cfg(robot, num_envs=3, seed=7))
     td = env.reset()
     assert set(td["task"].keys()) == {"ee_pos", "cube_pos", "cube_quat"} and env.action_spec.shape == (3, robot.n)
-    arm = make_env(make_cfg(num_envs=3, seed=7, base=env.cfg.task.mount))  # a ParametricArm at the same mount, same seed
+    arm = make_env(make_cfg(num_envs=3, seed=7, base=env.cfg.task.mount))  # a ParametricArm at the same offset, same seed
     assert torch.equal(arm.reset()["task", "cube_pos"], td["task", "cube_pos"])  # the task draws do not depend on the robot
     ee = torch.from_numpy(env._sim.ee_pos_base()).float()
     assert torch.allclose(td["task", "ee_pos"], ee, atol=1e-5)  # the end effector is the robot's
@@ -131,7 +133,7 @@ def test_a_fixed_arm_at_a_yawed_and_shifted_mount():
     from robotdesigner.config import kinematics as kin
 
     robot = describe("universal_robots_ur5e")
-    env = make_env(BaseEnvConfig().robot(robot).task(mount=YAW90).sim(num_envs=1, scene="plain_floor").resolve())
+    env = make_env(BaseEnvConfig().robot(robot).task(mount=Mount(YAW90)).sim(num_envs=1, scene="plain_floor").resolve())
     env.reset()
     base_ee = kin.forward_ee_batch(robot, np.array([robot.home_qpos]), None)[0]
     T = pose_to_matrix(YAW90)
@@ -141,16 +143,16 @@ def test_a_fixed_arm_at_a_yawed_and_shifted_mount():
 
 
 @pytest.mark.parametrize("name", ["unitree_go1", "unitree_go2"])
-def test_legged_robots_stand_where_the_keyframe_puts_them_at_the_default_mount(name):
-    robot, env = standing(name, Pose.identity())
+def test_legged_robots_stand_where_the_keyframe_puts_them_at_the_snapped_mount(name):
+    robot, env = standing(name, MobileMount())
     env.reset()
     a = env.interface.root_qpos_adr
     assert np.allclose(env._sim.data[0].qpos[a : a + 3], robot.home_root.pos, atol=1e-9)
     env.close()
 
 
-def test_go1_holds_its_pose_at_the_default_mount():
-    robot, env = standing("unitree_go1", Pose.identity(), mode="joint_pos_delta", action_scale=0.05)
+def test_go1_holds_its_pose_at_the_snapped_mount():
+    robot, env = standing("unitree_go1", MobileMount(), mode="joint_pos_delta", action_scale=0.05)
     zs = settle(env, 100)
     assert abs(zs[-1] - robot.home_root.pos[2]) < 0.01
     env.close()
@@ -158,7 +160,7 @@ def test_go1_holds_its_pose_at_the_default_mount():
 
 @pytest.mark.parametrize("name", ["unitree_go1", "unitree_go2"])
 def test_legged_robots_at_a_rotated_and_shifted_mount(name):
-    robot, env = standing(name, YAW90)
+    robot, env = standing(name, SPAWN90)
     env.reset()
     want = compose(YAW90, robot.home_root)
     a = env.interface.root_qpos_adr
@@ -172,7 +174,7 @@ def test_legged_robots_at_a_rotated_and_shifted_mount(name):
 
 @pytest.mark.parametrize("name", ["unitree_go1", "unitree_go2"])
 def test_legged_robots_dropped_from_0_3_m_fall_and_land(name):
-    mount = Pose((0.0, 0.0, 0.3), (1.0, 0.0, 0.0, 0.0))
+    mount = MobileMount((0.0, 0.0, 0.3))  # z is added to the home height
     robot, env = standing(name, mount)
     zs = settle(env, 100)
     assert env.interface.home_root.pos[2] == pytest.approx(robot.home_root.pos[2] + 0.3)
@@ -186,7 +188,7 @@ def test_tidybot_base_moves_along_the_mounts_x_axis():
     robot = describe("stanford_tidybot", effort_limit=1000.0)
     assert [j.name for j in robot.joints][:3] == ["joint_x", "joint_y", "joint_th"]
     env = make_env(
-        BaseEnvConfig().robot(robot).task(mount=YAW90).control(mode="joint_pos_delta", action_scale=0.01)
+        BaseEnvConfig().robot(robot).task(mount=Mount(YAW90)).control(mode="joint_pos_delta", action_scale=0.01)
         .sim(num_envs=1, scene="plain_floor").resolve()
     )
     td = env.reset()

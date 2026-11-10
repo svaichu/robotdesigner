@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..config import FixedBox
+from ..config import FixedBox, world_mount
 from ..config import kinematics as kin
 
 # (azimuth, elevation) in degrees, world frame. Azimuth 0 looks along +x; the camera sits opposite to its view
@@ -45,7 +45,7 @@ def _parts(cfg):
     """``cfg`` is an ``EnvConfig`` (robot, mount and target region) or a bare ``ParametricArm`` (at the origin)."""
     robot = getattr(cfg, "robot", cfg)
     task = getattr(cfg, "task", None)
-    return robot, getattr(task, "target_region", None), getattr(task, "mount", None)
+    return robot, getattr(task, "target_region", None), None if task is None else world_mount(cfg)
 
 
 def workspace_points(cfg, n_samples: int = 512, seed: int = 0) -> np.ndarray:

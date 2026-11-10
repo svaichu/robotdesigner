@@ -15,7 +15,7 @@ pytest.importorskip("mujoco")
 pytest.importorskip("torchrl")
 pytest.importorskip("mujoco_warp")
 
-from robotdesigner.config import BaseEnvConfig, FixedGains, WarpOptions
+from robotdesigner.config import BaseEnvConfig, FixedGains, WarpOptions, snapped
 from robotdesigner.robot.providers.menagerie import PROVIDER
 from robotdesigner.simulators.warp.sim import CapacityError
 from tests.parity import build, errors, on_warp, run, twin, with_sim
@@ -29,7 +29,7 @@ def config(name, num_envs=4):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         robot = PROVIDER.describe(name)
-    return robot, BaseEnvConfig().robot(robot).sim(num_envs=num_envs, scene="plain_floor")
+    return robot, BaseEnvConfig().robot(robot).task(mount=snapped(robot)).sim(num_envs=num_envs, scene="plain_floor")
 
 
 def check(cfg, device, n, seed=0, scale=0.05, steps=30):

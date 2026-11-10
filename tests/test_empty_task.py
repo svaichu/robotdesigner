@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from robotdesigner.config import ConfigError, Pose, TaskConfig, get_task_provider, list_task_providers
+from robotdesigner.config import ConfigError, Mount, Pose, TaskConfig, get_task_provider, list_task_providers
 from robotdesigner.tasks.empty import EmptyParams
 
 
@@ -10,14 +10,14 @@ def test_discovery_and_config_side():
     provider = get_task_provider("empty")
     assert provider.task_names() == ("idle",) and provider.params_class("idle") is EmptyParams
     assert provider.params_class("busy") is None
-    assert provider.default_mount("idle") == Pose.identity() and provider.default_mount("idle").quat == (1.0, 0.0, 0.0, 0.0)
-    task = TaskConfig(EmptyParams("idle"), 10, None, None, Pose.identity())
+    assert provider.mount_frame(EmptyParams("idle")) == Pose.identity()
+    task = TaskConfig(EmptyParams("idle"), 10, None, None, Mount())
     assert task.id == "empty/idle" and task.to_dict()["provider"] == "empty"
     assert TaskConfig.from_dict(task.to_dict()) == task
     with pytest.raises(ConfigError, match="^name"):
         EmptyParams("busy")
     with pytest.raises(ConfigError, match="success_tolerance"):
-        TaskConfig(EmptyParams("idle"), 10, 0.02, None, Pose.identity())
+        TaskConfig(EmptyParams("idle"), 10, 0.02, None, Mount())
 
 
 torch = pytest.importorskip("torch")
@@ -36,7 +36,7 @@ def make_cfg(max_episode_steps=7, num_envs=3, simulator="mujoco"):
     return EnvConfig(
         robot=arm,
         control=ControlConfig("joint_pos_abs", FixedGains(60.0, 6.0), None),
-        task=TaskConfig(EmptyParams("idle"), max_episode_steps, None, None, Pose.identity()),
+        task=TaskConfig(EmptyParams("idle"), max_episode_steps, None, None, Mount()),
         sim=SimConfig(simulator, num_envs, "cpu", 0.002, "euler", 50, 0, "plain_floor", options=MujocoOptions(False)),
     )
 

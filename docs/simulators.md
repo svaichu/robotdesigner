@@ -108,11 +108,21 @@ Physics on the GPU is deterministic per device and library release but not bitwi
 | | |
 |---|---|
 | `env.cfg`, `env.robot_hash`, `env.env_hash` | the resolved config and its identity |
+| `env.world_mount` | the robot base in the world as the compile placed it: the scene's mount marker (or the provider's frame, when the task has no marker) composed with `task.mount`. Record it with `env_hash` |
 | `env.interface` | `RobotInterface`: joint names and addresses, ranges, effort limits, `home_qpos`, mount, effective `kp` / `kd`, gripper fields |
 | `env.task` | the engine side of the task |
 | `env.q_target` | position targets `[N, n]`, meaningful in `joint_pos_delta` |
 | `env.render(env_index=0, *, camera=None, size=(240, 320), overlays=True)` | one `uint8 (H, W, 3)` frame of the live state; see [viz](viz.md) |
 | `env.close()` | frees the renderer (and the Warp allocation) |
+
+## The mount marker
+
+The scene owns the robot's mount frame ([task](configs/task.md#mount)). A task whose scene has one adds a **marker** in `attach(spec)`, a site in a static place (not under a moving body), and names it with
+`mount_site()` ([writing a provider](tasks/writing-a-provider.md#the-hooks)). The compile builds the scene alone, runs `mj_forward` and reads the marker's world pose, so the nesting and the prefix
+of the marker do not matter, then creates the `base` body at `marker @ mount` (`Mount.offset`, or the `MobileMount` spawn and heading). That pose is `iface.mount`, `SimView`'s `"base"` frame and
+`env.world_mount`; robot element names do not change. The provider's `mount_frame(params)` is what `viz` and the kinematics oracle use, so the two must agree: the compile raises a `ConfigError` that
+names both poses when they differ by more than `1e-6`, and one that names the site when the scene has no such site. A task without a marker (`mount_site()` returns `None`: the simulator presets,
+`empty/idle`) uses the provider's frame, the world origin for those. The marker is a site, so it is in no observation and no action. Both simulators use the same compile.
 
 ## CPU MuJoCo specifics
 
@@ -125,7 +135,7 @@ Physics on the GPU is deterministic per device and library release but not bitwi
 
 The robot provider's `MjSpec` is attached to the scene and driven by **its own actuators** (`NativeGains`) or, with `FixedGains` / `InertiaScaledGains`, by ours in their place ([control](configs/control.md#our-gains-on-an-external-robot)); the same environment, tasks and `SimView` run on it.
 
-- **Placement.** The compile adds an empty, welded body `base` at the mount (so `SimView`'s `"base"` frame works as for a `ParametricArm`) and attaches the model into a frame of the
+- **Placement.** The compile adds an empty, welded body `base` at the world mount, `world_mount(cfg)` (the scene's mount frame composed with `task.mount`; so `SimView`'s `"base"` frame works as for a `ParametricArm`) and attaches the model into a frame of the
   world body at the same pose, with the prefix `ext_` (`ext_j1`, `ext_a1`, `ext_ee`). The model's own world frame is therefore the base frame: a fixed arm stands at the mount, and a
   floating robot (a free root joint, which MuJoCo only allows on a direct child of the world) starts at the mount composed with `ExternalRobot.home_root`. New code reads the pose from
   `iface.mount`.
@@ -140,7 +150,7 @@ The robot provider's `MjSpec` is attached to the scene and driven by **its own a
   servo has gain 4500 and bias `(0, -4500, -450)`, the UR5e's shoulder servo gain 2000 and bias `(0, -2000, -400)`; for both, `ctrlrange` equals the joint range.)
 - **`dt` and the integrator** stay the authority of `SimConfig`: the scene carries them and the model's own are not used. A `sim.dt` more than twice the model's own `timestep` is reported
   with a warning. The contact and solver options of the model (`cone`, `impratio`, solver, noslip) are the scene's: when the two differ, `MjSpec.attach` keeps the scene's value.
-- **Spawn pose.** The mount is where the model's world frame goes (above), so it is the spawn pose: a fixed arm stands at the mount, and a floating robot starts at the mount composed with
+- **Spawn pose.** The world mount is where the model's world frame goes (above), so it is the spawn pose: a fixed arm (`Mount`) stands there, and a floating robot (`MobileMount`) starts there composed with
   `home_root`. Tested on the UR5e at a yawed and shifted mount; on Go1 and Go2 at the default mount, at a mount rotated 90° about z and shifted in x and y (in the base frame the robot starts at its
   model's home root), and at a mount 0.3 m up (they start above the floor, fall and land, and never go through it); and on TidyBot, whose base is made of joints (two slides and a hinge) under position
   servos and which has no free joint: a constant `joint_pos_delta` action on its base x slide moves the base along the mount's x axis.

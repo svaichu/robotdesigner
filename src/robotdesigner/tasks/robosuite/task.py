@@ -8,7 +8,7 @@ from torchrl.data import Composite, Unbounded
 
 from ..base import BaseTask
 from .params import LiftObject, ReachObject
-from .scene import PREFIX, load_scene
+from .scene import MOUNT_SITE, PREFIX, load_scene
 
 
 def _reseed_generators(sampler, seed: int) -> None:
@@ -53,6 +53,9 @@ class RobosuiteTask(BaseTask):
 
         child = mujoco.MjSpec.from_string(self._assets.xml)
         spec.attach(child, frame=spec.worldbody.add_frame(), prefix=PREFIX)
+
+    def mount_site(self) -> str:
+        return PREFIX + MOUNT_SITE  # the stock robot's root pose, where the scene mounts a robot
 
     def bind(self, sim) -> None:
         import mujoco

@@ -25,8 +25,8 @@ class EmptyTasks:
     def params_class(self, name: str) -> type | None:
         return EmptyParams if name in TASKS else None
 
-    def default_mount(self, name: str) -> Pose:
-        return Pose.identity()
+    def mount_frame(self, params: Any) -> Pose:
+        return Pose.identity()  # no robot slot: the world origin
 
     def validate(self, cfg: Any, simulator: str) -> list[Problem]:
         if simulator not in self.SIMULATORS:

@@ -35,7 +35,7 @@ Python >= 3.10. `import robotdesigner.config` never imports an engine.
 
 ## Ideas that shape the API
 
-- **The robot is data.** A `ParametricArm` is frozen, validated and serializable; `config_hash` ignores labels and float noise. The arm has no pose: the task's `mount` places it.
+- **The robot is data.** A `ParametricArm` is frozen, validated and serializable; `config_hash` ignores labels and float noise. The arm has no pose: the scene owns a mount frame and the task's `mount` (`Mount` or `MobileMount`) places the robot relative to it.
 - **Everything that changes behaviour is in `EnvConfig`.** No hidden defaults in the core; defaults live in the builder (`BaseEnvConfig`), versioned. `env_hash` identifies a run.
 - **Reject, never approximate.** A control mode, device, task or scene a simulator cannot run is rejected up front, with every problem listed and the config path to change.
 - **Comparable by construction.** `chain(total_length=, total_mass=)` holds size fixed while `n` varies, gains are explicit (`InertiaScaledGains` tunes joints to one bandwidth), and the task's random stream does not depend on the robot.

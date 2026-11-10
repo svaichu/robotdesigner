@@ -35,7 +35,7 @@ class ToyTasks:
         entry = self.TASKS.get(name)
         return None if entry is None else entry[0]
 
-    def default_mount(self, name: str) -> Pose:
+    def mount_frame(self, params: Any) -> Pose:
         return Pose.identity()
 
     def validate(self, cfg: Any, simulator: str) -> list[Problem]:

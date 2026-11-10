@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     import numpy as np
     import torch
 
-__all__ = ["BaseTask", "SimView", "TaskImpl"]
+__all__ = ["BaseTask", "SimView", "TaskImpl", "mount_site_of"]
 
 
 @runtime_checkable
@@ -58,6 +58,13 @@ class SimView(Protocol):
 class TaskImpl(Protocol):
     def attach(self, spec: Any) -> None:
         """Add scene elements (arena, objects) to the model spec before it is compiled."""
+        ...
+
+    def mount_site(self) -> str | None:
+        """Name, in the compiled model, of the site ``attach(spec)`` added to mark the scene's mount frame, or ``None``
+        when the scene has no marker (the frame is then ``TaskProvider.mount_frame(params)``, the world origin for the
+        simulator presets and ``empty/idle``). The marker must be in a static place, not under a moving body; the compile
+        snaps the robot base onto it and checks that it agrees with ``mount_frame``."""
         ...
 
     def bind(self, sim: SimView) -> None:
@@ -109,6 +116,9 @@ class BaseTask:
     def attach(self, spec: Any) -> None:
         pass
 
+    def mount_site(self) -> str | None:
+        return None
+
     def bind(self, sim: SimView) -> None:
         pass
 
@@ -129,3 +139,9 @@ class BaseTask:
 
     def reward(self, sim, obs):
         raise NotImplementedError
+
+
+def mount_site_of(task: Any) -> str | None:
+    """``task.mount_site()``; ``None`` for an engine side written before the hook existed."""
+    hook = getattr(task, "mount_site", None)
+    return None if hook is None else hook()

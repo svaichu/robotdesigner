@@ -87,7 +87,7 @@ cfg = (
 env = cfg.build()
 ```
 
-The robot stands where robosuite mounts a stock arm in that scene (`task.mount` defaults to it). [robosuite scenes](tasks/robosuite.md); your own tasks: [writing a provider](tasks/writing-a-provider.md).
+The robot stands where robosuite mounts a stock arm in that scene (the scene's mount frame; the default `Mount()` snaps onto it). [robosuite scenes](tasks/robosuite.md); your own tasks: [writing a provider](tasks/writing-a-provider.md).
 The notebook `examples/quickstart_cpu_mujoco.ipynb` is this, executed.
 
 ## 5. Compare embodiments

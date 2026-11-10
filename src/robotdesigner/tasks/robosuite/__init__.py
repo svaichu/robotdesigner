@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..._canon import canonical_json
 from ...errors import Problem
 from ...robot import Pose
 from ._compat import CompatReport, apply_compat
@@ -22,7 +23,6 @@ __all__ = [
     "RobosuiteParams",
     "RobosuiteTasks",
     "apply_compat",
-    "default_mount",
 ]
 
 SCENE = "empty"  # the arena brings its own floor, so the simulator adds none
@@ -37,8 +37,8 @@ class RobosuiteTasks:
     def params_class(self, name: str) -> type | None:
         return RobosuiteParams if name else None
 
-    def default_mount(self, name: str) -> Pose:
-        return default_mount(name)
+    def mount_frame(self, params: Any) -> Pose:
+        return _mount_frame(params.name, dict(params.kwargs))
 
     def validate(self, cfg: Any, simulator: str) -> list[Problem]:
         if simulator not in self.SIMULATORS:
@@ -115,13 +115,19 @@ class RobosuiteTasks:
 PROVIDER = RobosuiteTasks()
 
 
-def default_mount(env_name: str, **env_kwargs: Any) -> Pose:
-    """Where robosuite mounts a stock arm in ``env_name`` (world frame, identity orientation).
+_FRAMES: dict[tuple[str, str], Pose] = {}
 
-    Use it as the base of your own robot, for example ``TaskConfig(..., mount=default_mount("Lift"))``, so the arm
-    stands where the robosuite scene expects it. Builds the robosuite environment once, so it needs robosuite.
+
+def _mount_frame(env_name: str, env_kwargs: dict[str, Any]) -> Pose:
+    """Where robosuite puts the stock robot's root body in ``env_name`` built with ``env_kwargs`` (world frame).
+
+    It follows the scene's parameters (a larger table moves it) and not ``sim.seed``: robosuite derives it from the
+    arena and the robot model. Memoised per (environment, canonical ``env_kwargs``), so a scene costs at most one extra
+    build. Needs robosuite.
     """
-    from .scene import load_scene
+    key = (env_name, canonical_json(env_kwargs))
+    if key not in _FRAMES:
+        from .scene import load_scene
 
-    pos = load_scene(env_name, env_kwargs).default_mount
-    return Pose(tuple(float(x) for x in pos), (1.0, 0.0, 0.0, 0.0))
+        _FRAMES[key] = load_scene(env_name, env_kwargs).mount
+    return _FRAMES[key]

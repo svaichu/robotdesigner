@@ -20,6 +20,8 @@ from robotdesigner.config import (
     ExternalJoint,
     ExternalRobot,
     FixedBox,
+    MobileMount,
+    Mount,
     MujocoOptions,
     NativeGains,
     OwnReachable,
@@ -39,12 +41,20 @@ ROTATED = Pose((0.4, -0.3, 0.2), (float(np.cos(0.4)), 0.0, 0.0, float(np.sin(0.4
 OTHER = Pose((-0.5, 0.6, 0.0), (float(np.cos(-0.9)), 0.0, 0.0, float(np.sin(-0.9))))
 
 
+def to_mount(robot, pose):
+    """The mount that places ``robot`` at ``pose`` (yaw only for a floating base) in a scene whose frame is the origin."""
+    pose = pose or Pose.identity()
+    if getattr(robot, "home_root", None) is None:
+        return Mount(pose)
+    return MobileMount(pose.pos, 2.0 * float(np.arctan2(pose.quat[3], pose.quat[0])))
+
+
 def reach_cfg(robot, mount=None, mode="joint_pos_abs", num_envs=3, noise=0.0, region=None, dt=0.002, scale=None, seed=0):
     return EnvConfig(
         robot=robot,
         control=ControlConfig(mode, NativeGains(), scale),
         task=TaskConfig(
-            ReachParams("reach", noise, False), 20, 0.02, region or FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)), mount=mount or Pose.identity(),
+            ReachParams("reach", noise, False), 20, 0.02, region or FixedBox((0.2, -0.3, 0.0), (0.6, 0.3, 0.4)), mount=to_mount(robot, mount),
         ),
         sim=SimConfig("mujoco", num_envs, "cpu", dt, "euler", 50, seed, "plain_floor", options=MujocoOptions(False)),
     )
@@ -52,7 +62,7 @@ def reach_cfg(robot, mount=None, mode="joint_pos_abs", num_envs=3, noise=0.0, re
 
 def idle_cfg(robot, mount, num_envs=4):
     return (
-        BaseEnvConfig().robot(robot).task(mount=mount).sim(num_envs=num_envs, scene="plain_floor").resolve()
+        BaseEnvConfig().robot(robot).task(mount=to_mount(robot, mount)).sim(num_envs=num_envs, scene="plain_floor").resolve()
     )
 
 

@@ -5,7 +5,7 @@ filled in behind your back: every field of every part is required. Its hash, `en
 
 ```python
 from robotdesigner.config import (
-    ConfigError, ControlConfig, EnvConfig, FixedGains, MujocoOptions, Pose, SimConfig, TaskConfig, chain,
+    ConfigError, ControlConfig, EnvConfig, FixedGains, MujocoOptions, Mount, Pose, SimConfig, TaskConfig, chain,
 )
 from robotdesigner.tasks.empty import EmptyParams
 
@@ -14,7 +14,7 @@ arm = chain(n=3, axes="zyy", total_length=0.9, total_mass=3.0, radius=0.03, damp
 cfg = EnvConfig(
     robot=arm,
     control=ControlConfig("joint_pos_abs", FixedGains(kp=60.0, kd=6.0), action_scale=None),
-    task=TaskConfig(EmptyParams("idle"), max_episode_steps=200, success_tolerance=None, target_region=None, mount=Pose.identity()),
+    task=TaskConfig(EmptyParams("idle"), max_episode_steps=200, success_tolerance=None, target_region=None, mount=Mount()),
     sim=SimConfig("mujoco", num_envs=8, device="cpu", dt=0.002, integrator="euler", control_freq=50.0, seed=0,
                   scene="plain_floor", options=MujocoOptions(self_collision=False)),
 )

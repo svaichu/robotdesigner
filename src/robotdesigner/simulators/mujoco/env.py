@@ -15,6 +15,7 @@ from torchrl.data import Binary, Bounded, Composite, Unbounded
 from torchrl.envs import EnvBase
 
 from ...config import EnvConfig
+from ...tasks.base import mount_site_of as _mount_site
 from ...envs.spaces import SpacesMixin
 from ..base import task_seed
 from .compile import compile_robot
@@ -34,8 +35,9 @@ class MujocoEnv(SpacesMixin, EnvBase):
         super().__init__(device=torch.device("cpu"), batch_size=torch.Size([N]))
 
         self._task = task
-        self._compiled = compile_robot(cfg, scene_hook=task.attach)
+        self._compiled = compile_robot(cfg, scene_hook=task.attach, mount_site=_mount_site(task))
         self._iface = self._compiled.interface
+        self.world_mount = self._iface.mount  # the base in the world, read from the compiled model; recorded with env_hash
         self._sim = BatchedSim(self._compiled, N, cfg.sim.n_substeps)
         self._renderer = None  # created by the first render()
         n = self._iface.n

@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from .._canon import HASH_DISPLAY_LENGTH, canonical_json, check_keys, sha256_hex, within
-from .control import NATIVE_MODES, ControlConfig, FixedGains, InertiaScaledGains, NativeGains
+from .control import NATIVE_MODES, ControlConfig, NativeGains
 from ..errors import ConfigError
 from ..robot import ExternalRobot, ParametricArm, robot_from_dict
+from .mount import check_mount_fits_robot
 from .sim import SimConfig
 from .task import TaskConfig
 
@@ -37,6 +38,7 @@ class EnvConfig:
             if isinstance(v, tuple) and len(v) != n:
                 raise ConfigError(f"control.gains.{name}", f"expected {n} per-joint values, got {len(v)}")
         self._check_gains_against_robot()
+        check_mount_fits_robot(self.task.mount, self.robot)
 
     def _check_gains_against_robot(self) -> None:
         gains = self.control.gains

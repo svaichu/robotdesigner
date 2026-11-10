@@ -24,6 +24,7 @@ from robotdesigner.config import (
     list_robot_providers,
     register_robot_provider,
     robot_from_dict,
+    snapped,
     unregister_robot_provider,
 )
 from robotdesigner.config import kinematics as kin
@@ -347,7 +348,7 @@ def test_describe_of_the_toy_provider_matches_a_hand_written_robot():
     floater = PROVIDER.describe("floater")
     assert floater.home_root == Pose((0.0, 0.0, 0.5), (1.0, 0.0, 0.0, 0.0)) and floater.end_effector is None
     assert floater.actuator_kind == "torque"
-    assert BaseEnvConfig().robot(floater).resolve().control.mode == "joint_torque"
+    assert BaseEnvConfig().robot(floater).task(mount=snapped(floater)).resolve().control.mode == "joint_torque"
 
 
 # --- discovery: the entry-point group and the shipped package ---------------------------------------------------------
