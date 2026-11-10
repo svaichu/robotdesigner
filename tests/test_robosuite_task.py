@@ -233,10 +233,11 @@ def test_the_frame_is_the_same_for_two_seeds_and_is_read_once_per_scene(monkeypa
     import robotdesigner.tasks.robosuite.scene as scene
 
     calls = []
+    real = scene.load_scene
 
     def counting(*args, **kw):
         calls.append(args)
-        return scene.load_scene(*args, **kw)
+        return real(*args, **kw)
 
     a = world_mount(make_cfg(seed=0, base=Mount()))
     b = world_mount(make_cfg(seed=123, base=Mount()))
